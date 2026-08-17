@@ -42,7 +42,25 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 3. Non-Parametric IQR / Tukey Fences
+## 3. Parametric Historical Z-Score per Entity ($Z = (x - \mu) / \sigma$)
+
+* **Primary Adversary Behavior**: Process launch storms, rapid batch lateral movement, ransomware staging, compiler abuse loops.
+* **Mathematical Formula**:
+  $$Z = \frac{x - \mu}{\sigma}$$
+  where $x$ is the hourly/daily execution count for an entity, and $\mu, \sigma$ are the entity's historical mean and standard deviation across the baseline window.
+
+### Sensitivity Tiers (`ZSCORE_PROCESS_SURGE`)
+
+| Tier | Mathematical Boundary | Physical Interpretation | Variance Floor Guardrail |
+| :--- | :--- | :--- | :--- |
+| **`CONSERVATIVE`** | $Z > 3.0$ | 3-Sigma threshold (top $0.13\%$ distribution tail). Very low noise. | `$stddev >= 10.0`, `$obs >= 50` |
+| **`BALANCED`** | $Z > 2.0$ | 2-Sigma threshold (top $\approx 2.5\%$ distribution tail). Standard baseline sweep. | `$stddev >= 5.0`, `$obs >= 25` |
+| **`AGGRESSIVE`** | $Z > 1.5$ | 1.5-Sigma threshold (top $\approx 7\%$ distribution tail). Sensitive hunt. | `$stddev >= 2.0`, `$obs >= 10` |
+| ❌ **`NOISE CLIFF`** | $Z \le 1.0$ | Within standard daily operational variance. | **Refuse search.** |
+
+---
+
+## 4. Non-Parametric IQR / Tukey Fences
 
 * **Primary Adversary Behavior**: Heavy-tailed egress data transfers, unusual file access counts.
 * **Mathematical Formula**:
@@ -52,7 +70,7 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 4. Multi-Window Rolling Ratios ($1\text{d}$ vs $7\text{d}$ vs $30\text{d}$)
+## 5. Multi-Window Rolling Ratios ($1\text{d}$ vs $7\text{d}$ vs $30\text{d}$)
 
 * **Primary Adversary Behavior**: Credential stuffing bursts, brute force authentication waves, sudden scan sweeps.
 * **Mathematical Formula**:
@@ -60,7 +78,7 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 5. Categorical Dispersion (Herfindahl-Hirschman Index / Simpson Index)
+## 6. Categorical Dispersion (Herfindahl-Hirschman Index / Simpson Index)
 
 * **Primary Adversary Behavior**: Internal lateral movement (reconnaissance sweeps across many internal IPs/ports).
 * **Mathematical Formula**:
@@ -69,7 +87,7 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 6. Impossible Travel Velocity (Haversine Kinematics)
+## 7. Impossible Travel Velocity (Haversine Kinematics)
 
 * **Primary Adversary Behavior**: Stolen session cookie reuse, geo-impossible credential login.
 * **Mathematical Formula**:

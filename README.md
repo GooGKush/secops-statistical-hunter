@@ -15,7 +15,7 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
 ## Core Capabilities
 
 1. **Consultative Threat-to-Math Routing**:
-   * Interprets analyst goals into explicit statistical archetypes (`C2_BEACONING_JITTER`, `DATA_EXFILTRATION_SPIKE`, `HEAVY_TAIL_OUTLIERS`, `VELOCITY_SURGE_RATIO`, `LATERAL_RECON_DISPERSION`, `IMPOSSIBLE_TRAVEL_SPEED`).
+   * Interprets analyst goals into explicit statistical archetypes (`ZSCORE_PROCESS_SURGE`, `C2_BEACONING_JITTER`, `DATA_EXFILTRATION_SPIKE`, `HEAVY_TAIL_OUTLIERS`, `VELOCITY_SURGE_RATIO`, `LATERAL_RECON_DISPERSION`, `IMPOSSIBLE_TRAVEL_SPEED`).
 2. **Human-Readable Sensitivity Tiers & Boundary Guidance**:
    * Translates abstract math floats ($\text{CV} \le 0.15$, $M_Z > 2.5$) into operational tiers (`CONSERVATIVE`, `BALANCED`, `AGGRESSIVE`, `NOISE CLIFF`).
    * Includes a **Pre-Flight 24-Hour Decile Probe** mode to show analysts empirical score distributions on their actual telemetry before running 30-day queries.
@@ -31,20 +31,21 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
 
 ```
 secops-statistical-hunter/
-├── SKILL.md                          # Main skill specification & decision matrix
-├── README.md                         # Overview & architecture reference
-├── llms.txt                          # AI agent summary file
-├── examples/                         # Working multi-stage YARA-L search templates
-│   ├── c2_beaconing_jitter_cv.yara   # Inter-arrival CV + low-prevalence filter
-│   ├── mad_outlier_detection.yara    # Median Absolute Deviation (MAD / Modified Z-Score)
-│   ├── iqr_tukey_fences_egress.yara  # Non-parametric IQR / Tukey Fences for egress bytes
-│   └── rolling_ratio_spike.yara      # 1-day vs 7-day vs 30-day moving ratio
-├── references/                       # Deep-dive engineering guides
-│   ├── statistical-models-taxonomy.md# Mathematical curves & physical translations
-│   ├── watchdog-polling-architecture.md # LRO watchdog mechanics & F1 optimization
-│   └── scope-exclusions-guardrail.md # Why UEBA metrics.* are excluded from ad-hoc searches
+├── SKILL.md                              # Main skill specification & decision matrix
+├── README.md                             # Overview & architecture reference
+├── llms.txt                              # AI agent summary file
+├── examples/                             # Working multi-stage YARA-L search templates
+│   ├── zscore_process_execution_surges.yara # Historical 3-Sigma Z-Score process surges per host
+│   ├── c2_beaconing_jitter_cv.yara       # Inter-arrival CV + low-prevalence filter
+│   ├── mad_outlier_detection.yara        # Median Absolute Deviation (MAD / Modified Z-Score)
+│   ├── iqr_tukey_fences_egress.yara      # Non-parametric IQR / Tukey Fences for egress bytes
+│   └── rolling_ratio_spike.yara          # 1-day vs 7-day vs 30-day moving ratio
+├── references/                           # Deep-dive engineering guides
+│   ├── statistical-models-taxonomy.md    # Mathematical curves & physical translations
+│   ├── watchdog-polling-architecture.md  # LRO watchdog mechanics & F1 optimization
+│   └── scope-exclusions-guardrail.md     # Why UEBA metrics.* are excluded from ad-hoc searches
 └── scripts/
-    └── multistage_query_builder.py   # Python linter, parameter injector, & boundary validator
+    └── multistage_query_builder.py       # Python linter, parameter injector, & boundary validator
 ```
 
 ---

@@ -4,8 +4,8 @@ secops-statistical-hunter Helper Utility: multistage_query_builder.py
 
 Validates multi-stage YARA-L search queries, enforces the UEBA/Risk Analytics
 Scope Exclusions Guardrail, verifies Canonical Multi-Stage Syntax (no 'events:' headers in stages,
-no '$s in stage' pseudo-syntax, unwrapped root stages, no rule wrappers),
-formats and inspects the mandatory Self-Documenting Methodology Header,
+no '$s in stage' pseudo-syntax, unwrapped root stages, mandatory stage binding in root events block,
+no math.max/min, no rule wrappers), formats and inspects the mandatory Self-Documenting Methodology Header,
 and maps Semantic Sensitivity Tiers to math boundaries.
 """
 
@@ -25,10 +25,11 @@ EXCLUDED_PATTERNS = [
 SYNTAX_TRAPS = [
     (r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\bevents\s*:", "SYNTAX ERROR: Multi-stage named stages do NOT use an 'events:' header. Place event filters directly inside the stage block."),
     (r"\$\w+\s+in\s+\$?[a-zA-Z0-9_]+", "SYNTAX ERROR: Do NOT use '$var in stage_name'. Access stage outputs directly via '$stage_name.variable_name' or '$var = $stage_name.variable_name'."),
+    (r"\bmath\.(max|min)\b", "SYNTAX ERROR: 'math.max' and 'math.min' do NOT exist in YARA-L. Use aggregate max()/min(), condition floors, or if(cond, val1, val2)."),
 ]
 
 SENSITIVITY_MAP = {
-    "FLEET_ZSCORE_OUTLIER": {
+    "ZSCORE_PROCESS_SURGE": {
         "CONSERVATIVE": {"z_score": 3.0, "min_count": 50, "min_sd": 10.0},
         "BALANCED": {"z_score": 2.0, "min_count": 25, "min_sd": 5.0},
         "AGGRESSIVE": {"z_score": 1.5, "min_count": 10, "min_sd": 2.0},
@@ -84,6 +85,23 @@ def validate_multistage_syntax(query: str) -> List[str]:
   stripped = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
   if not re.search(r"^\s*outcome\s*:", stripped, re.MULTILINE):
     errors.append("MISSING UNWRAPPED ROOT OUTCOME: The final stage must NOT be inside a named 'stage { ... }' block. It must be unwrapped at the root level.")
+
+  # Check root stage stage-binding (ValidateEventVariablesExist rule)
+  outcome_match = re.search(r"^\s*outcome\s*:(.*?)(\ncondition\s*:|\norder\s*:|$)", stripped, flags=re.DOTALL | re.MULTILINE)
+  if outcome_match:
+    outcome_text = outcome_match.group(1)
+    # Find all $stage_name referenced in outcome
+    outcome_stages = set(re.findall(r"\$([a-zA-Z0-9_]+)\.[a-zA-Z0-9_]+", outcome_text))
+    
+    # Check events section of root stage (text before match: or outcome:)
+    root_events_text = stripped[:outcome_match.start()]
+    for stage_name in outcome_stages:
+      if not re.search(r"\$" + stage_name + r"\.", root_events_text):
+        errors.append(
+            f"STAGE BINDING ERROR: Stage '{stage_name}' is referenced in the root outcome block "
+            f"but is not declared in the root events section (above match:). "
+            f"Add '$var = ${stage_name}.<key>' or 'cross join ...' to bind it."
+        )
 
   # Check for methodology header
   if not re.search(r"//\s*Goal:", query, re.IGNORECASE):
