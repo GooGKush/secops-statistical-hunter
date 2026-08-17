@@ -3,7 +3,8 @@
 secops-statistical-hunter Helper Utility: multistage_query_builder.py
 
 Validates multi-stage YARA-L search queries, enforces the UEBA/Risk Analytics
-Scope Exclusions Guardrail, verifies Search-Only syntax (no rule wrapping),
+Scope Exclusions Guardrail, verifies Canonical Multi-Stage Syntax (no 'events:' headers in stages,
+no '$s in stage' pseudo-syntax, unwrapped root stages, no rule wrappers),
 formats and inspects the mandatory Self-Documenting Methodology Header,
 and maps Semantic Sensitivity Tiers to math boundaries.
 """
@@ -21,7 +22,17 @@ EXCLUDED_PATTERNS = [
     (r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", "Multi-stage queries CANNOT be wrapped in rule blocks or deployed to the Rules Engine. They are Search/Dashboard-only."),
 ]
 
+SYNTAX_TRAPS = [
+    (r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\bevents\s*:", "SYNTAX ERROR: Multi-stage named stages do NOT use an 'events:' header. Place event filters directly inside the stage block."),
+    (r"\$\w+\s+in\s+\$?[a-zA-Z0-9_]+", "SYNTAX ERROR: Do NOT use '$var in stage_name'. Access stage outputs directly via '$stage_name.variable_name' or '$var = $stage_name.variable_name'."),
+]
+
 SENSITIVITY_MAP = {
+    "FLEET_ZSCORE_OUTLIER": {
+        "CONSERVATIVE": {"z_score": 3.0, "min_count": 50, "min_sd": 10.0},
+        "BALANCED": {"z_score": 2.0, "min_count": 25, "min_sd": 5.0},
+        "AGGRESSIVE": {"z_score": 1.5, "min_count": 10, "min_sd": 2.0},
+    },
     "C2_BEACONING_JITTER": {
         "CONSERVATIVE": {"cv": 0.05, "min_conns": 50, "prevalence": 1},
         "BALANCED": {"cv": 0.20, "min_conns": 25, "prevalence": 2},
@@ -57,14 +68,22 @@ def check_scope_exclusions(query: str) -> List[str]:
 def validate_multistage_syntax(query: str) -> List[str]:
   """Performs structural validation on multi-stage YARA-L search queries."""
   errors = []
+
+  # Check known syntax traps
+  for pattern, msg in SYNTAX_TRAPS:
+    if re.search(pattern, query, re.DOTALL | re.MULTILINE):
+      errors.append(msg)
+
   # Check for stage blocks
   stages = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{", query)
   if not stages:
     errors.append("MISSING STAGES: A multi-stage query requires at least one named 'stage <name> { ... }' block.")
 
-  # Check for root outcome section
-  if not re.search(r"^\s*outcome\s*:", query, re.MULTILINE):
-    errors.append("MISSING ROOT OUTCOME: A multi-stage query requires a root 'outcome:' section.")
+  # Check for unwrapped root outcome section
+  # Strip all named stage blocks to find if there is an outcome: at root level
+  stripped = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
+  if not re.search(r"^\s*outcome\s*:", stripped, re.MULTILINE):
+    errors.append("MISSING UNWRAPPED ROOT OUTCOME: The final stage must NOT be inside a named 'stage { ... }' block. It must be unwrapped at the root level.")
 
   # Check for methodology header
   if not re.search(r"//\s*Goal:", query, re.IGNORECASE):
@@ -147,7 +166,9 @@ def main():
     violations = check_scope_exclusions(query)
     syntax_errors = validate_multistage_syntax(query)
 
-    if violations or [e for e in syntax_errors if not e.startswith("MISSING METHODOLOGY HEADER")]:
+    fatal_errors = violations + [e for e in syntax_errors if not e.startswith("MISSING METHODOLOGY HEADER")]
+
+    if fatal_errors:
       print("\n❌ VALIDATION FAILED:")
       for v in violations:
         print(f"  [SCOPE] {v}")
@@ -157,7 +178,7 @@ def main():
     else:
       if any(e.startswith("MISSING METHODOLOGY HEADER") for e in syntax_errors):
         print("⚠️ Warning: Query lacks standard methodology comment header.")
-      print("✅ Query passed scope exclusion and multi-stage syntax checks.")
+      print("✅ Query passed all canonical multi-stage grammar and scope exclusion checks.")
       sys.exit(0)
 
 
