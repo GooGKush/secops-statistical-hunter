@@ -6,13 +6,15 @@ Validates multi-stage YARA-L search queries, enforces the UEBA/Risk Analytics
 Scope Exclusions Guardrail, verifies Canonical Multi-Stage Syntax (no 'events:' headers in stages,
 no '$s in stage' pseudo-syntax, unwrapped root stages, mandatory stage binding in root events block,
 no math.max/min, no rule wrappers), formats and inspects the mandatory Self-Documenting Methodology Header,
+formats 4-Tier Structured Triage Reports (with ASCII magnitude bars), generates graph specifications,
 and maps Semantic Sensitivity Tiers to math boundaries.
 """
 
 import argparse
+import json
 import re
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 EXCLUDED_PATTERNS = [
     (r"\bmetrics\.", "UEBA metric functions (metrics.*) are excluded from ad-hoc time range searches. Use secops-risk-analytics."),
@@ -81,7 +83,6 @@ def validate_multistage_syntax(query: str) -> List[str]:
     errors.append("MISSING STAGES: A multi-stage query requires at least one named 'stage <name> { ... }' block.")
 
   # Check for unwrapped root outcome section
-  # Strip all named stage blocks to find if there is an outcome: at root level
   stripped = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
   if not re.search(r"^\s*outcome\s*:", stripped, re.MULTILINE):
     errors.append("MISSING UNWRAPPED ROOT OUTCOME: The final stage must NOT be inside a named 'stage { ... }' block. It must be unwrapped at the root level.")
@@ -90,10 +91,7 @@ def validate_multistage_syntax(query: str) -> List[str]:
   outcome_match = re.search(r"^\s*outcome\s*:(.*?)(\ncondition\s*:|\norder\s*:|$)", stripped, flags=re.DOTALL | re.MULTILINE)
   if outcome_match:
     outcome_text = outcome_match.group(1)
-    # Find all $stage_name referenced in outcome
     outcome_stages = set(re.findall(r"\$([a-zA-Z0-9_]+)\.[a-zA-Z0-9_]+", outcome_text))
-    
-    # Check events section of root stage (text before match: or outcome:)
     root_events_text = stripped[:outcome_match.start()]
     for stage_name in outcome_stages:
       if not re.search(r"\$" + stage_name + r"\.", root_events_text):
@@ -128,6 +126,163 @@ def generate_methodology_header(
   return header
 
 
+def parse_columnar_stats(stats_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
+  """Converts Chronicle columnar stats results into a list of row dictionaries."""
+  if "stats" in stats_dict:
+    stats_dict = stats_dict["stats"]
+  if "results" not in stats_dict:
+    return []
+
+  columns = []
+  col_values = []
+  for col_entry in stats_dict["results"]:
+    col_name = col_entry.get("column", "")
+    columns.append(col_name)
+    vals = []
+    for item in col_entry.get("values", []):
+      val_obj = item.get("value", {})
+      for k in ["stringVal", "int64Val", "doubleVal", "timestampVal", "boolVal"]:
+        if k in val_obj:
+          vals.append(val_obj[k])
+          break
+      else:
+        vals.append(None)
+    col_values.append(vals)
+
+  if not col_values:
+    return []
+
+  row_count = max(len(v) for v in col_values)
+  rows = []
+  for r in range(row_count):
+    row_dict = {}
+    for c_idx, col_name in enumerate(columns):
+      row_dict[col_name] = col_values[c_idx][r] if r < len(col_values[c_idx]) else None
+    rows.append(row_dict)
+  return rows
+
+
+def generate_visual_bar(score: float, max_score: float = 6.0, bar_length: int = 10) -> str:
+  """Generates an ASCII/Unicode magnitude bar (e.g. █████████▌) for relative visual severity."""
+  if max_score <= 0:
+    max_score = 1.0
+  ratio = min(max(score / max_score, 0.0), 1.0)
+  blocks = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
+  full_blocks = int(ratio * bar_length)
+  remainder = int((ratio * bar_length - full_blocks) * 8)
+  bar = "█" * full_blocks
+  if full_blocks < bar_length and remainder > 0:
+    bar += blocks[remainder]
+  return bar.ljust(bar_length, " ")
+
+
+def format_triage_report(
+    title: str,
+    stats_payload: Dict[str, Any],
+    top_n: int = 5,
+    event_type: str = "PROCESS_LAUNCH"
+) -> str:
+  """Renders raw Chronicle multi-stage stats into the 4-Tier Structured Triage Report."""
+  rows = parse_columnar_stats(stats_payload)
+  if not rows:
+    return "⚡ STATISTICAL HUNT VERDICT: No outlier entities exceeded the configured anomaly threshold."
+
+  # Sort by anomaly metric (z_score, cv, surge_ratio, m_z_score)
+  sort_keys = ["z_score", "m_z_score", "surge_ratio", "ratio_1v30", "cv"]
+  chosen_key = next((k for k in sort_keys if k in rows[0]), None)
+  if chosen_key:
+    if chosen_key == "cv":
+      rows.sort(key=lambda x: float(x.get(chosen_key) or 999))
+    else:
+      rows.sort(key=lambda x: float(x.get(chosen_key) or 0), reverse=True)
+
+  total_outliers = len(rows)
+  top_rows = rows[:top_n]
+  entity_col = next((c for c in ["host", "user", "src_ip", "dst_ip"] if c in rows[0]), "entity")
+
+  out = []
+  out.append("══════════════════════════════════════════════════════════════════════════════")
+  out.append(f"⚡ STATISTICAL OUTLIER REPORT: {title}")
+  out.append("══════════════════════════════════════════════════════════════════════════════")
+  out.append(f"• Outliers Detected: {total_outliers} entities exceeded anomaly threshold")
+  if "mean_val" in rows[0] and "stddev_val" in rows[0]:
+    out.append(f"• Baseline Envelope: Mean (μ) ≈ {float(rows[0]['mean_val']):.1f} | StdDev (σ) ≈ {float(rows[0]['stddev_val']):.1f}")
+  out.append("")
+  out.append("──────────────────────────────────────────────────────────────────────────────")
+  out.append("📊 RANKED OUTLIER SUMMARY (Top Anomalies by Severity)")
+  out.append("──────────────────────────────────────────────────────────────────────────────")
+  out.append("| Entity Identifier | Spike Window | Observed | Baseline (μ ± σ) | Severity Score | Visual Magnitude |")
+  out.append("| :---------------- | :----------- | :------- | :--------------- | :------------- | :--------------- |")
+
+  max_score = float(top_rows[0].get(chosen_key, 6.0)) if chosen_key and top_rows[0].get(chosen_key) else 6.0
+  for row in top_rows:
+    ent = str(row.get(entity_col, "unknown"))
+    tb = str(row.get("TIME_BUCKET", row.get("window_start", "Window")))
+    obs = str(row.get("observed_count", row.get("daily_mb", row.get("today_fails", ""))))
+    
+    base_str = "Baseline"
+    if "mean_val" in row and "stddev_val" in row:
+      base_str = f"{float(row['mean_val']):.0f} ± {float(row['stddev_val']):.0f}"
+    
+    score_val = float(row.get(chosen_key, 0.0)) if chosen_key else 0.0
+    score_str = f"+{score_val:.2f}σ" if chosen_key == "z_score" else f"{score_val:.2f}"
+    vbar = f"`{generate_visual_bar(score_val, max_score)}`"
+    
+    out.append(f"| **{ent}** | {tb[:16]} | **{obs}** | {base_str} | **{score_str}** | {vbar} |")
+
+  top_ent = top_rows[0]
+  top_score_val = float(top_ent.get(chosen_key, 0.0)) if chosen_key else 0.0
+  top_score_str = f"+{top_score_val:.2f}σ" if chosen_key == "z_score" else f"{top_score_val:.2f}"
+
+  out.append("")
+  out.append("──────────────────────────────────────────────────────────────────────────────")
+  out.append(f"🔍 TOP OUTLIER SPOTLIGHT: `{top_ent.get(entity_col)}` ({top_score_str})")
+  out.append("──────────────────────────────────────────────────────────────────────────────")
+  if "observed_count" in top_ent and "mean_val" in top_ent:
+    diff = float(top_ent['observed_count']) - float(top_ent['mean_val'])
+    pct = (diff / float(top_ent['mean_val'])) * 100 if float(top_ent['mean_val']) > 0 else 0
+    out.append(f"• Activity Surge   : {top_ent['observed_count']} executions (+{pct:.1f}% above historical mean).")
+  if "distinct_binaries" in top_ent:
+    out.append(f"• Binary Diversity : {top_ent['distinct_binaries']} distinct full binary paths executed.")
+
+  out.append("")
+  out.append("──────────────────────────────────────────────────────────────────────────────")
+  out.append("🎯 IMMEDIATE DRILL-DOWN INVESTIGATION QUERY")
+  out.append("──────────────────────────────────────────────────────────────────────────────")
+  drilldown_str = f'principal.hostname = "{top_ent.get(entity_col)}" AND metadata.event_type = "{event_type}"'
+  if "window_start" in top_ent and top_ent["window_start"]:
+    ws = int(top_ent["window_start"])
+    drilldown_str += f" AND metadata.event_timestamp.seconds >= {ws} AND metadata.event_timestamp.seconds <= {ws + 3600}"
+  out.append(drilldown_str)
+
+  return "\n".join(out)
+
+
+def generate_chart_spec(stats_payload: Dict[str, Any], title: str = "Outlier Detection Timeseries") -> Dict[str, Any]:
+  """Generates a Vega-Lite chart specification for clients supporting graphing."""
+  rows = parse_columnar_stats(stats_payload)
+  spec = {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "title": title,
+      "width": 600,
+      "height": 300,
+      "data": {"values": rows},
+      "mark": {"type": "line", "point": True},
+      "encoding": {
+          "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Timestamp (UTC)"},
+          "y": {"field": "observed_count", "type": "quantitative", "title": "Observed Value"},
+          "color": {"field": "host", "type": "nominal", "title": "Host"},
+          "tooltip": [
+              {"field": "host", "type": "nominal"},
+              {"field": "TIME_BUCKET", "type": "temporal"},
+              {"field": "observed_count", "type": "quantitative"},
+              {"field": "z_score", "type": "quantitative"}
+          ]
+      }
+  }
+  return spec
+
+
 def get_thresholds_for_tier(
     archetype: str, tier: str
 ) -> Dict[str, float]:
@@ -160,8 +315,18 @@ def main():
       default="BALANCED",
       help="Sensitivity tier (CONSERVATIVE, BALANCED, AGGRESSIVE)",
   )
+  parser.add_argument(
+      "--format_report",
+      help="Path to raw stats JSON to format into 4-Tier Triage Report",
+  )
 
   args = parser.parse_args()
+
+  if args.format_report:
+    with open(args.format_report, "r") as f:
+      data = json.load(f)
+    print(format_triage_report("Process Execution Outliers", data))
+    sys.exit(0)
 
   if args.archetype:
     try:
