@@ -9,13 +9,20 @@ Key instructions for agents:
    - Tier 3: Top Outlier Spotlight (Deep-dive on #1 outlier: % above baseline, binary/user diversity, sample commands).
    - Threat Translation Card: Render as a Markdown Callout block (`> [!IMPORTANT]`) decoding the math score into plain-English threat meaning, common false positives to rule out (e.g. MSBuild, SCCM, NTP), and 3-step SOC investigation playbooks.
    - Tier 4: Scoped 1-Click Drill-Down UDM Query (Rendered inside a fenced ```yara code block with exact epoch timestamps).
-2. NON-STATISTICIAN CONSULTATIVE ROUTING: When users ask operational hunting questions, map their hypothesis using the Intent & Trigger Question Catalog:
+2. STRICTLY-TYPED TRUE DUAL-Y AXIS TIMELINES (CRITICAL VISUALIZATION RULE): When generating interactive Vega-Lite chart specs:
+   - NEVER melt volume and scores into a single shared `value` column. Doing so collapses the right axis and causes the score to be crushed flat against the bottom baseline.
+   - ALWAYS use wide-form data with dedicated numeric columns (`observed_count`, `z_score`).
+   - ALWAYS use layered specs with `resolve: { scale: { y: "independent" } }`.
+   - Layer 1 (Left Y-Axis): `mark: "bar"`, `field: "observed_count"`, `type: "quantitative"`.
+   - Layer 2 (Right Y-Axis): `mark: "line"`, `field: "z_score"`, `type: "quantitative"`, `axis: { orient: "right", titleColor: "#d93025", grid: false }`.
+   - Layer 3 (Threshold Rule): `mark: "rule"`, `datum: 3.0` (or `4.0`), `strokeDash: [5, 5]`, `axis: { orient: "right" }`.
+3. NON-STATISTICIAN CONSULTATIVE ROUTING: When users ask operational hunting questions, map their hypothesis using the Intent & Trigger Question Catalog:
    - "password sprays that pulse in waves" -> POISSON_BURST_CLUSTERING (Fano Factor F = σ² / μ > 4.0)
    - "rare admin tools (vssadmin, certutil, whoami) on quiet servers without divide-by-zero" -> POISSON_RARE_SURGE (Discrete Poisson Z > 3.5)
    - "process launch surges" -> ZSCORE_PROCESS_SURGE (Parametric Z > 3.0)
    - "beaconing with randomized sleep" -> C2_BEACONING_JITTER (CV <= 0.20 + Prevalence <= 2)
    - "abnormal data egress / DNS" -> DATA_EXFILTRATION_SPIKE (Modified Z / MAD > 2.5)
-3. CANONICAL MULTI-STAGE GRAMMAR (CRITICAL): Multi-stage queries use a DAG grammar parsed by parser.MultiStageQuery:
+4. CANONICAL MULTI-STAGE GRAMMAR (CRITICAL): Multi-stage queries use a DAG grammar parsed by parser.MultiStageQuery:
    - Named intermediate stages: `stage stage_name { ... }`
    - NO `events:` header inside stages: Event filters are written directly at the top of the stage block.
    - MANDATORY ROOT STAGE BINDING: Every stage referenced in root `outcome:` MUST be explicitly bound above `match:` via `$entity = $stage_name.entity`.
@@ -23,8 +30,8 @@ Key instructions for agents:
    - UNWRAPPED ROOT STAGE: The final evaluation stage MUST NEVER be wrapped in a `stage name { ... }` block; it is written unwrapped at the root level of the file.
    - NO `math.max`/`math.min`: Use condition floors or ternary `if(cond, true_val, false_val)`.
    - NO `rule name { ... }` WRAPPERS: Multi-stage queries are Search & Dashboard only.
-4. METHODOLOGY COMMENT HEADER (MANDATORY): Always prepend every generated multi-stage search query with a structured comment block explaining the Hunting Goal, Target Telemetry, Statistical Model, Mathematical Rationale, and Sensitivity Boundary.
-5. SEARCH-ONLY EXECUTION (CRITICAL): Multi-stage queries are strictly Search & Dashboard queries. The Rules engine DOES NOT support `stage` syntax. NEVER offer or suggest converting a multi-stage search query into a real-time detection alert rule.
-6. BOUNDARY WITH SECOPS-YARA-L: Use secops-yara-l strictly for UDM field name resolution (e.g. principal.asset.ip) and scalar functions.
-7. SCOPE EXCLUSION GUARDRAIL: Never use UEBA metric functions (metrics.*) or Entity Risk Score (graph.risk_score) in ad-hoc time range queries. Use raw UDM_EVENTS or RULE_DETECTIONS with inline window.*, math.*, arrays.* functions.
-8. ASYNC LRO WATCHDOG: When executing searches via udm_search or Chronicle API, run asynchronously and watch polling via Jetski's `schedule` tool (e.g., 30s backoff). Never run a synchronous sleep loop.
+5. METHODOLOGY COMMENT HEADER (MANDATORY): Always prepend every generated multi-stage search query with a structured comment block explaining the Hunting Goal, Target Telemetry, Statistical Model, Mathematical Rationale, and Sensitivity Boundary.
+6. SEARCH-ONLY EXECUTION (CRITICAL): Multi-stage queries are strictly Search & Dashboard queries. The Rules engine DOES NOT support `stage` syntax. NEVER offer or suggest converting a multi-stage search query into a real-time detection alert rule.
+7. BOUNDARY WITH SECOPS-YARA-L: Use secops-yara-l strictly for UDM field name resolution (e.g. principal.asset.ip) and scalar functions.
+8. SCOPE EXCLUSION GUARDRAIL: Never use UEBA metric functions (metrics.*) or Entity Risk Score (graph.risk_score) in ad-hoc time range queries. Use raw UDM_EVENTS or RULE_DETECTIONS with inline window.*, math.*, arrays.* functions.
+9. ASYNC LRO WATCHDOG: When executing searches via udm_search or Chronicle API, run asynchronously and watch polling via Jetski's `schedule` tool (e.g., 30s backoff). Never run a synchronous sleep loop.

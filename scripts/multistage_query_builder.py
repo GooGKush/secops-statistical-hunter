@@ -8,8 +8,8 @@ no '$s in stage' pseudo-syntax, unwrapped root stages, mandatory stage binding i
 no math.max/min, no rule wrappers), formats and inspects the mandatory Self-Documenting Methodology Header,
 formats Clean CommonMark/HTML-Safe Cyber-First 4-Tier Structured Triage Reports (with Unicode visual bars,
 Threat Translation Callout Cards, SOC Severity Badges, Common False Positives, and SOC Playbooks),
-generates Strictly-Typed Multi-Dimensional Graph Specs (Dual-Y Axis Timelines, 4D Bubble Plots, Heatmaps),
-and maps Semantic Sensitivity Tiers to math boundaries.
+generates Strictly-Typed True Dual-Y Axis Timeline Specs (with orient: right and dashed threshold rules),
+4D Bubble Plots, Heatmaps, and maps Semantic Sensitivity Tiers to math boundaries.
 """
 
 import argparse
@@ -201,7 +201,6 @@ def parse_columnar_stats(stats_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
     vals = []
     for item in col_entry.get("values", []):
       val_obj = item.get("value", {})
-      # Strictly preserve typed numeric primitives
       if "int64Val" in val_obj:
         try:
           vals.append(int(val_obj["int64Val"]))
@@ -408,13 +407,22 @@ def format_triage_report(
 def generate_chart_spec(
     stats_payload: Dict[str, Any],
     plot_type: str = "DUAL_Y_TIMESERIES",
-    title: str = "Outlier Investigation Chart"
+    title: str = "Outlier Investigation Timeline (Dual-Y)",
+    threshold_value: float = 3.0
 ) -> Dict[str, Any]:
-  """Generates Strictly-Typed Multi-Dimensional Vega-Lite chart specs (Dual-Y, 4D Bubble, Heatmap)."""
+  """Generates Strictly-Typed True Dual-Y Axis Vega-Lite chart specs with right axis orientation and threshold rules."""
   rows = parse_columnar_stats(stats_payload)
   
   if plot_type == "DUAL_Y_TIMESERIES":
-    # Dual-Y Axis Chart (Shared X-Axis): Volume Bars on Left Y-Axis, Statistical Anomaly Line on Right Y-Axis
+    # True Dual-Y Axis Timeline: Volume on Left Y-Axis, Statistical Score on Right Y-Axis, Dashed Threshold Rule
+    # Identify score key
+    score_key = next((k for k in ["z_score", "poisson_z", "fano_factor", "m_z_score", "surge_ratio"] if rows and k in rows[0]), "z_score")
+    score_title = "Z-Score (σ)" if score_key in ["z_score", "poisson_z"] else "Anomaly Index"
+
+    # Identify volume key
+    vol_key = next((k for k in ["observed_count", "observed_today", "total_fails", "daily_mb"] if rows and k in rows[0]), "observed_count")
+    vol_title = "Observed Event Volume"
+
     spec = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
         "title": title,
@@ -424,26 +432,49 @@ def generate_chart_spec(
         "resolve": {"scale": {"y": "independent"}},
         "layer": [
             {
-                "mark": {"type": "bar", "opacity": 0.45, "color": "#1a73e8"},
+                "mark": {"type": "bar", "color": "#76c0f8", "opacity": 0.65},
                 "encoding": {
                     "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Time Window (UTC)"},
-                    "y": {"field": "observed_count", "type": "quantitative", "title": "Observed Event Volume (Left Axis)"},
+                    "y": {
+                        "field": vol_key,
+                        "type": "quantitative",
+                        "axis": {"title": vol_title, "titleColor": "#1a73e8"}
+                    },
                     "tooltip": [
                         {"field": "host", "type": "nominal", "title": "Entity"},
                         {"field": "TIME_BUCKET", "type": "temporal", "title": "Time"},
-                        {"field": "observed_count", "type": "quantitative", "title": "Volume"}
+                        {"field": vol_key, "type": "quantitative", "title": vol_title}
                     ]
                 }
             },
             {
-                "mark": {"type": "line", "point": {"filled": True, "size": 60}, "color": "#d93025", "strokeWidth": 2.5},
+                "mark": {"type": "line", "point": {"filled": True, "size": 65, "color": "#d93025"}, "color": "#d93025", "strokeWidth": 2.5},
                 "encoding": {
                     "x": {"field": "TIME_BUCKET", "type": "temporal"},
-                    "y": {"field": "z_score", "type": "quantitative", "title": "Statistical Anomaly Score (Z / Fano) (Right Axis)"},
+                    "y": {
+                        "field": score_key,
+                        "type": "quantitative",
+                        "axis": {
+                            "title": f"Statistical Score ({score_title})",
+                            "orient": "right",
+                            "titleColor": "#d93025",
+                            "grid": False
+                        }
+                    },
                     "tooltip": [
                         {"field": "host", "type": "nominal", "title": "Entity"},
-                        {"field": "z_score", "type": "quantitative", "title": "Anomaly Score (Z)"}
+                        {"field": score_key, "type": "quantitative", "title": score_title}
                     ]
+                }
+            },
+            {
+                "mark": {"type": "rule", "color": "#d93025", "strokeDash": [5, 5], "strokeWidth": 1.5},
+                "encoding": {
+                    "y": {
+                        "datum": threshold_value,
+                        "type": "quantitative",
+                        "axis": {"orient": "right"}
+                    }
                 }
             }
         ]
@@ -541,6 +572,10 @@ def main():
       "--format_report",
       help="Path to raw stats JSON to format into Clean CommonMark 4-Tier Triage Report",
   )
+  parser.add_argument(
+      "--chart_spec",
+      help="Path to raw stats JSON to generate Dual-Y Vega-Lite chart spec",
+  )
 
   args = parser.parse_args()
 
@@ -548,6 +583,12 @@ def main():
     with open(args.format_report, "r") as f:
       data = json.load(f)
     print(format_triage_report("Process Execution Outliers", data))
+    sys.exit(0)
+
+  if args.chart_spec:
+    with open(args.chart_spec, "r") as f:
+      data = json.load(f)
+    print(json.dumps(generate_chart_spec(data, plot_type="DUAL_Y_TIMESERIES"), indent=2))
     sys.exit(0)
 
   if args.archetype:
