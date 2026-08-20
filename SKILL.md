@@ -3,20 +3,37 @@ name: secops-statistical-hunter
 description: |
   Guides and executes multi-stage statistical anomaly detection and outlier hunting
   in Google Security Operations (SecOps). Uses inline non-parametric, time-series,
-  kinematic, and information-theoretic operators (window.*, math.*, arrays.*) over
-  raw UDM telemetry and Rule Detections across arbitrary ad-hoc time ranges.
-  Formats results using an executive 4-Tier Structured Triage Report (with ASCII magnitude bars,
-  entity spotlights, and instant drill-down queries) and graph-ready specs.
+  Poisson dispersion (Fano factor), discrete Poisson rarity scores, and kinematic operators
+  (window.*, math.*, arrays.*) over raw UDM telemetry and Rule Detections across arbitrary
+  ad-hoc time ranges. Formats results using an executive Cyber-First 4-Tier Structured
+  Triage Report (with ASCII magnitude bars, Threat Translation Cards, SOC Severity Badges,
+  Common False Positives, SOC Playbooks, and 1-click drill-down queries) and multi-dimensional
+  graph-ready specifications (4D Bubble Plots, Heatmaps, Tolerance Bands).
   Triggers: "find beaconing with jitter", "hunt for statistical outliers",
   "multi-stage outlier search", "calculate MAD on DNS", "Tukey fence anomaly",
   "impossible travel velocity", "rolling volume ratio", "pre-flight boundary probe",
-  "z-score process execution surge".
+  "z-score process execution surge", "poisson burst clustering", "fano factor password spray",
+  "rare admin tool surge".
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
 ---
 
 # SecOps Statistical Hunter (`secops-statistical-hunter`)
 
 This skill empowers an LLM agent and SOC analyst to execute **ad-hoc multi-stage statistical outlier hunting** in Google SecOps without requiring pre-computed machine-learning pipelines or UEBA batch metrics.
+
+---
+
+## 🎯 Non-Statistician Intent & Trigger Question Catalog
+
+When interacting with a cybersecurity analyst who does not have an advanced background in statistics, **match their operational hypothesis to the optimal statistical model** and explain the choice using plain-English physical analogies:
+
+| What the Analyst Asks / Wants to Solve | Statistical Model | Plain-English Concept / Analogy |
+| :--- | :--- | :--- |
+| *"Find password sprays or brute force that pulse in intermittent waves to evade high-volume rate limits."* | **`POISSON_BURST_CLUSTERING`** (Fano Factor $F = \sigma^2 / \mu > 4.0$) | **Rainfall downpour vs. steady trickle**: Normal login mistakes trickle in steadily; automated attack waves arrive in synchronized, clumpy bursts. |
+| *"Detect sensitive administrative commands (`vssadmin`, `certutil`, `whoami`) running more than usual on quiet servers without divide-by-zero errors."* | **`POISSON_RARE_SURGE`** (Poisson $Z = \frac{k - \lambda}{\sqrt{\lambda}} > 3.5$) | **Mathematical rarity on quiet baselines**: Evaluates the improbability of seeing $N$ runs today given a near-zero historical arrival rate. |
+| *"Detect extreme surges in process launches or script executions compared to a host's normal behavior."* | **`ZSCORE_PROCESS_SURGE`** (Parametric $Z = \frac{x - \mu}{\sigma} > 3.0$) | **1-in-1,000,000 baseline anomaly**: Flags activity breaking 3 standard deviations above the host's 30-day baseline (top $0.13\%$ tail). |
+| *"Hunt for C2 beaconing where the implant uses randomized sleep delays to avoid fixed-interval alerts."* | **`C2_BEACONING_JITTER`** ($\text{CV} \le 0.20$ + Low Prevalence $\le 2$) | **Robotic timing regularity**: Automated implants exhibit low timing variance ($\text{CV} \le 0.20$), while human browsing is chaotic ($\text{CV} > 0.50$). |
+| *"Find abnormal outbound data transfers or DNS tunneling on heavily skewed network data."* | **`DATA_EXFILTRATION_SPIKE`** ($M_Z > 2.5$ via Median / MAD) | **Median-anchored surge**: Uses Median Absolute Deviation so a single massive upload doesn't distort baseline calculations. |
 
 ---
 
@@ -87,48 +104,68 @@ condition:
 
 ---
 
-## 📊 4-Tier Structured Triage Report (Result Presentation Standard)
+## 📊 Cyber-First 4-Tier Structured Triage Report (Mandatory Standard)
 
-When search results are returned from Chronicle Multi-Stage Search, the agent **MUST** present them using the **4-Tier Structured Triage Layout** to maximize readability, scannability, and immediate SOC actionability:
-
-### Layout Structure:
-1. **Tier 1: Executive Anomaly Verdict & Baseline Context**: High-level summary of total population evaluated, baseline stats ($\mu, \sigma$, MAD, or median), and count of true outliers found.
-2. **Tier 2: Ranked Outlier Summary Table with Unicode Visual Magnitude Bars (`█████`)**: Sorted by anomaly severity, showing observed vs. historical baseline and relative magnitude.
-3. **Tier 3: Top Outlier Spotlight (Deep Dive on #1 Outlier)**: Bulleted analysis explaining *why* the outlier triggered, contextual metrics (e.g. distinct paths, ports, or users), and sample activity.
-4. **Tier 4: Scoped One-Click Drill-Down UDM Query**: Exact, copy-pasteable UDM search query (constrained to the anomaly host/user and exact epoch timestamp window) for instant raw log inspection.
+When presenting search results, the agent **MUST** format output using the **Cyber-First 4-Tier Layout**:
 
 ```markdown
 ══════════════════════════════════════════════════════════════════════════════
-⚡ STATISTICAL OUTLIER REPORT: Process Execution Surges (Z > 3.0σ)
+⚡ STATISTICAL OUTLIER REPORT: Process Execution Surges
 ══════════════════════════════════════════════════════════════════════════════
-• Population Scope : 100 hosts evaluated over 7 days (Aug 10 - Aug 17, 2026)
-• Fleet Baseline   : Mean (μ) = 660.0 proc/hr | StdDev (σ) = 32.5 | Active Floor >= 50
-• Outliers Found   : 4 hosts exceeding 3-Sigma threshold (Top 0.13% statistical tail)
+• Outliers Detected : 4 entities exceeded anomaly threshold
+• Baseline Envelope : Mean (μ) ≈ 659.9 | StdDev (σ) ≈ 32.8
 
 ──────────────────────────────────────────────────────────────────────────────
 📊 RANKED OUTLIER SUMMARY (Top Anomalies by Severity)
 ──────────────────────────────────────────────────────────────────────────────
-| Host Entity    | Spike Window (UTC) | Observed | Historical Baseline | Deviation (Z) | Visual Magnitude |
-| :------------- | :----------------- | :------- | :------------------ | :------------ | :--------------- |
-| **br-win10-14**| 2026-08-11 09:00   | **827**  | 660 ± 33 /hr        | **+5.10σ**    | `██████████`     |
-| **dev-win10-4** | 2026-08-12 09:00   | **888**  | 720 ± 33 /hr        | **+5.06σ**    | `█████████▉`     |
-| **acc-win11-15**| 2026-08-16 09:00   | **595**  | 446 ± 30 /hr        | **+5.00σ**    | `█████████▌`     |
+| Entity Identifier | Spike Window     | Observed | Baseline Envelope | Severity Rating                     | Visual Magnitude |
+| :---------------- | :--------------- | :------- | :---------------- | :---------------------------------- | :--------------- |
+| **br-win10-14**   | 2026-08-11T09:00 | **827**  | 660 ± 33          | **🚨 [CRITICAL OUTLIER]** (`+5.10σ`) | `██████████`     |
+| **dev-win10-4**   | 2026-08-12T09:00 | **888**  | 720 ± 33          | **🚨 [CRITICAL OUTLIER]** (`+5.06σ`) | `█████████▉`     |
+| **acc-win11-15**  | 2026-08-16T09:00 | **595**  | 446 ± 30          | **🚨 [CRITICAL OUTLIER]** (`+5.00σ`) | `█████████▊`     |
 
 ──────────────────────────────────────────────────────────────────────────────
-🔍 TOP OUTLIER SPOTLIGHT: `br-win10-14` (+5.10σ Surge)
+🔍 TOP OUTLIER SPOTLIGHT: `br-win10-14` — 🚨 [CRITICAL OUTLIER] (`+5.10σ`)
 ──────────────────────────────────────────────────────────────────────────────
-• Observed Activity : 827 process executions in 1 hour (+25.3% above historical mean).
-• Binary Diversity  : 51 distinct binary full paths executed (Fleet average: 12-15).
-• Key Observations  : Off-peak execution surge with elevated distinct child commands.
+• Activity Surge   : 827 executions (+25.3% above historical mean).
+• Binary Diversity : 51 distinct full binary paths executed.
+
+──────────────────────────────────────────────────────────────────────────────
+💡 THREAT TRANSLATION CARD: Parametric Z-Score (Standard Deviation Surge)
+──────────────────────────────────────────────────────────────────────────────
+• Threat Meaning   : Volume explosion exceeding personal 30-day host baseline. Indicates script loops, build storms, mass lateral movement, or ransomware staging.
+• Common False Pos : Software compiler builds (MSBuild/Ninja/GCC), SCCM/Ansible endpoint management jobs, local dev tests.
+• SOC Triage Steps :
+    - [ ] Inspect Parent Binary Lineage (e.g. cmd.exe vs devenv.exe).
+    - [ ] Verify executing User Account (Service Account vs Interactive End-User).
+    - [ ] Check for executions from user-writable directories (C:\Temp, AppData\Local\Temp).
 
 ──────────────────────────────────────────────────────────────────────────────
 🎯 IMMEDIATE DRILL-DOWN INVESTIGATION QUERY
 ──────────────────────────────────────────────────────────────────────────────
 principal.hostname = "br-win10-14" 
-AND metadata.event_type = "PROCESS_LAUNCH"
+AND metadata.event_type = "PROCESS_LAUNCH" 
 AND metadata.event_timestamp.seconds >= 1786438800 
 AND metadata.event_timestamp.seconds <= 1786442400
 ```
+
+---
+
+## 📈 Multi-Dimensional Threat Visualizations
+
+For clients that support rich UI graphing, the skill provides **Three Multi-Dimensional Chart Archetypes**:
+
+1. **4D Threat Bubble Plot**:
+   * **$X$-Axis**: Timing Interval ($\Delta t$).
+   * **$Y$-Axis**: Observed Intensity / Volume.
+   * **Bubble Size**: Cardinality (Distinct destination IPs, unique binaries, or users).
+   * **Bubble Color**: Statistical Anomaly Score ($Z$, $M_Z$, or $\text{CV}$).
+2. **3D Temporal Density Heatmap**:
+   * **$X$-Axis**: Hour of Day ($00–23$).
+   * **$Y$-Axis**: Day of Week (Monday–Sunday) or Host Subnet.
+   * **Color Density**: Anomaly Score or Event Concentration.
+3. **Control Chart Tolerance Bands**:
+   * Renders raw metrics alongside shaded $\mu \pm 3\sigma$ and Tukey Upper Fence boundaries over time.
 
 ---
 
@@ -173,36 +210,13 @@ Every multi-stage query generated by this skill **MUST** start with a standardiz
 
 ---
 
-## 🧭 Workflow Execution Checklist
-
-- [ ] **Step 1: Consultative Scoping & Archetype Selection.**
-  * Interpret the analyst's high-level intent (e.g., *"find hosts with Z-score > 3 for process executions"*).
-  * Map the intent using the **Threat-to-Statistical-Model Decision Matrix** (see Section 1).
-- [ ] **Step 2: Pre-Flight Boundary Calibration Probe (Optional / Recommended).**
-  * If the analyst is unsure of the threshold, run a fast 24-hour distribution probe (`approx_count_distinct` grouped by score deciles) to preview candidate volume and identify the tenant's **Noise Cliff**.
-- [ ] **Step 3: Select Sensitivity Tier & Guardrails.**
-  * Present semantic tiers (`CONSERVATIVE`, `BALANCED`, `AGGRESSIVE`) with explicit physical trade-off translations.
-  * Bake in mandatory volume/activity floors (`$total_conns >= 25`, `$MAD > 100`, `$observed_count >= 50`) to prevent zero-variance or low-sample mathematical explosions.
-- [ ] **Step 4: Generate Valid Multi-Stage YARA-L & Validate.**
-  * Prepend the **Self-Documenting Query Header**.
-  * Enforce canonical grammar: Direct filters in `stage` (no `events:`), explicit stage binding in root events block, stage references as `$stage_name.field` (no `in stage`), unwrapped root stage, and no `math.max`/`math.min`.
-  * Run `scripts/multistage_query_builder.py` to verify syntax and assert zero `metrics.*` or `rule` wrapper leakage.
-- [ ] **Step 5: Async Search Dispatch & Reactive Watchdog Polling.**
-  * Dispatch via `udm_search` with async LRO enabled.
-  * Use the **`schedule`** tool for non-blocking reactive wakeup checks (`get_operation`). **Never run a synchronous `while not done: sleep()` loop.**
-  * Monitor progress deltas (`events_searched`) and enforce the 10-minute stall watchdog.
-- [ ] **Step 6: Render 4-Tier Structured Triage Report & Drilldown.**
-  * Present results using the **4-Tier Structured Triage Report** (Executive Verdict, Visual Unicode Table, Spotlight Deep Dive, and 1-Click Drill-Down UDM Query).
-  * If client supports charting, optionally emit Vega-Lite / Chart.js spec.
-  * **Never offer conversion to alert rules.**
-
----
-
 ## 1. Threat-to-Statistical-Model Decision Matrix
 
 | Threat Archetype | Primary Anomaly Signal | Secondary Filter | Statistical Model | Mathematical Primitive | Reference Template |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`ZSCORE_PROCESS_SURGE`** | Execution volume surge per host | Historical entity baseline | **Parametric Z-Score ($Z$)** | $Z = \frac{x - \mu}{\sigma} > 3.0$ | `examples/zscore_process_execution_surges.yara` |
+| **`POISSON_BURST_CLUSTERING`** | Synchronized, clumpy auth bursts | Low/moderate total volume | **Fano Factor ($F$)** | $F = \frac{\sigma^2}{\mu} > 4.0$ | `examples/poisson_burst_clustering.yara` |
+| **`POISSON_RARE_SURGE`** | Rare admin binary jump on quiet host | Low historical rate ($\lambda \le 2.0$) | **Discrete Poisson Score** | $\frac{k - \lambda}{\sqrt{\lambda}} > 3.5$ | `examples/poisson_rare_event_surge.yara` |
 | **`C2_BEACONING_JITTER`** | Low inter-arrival variance ($\Delta t$) | Fleet-wide low prevalence ($\le 2$ hosts) | **Inter-Arrival Jitter ($\text{CV}_{\Delta t}$)** | $\text{CV} = \frac{\sigma_{\Delta t}}{\mu_{\Delta t}} < 0.25$ | `examples/c2_beaconing_jitter_cv.yara` |
 | **`DATA_EXFILTRATION_SPIKE`** | Skewed, heavy-tailed byte volume | Outbound direction / external IP | **Modified Z-Score ($M_Z$) / MAD** | $M_Z = \frac{0.6745 \cdot (x - \tilde{x})}{\text{MAD}} > 3.0$ | `examples/mad_outlier_detection.yara` |
 | **`HEAVY_TAIL_OUTLIERS`** | Non-parametric volume outlier | High payload / session count | **Interquartile Range (Tukey Fences)** | $Q_3 + (1.5 \cdot \text{IQR})$ via `percentile()` | `examples/iqr_tukey_fences_egress.yara` |
@@ -212,35 +226,21 @@ Every multi-stage query generated by this skill **MUST** start with a standardiz
 
 ---
 
-## 2. Sensitivity & Boundary Guidance Engine
+## 2. Directory Structure & References
 
-When configuring thresholds for non-practitioners, translate raw floats into **Semantic Tiers**:
-
-### A. Parametric Z-Score ($Z = (x - \mu) / \sigma$) Tiers
-* **`CONSERVATIVE` ($Z > 3.0$)**: 3-Sigma threshold (top $0.13\%$ distribution tail). High confidence.
-* **`BALANCED` ($Z > 2.0$)**: 2-Sigma threshold (top $\approx 2.5\%$ distribution tail). Good baseline sweep.
-* ❌ **`NOISE CLIFF` ($Z \le 1.0$)**: Within standard daily operational variance. **Refuse search.**
-
-### B. Timing Jitter ($\text{CV} = \sigma_{\Delta t} / \mu_{\Delta t}$) Tiers
-* **`CONSERVATIVE` ($\text{CV} \le 0.05$)**: Catches strict hardcoded timers ($\pm 3\%$ randomness).
-* **`BALANCED` ($\text{CV} \le 0.20$)**: Catches modern C2 frameworks (Cobalt Strike, Sliver) with $15\%–20\%$ random jitter.
-* **`AGGRESSIVE` ($\text{CV} \le 0.40$)**: Catches long-sleep or randomized implants (`prevalence <= 2`).
-* ❌ **`NOISE CLIFF` ($\text{CV} > 0.50$)**: Approaching Poisson randomness (normal web browsing).
-
----
-
-## 3. Directory Structure & References
-
-* `README.md`: Architectural overview, 4-tier triage report formatting, and comparison with `secops-risk-analytics`.
+* `README.md`: Overview, 4-tier triage report formatting, and comparison with `secops-risk-analytics`.
 * `examples/`:
   * `zscore_process_execution_surges.yara`: 3-Sigma ($Z > 3.0$) process launch volume surge detector.
+  * `poisson_burst_clustering.yara`: Fano Factor ($F = \sigma^2 / \mu > 4.0$) password spray cluster detector.
+  * `poisson_rare_event_surge.yara`: Discrete Poisson score for sensitive administrative binaries.
   * `c2_beaconing_jitter_cv.yara`: Inter-arrival timing CV & low-prevalence C2 detector.
   * `mad_outlier_detection.yara`: Modified Z-Score via Median Absolute Deviation (MAD).
   * `iqr_tukey_fences_egress.yara`: Non-parametric IQR / Tukey Fences for egress network bytes.
   * `rolling_ratio_spike.yara`: Multi-window moving average ratio ($1\text{d}$ vs $7\text{d}$ vs $30\text{d}$).
 * `references/`:
-  * `references/statistical-models-taxonomy.md`: Detailed math, physical translations, and boundary curves.
+  * `references/cyber-practitioner-glossary.md`: Dedicated field manual translating statistics to SOC operations.
+  * `references/statistical-models-taxonomy.md`: Detailed math, physical translations, Poisson dispersion, and 4D plots.
   * `references/watchdog-polling-architecture.md`: LRO watchdog mechanics and F1 optimization guide.
   * `references/scope-exclusions-guardrail.md`: Deep dive on UEBA `metrics.*` vs ad-hoc multi-stage telemetry and Rules Engine separation.
 * `scripts/`:
-  * `scripts/multistage_query_builder.py`: Linter, 4-tier triage report formatter, and chart spec generator.
+  * `scripts/multistage_query_builder.py`: Linter, 4-tier triage report formatter with Threat Translation Cards, and 4D Vega-Lite / Chart.js spec generator.

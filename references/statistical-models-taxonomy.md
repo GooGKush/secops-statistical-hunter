@@ -60,7 +60,44 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 4. Non-Parametric IQR / Tukey Fences
+## 4. Poisson Burstiness via Fano Factor ($F = \sigma^2 / \mu$)
+
+* **Primary Adversary Behavior**: Password spraying, automated credential stuffing waves, intermittent lateral recon sweeps that stay under volume caps.
+* **Mathematical Formula**:
+  $$F = \frac{\sigma^2}{\mu}$$
+  * $F < 1.0$: Robotic/Periodic timing.
+  * $F \approx 1.0$: Memoryless Poisson process (random independent human errors).
+  * $F > 4.0$: **Over-dispersed cluster attack waves** (burst activity).
+
+### Sensitivity Tiers (`POISSON_BURST_CLUSTERING`)
+
+| Tier | Mathematical Boundary | Physical Interpretation | Floor Guardrail |
+| :--- | :--- | :--- | :--- |
+| **`CONSERVATIVE`** | $F \ge 8.0$ | Severe synchronized attack downpours. | `min_fails >= 30, mu >= 2.0` |
+| **`BALANCED`** | $F \ge 4.0$ | Clear wave-like password spraying / recon pulses. | `min_fails >= 15, mu >= 1.0` |
+| **`AGGRESSIVE`** | $F \ge 2.5$ | Moderate clumping in authentication failures. | `min_fails >= 10, mu >= 0.5` |
+| ❌ **`NOISE CLIFF`** | $F \le 1.5$ | Independent random login typos. | **Refuse search.** |
+
+---
+
+## 5. Discrete Poisson Arrival Score ($\text{Poisson } Z = \frac{k - \lambda}{\sqrt{\lambda}}$)
+
+* **Primary Adversary Behavior**: Sensitive administrative tool invocations (`vssadmin`, `certutil`, `whoami`, `dsquery`) on endpoints with near-zero baseline history.
+* **Mathematical Formula**:
+  $$\text{Poisson } Z = \frac{k - \lambda}{\sqrt{\lambda}}$$
+  where $k$ is observed executions today and $\lambda$ is historical daily mean arrival rate.
+
+### Sensitivity Tiers (`POISSON_RARE_SURGE`)
+
+| Tier | Mathematical Boundary | Physical Interpretation | Floor Guardrail |
+| :--- | :--- | :--- | :--- |
+| **`CONSERVATIVE`** | $\text{Poisson } Z \ge 5.0$ | Extreme mathematical impossibility on quiet host. | `k >= 5, lambda <= 1.0` |
+| **`BALANCED`** | $\text{Poisson } Z \ge 3.5$ | Improbable jump in rare administrative execution. | `k >= 3, lambda <= 2.0` |
+| **`AGGRESSIVE`** | $\text{Poisson } Z \ge 2.5$ | Noticeable uptick in low-frequency binary usage. | `k >= 2, lambda <= 3.0` |
+
+---
+
+## 6. Non-Parametric IQR / Tukey Fences
 
 * **Primary Adversary Behavior**: Heavy-tailed egress data transfers, unusual file access counts.
 * **Mathematical Formula**:
@@ -70,7 +107,7 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 5. Multi-Window Rolling Ratios ($1\text{d}$ vs $7\text{d}$ vs $30\text{d}$)
+## 7. Multi-Window Rolling Ratios ($1\text{d}$ vs $7\text{d}$ vs $30\text{d}$)
 
 * **Primary Adversary Behavior**: Credential stuffing bursts, brute force authentication waves, sudden scan sweeps.
 * **Mathematical Formula**:
@@ -78,7 +115,7 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 6. Categorical Dispersion (Herfindahl-Hirschman Index / Simpson Index)
+## 8. Categorical Dispersion (Herfindahl-Hirschman Index / Simpson Index)
 
 * **Primary Adversary Behavior**: Internal lateral movement (reconnaissance sweeps across many internal IPs/ports).
 * **Mathematical Formula**:
@@ -87,9 +124,27 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 7. Impossible Travel Velocity (Haversine Kinematics)
+## 9. Impossible Travel Velocity (Haversine Kinematics)
 
 * **Primary Adversary Behavior**: Stolen session cookie reuse, geo-impossible credential login.
 * **Mathematical Formula**:
   $$\text{Speed} = \frac{\text{math.geo\_distance}(\text{lat}_1, \text{lon}_1, \text{lat}_2, \text{lon}_2)}{|t_2 - t_1| / 3600} \quad (\text{km/h})$$
   *Threshold*: `Speed > 800 km/h` (faster than commercial jet travel).
+
+---
+
+## 10. Multi-Dimensional Threat Visualizations
+
+To avoid single-dimensional blind spots, statistical models can be combined into multi-dimensional visualizations:
+
+1. **4D Threat Bubble Plot**:
+   * **$X$-Axis**: Timing Interval ($\Delta t$).
+   * **$Y$-Axis**: Observed Event Volume.
+   * **Bubble Size**: Cardinality (Distinct target IPs, unique binaries, or users).
+   * **Bubble Color**: Statistical Anomaly Score ($Z$, $M_Z$, or $\text{CV}$).
+2. **3D Temporal Density Heatmap**:
+   * **$X$-Axis**: Hour of Day ($00–23$).
+   * **$Y$-Axis**: Day of Week (Monday–Sunday) or Subnet.
+   * **Color Density**: Anomaly Score or Event Concentration.
+3. **Control Chart Tolerance Bands**:
+   * Renders raw metrics alongside shaded $\mu \pm 3\sigma$ and Tukey Upper Fence boundaries over time.
