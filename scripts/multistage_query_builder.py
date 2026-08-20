@@ -8,8 +8,8 @@ no '$s in stage' pseudo-syntax, unwrapped root stages, mandatory stage binding i
 no math.max/min, no rule wrappers), formats and inspects the mandatory Self-Documenting Methodology Header,
 formats Clean CommonMark/HTML-Safe Cyber-First 4-Tier Structured Triage Reports (with Unicode visual bars,
 Threat Translation Callout Cards, SOC Severity Badges, Common False Positives, and SOC Playbooks),
-generates Multi-Dimensional Graph Specs (4D Bubble Plots, Heatmaps, Tolerance Bands), and maps Semantic
-Sensitivity Tiers to math boundaries.
+generates Strictly-Typed Multi-Dimensional Graph Specs (Dual-Y Axis Timelines, 4D Bubble Plots, Heatmaps),
+and maps Semantic Sensitivity Tiers to math boundaries.
 """
 
 import argparse
@@ -187,7 +187,7 @@ def generate_methodology_header(
 
 
 def parse_columnar_stats(stats_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
-  """Converts Chronicle columnar stats results into a list of row dictionaries."""
+  """Converts Chronicle columnar stats results into a sanitized list of typed row dictionaries."""
   if "stats" in stats_dict:
     stats_dict = stats_dict["stats"]
   if "results" not in stats_dict:
@@ -201,10 +201,23 @@ def parse_columnar_stats(stats_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
     vals = []
     for item in col_entry.get("values", []):
       val_obj = item.get("value", {})
-      for k in ["stringVal", "int64Val", "doubleVal", "timestampVal", "boolVal"]:
-        if k in val_obj:
-          vals.append(val_obj[k])
-          break
+      # Strictly preserve typed numeric primitives
+      if "int64Val" in val_obj:
+        try:
+          vals.append(int(val_obj["int64Val"]))
+        except (ValueError, TypeError):
+          vals.append(val_obj["int64Val"])
+      elif "doubleVal" in val_obj:
+        try:
+          vals.append(float(val_obj["doubleVal"]))
+        except (ValueError, TypeError):
+          vals.append(val_obj["doubleVal"])
+      elif "stringVal" in val_obj:
+        vals.append(val_obj["stringVal"])
+      elif "timestampVal" in val_obj:
+        vals.append(val_obj["timestampVal"])
+      elif "boolVal" in val_obj:
+        vals.append(val_obj["boolVal"])
       else:
         vals.append(None)
     col_values.append(vals)
@@ -363,7 +376,6 @@ def format_triage_report(
   if "distinct_binaries" in top_ent:
     out.append(f"* **Binary Diversity**: **{top_ent['distinct_binaries']} distinct full binary paths** executed.")
 
-  # Append Threat Translation Callout Card using standard Markdown blockquote
   if chosen_key and chosen_key in THREAT_EXPLANATIONS:
     expl = THREAT_EXPLANATIONS[chosen_key]
     out.append("")
@@ -395,13 +407,48 @@ def format_triage_report(
 
 def generate_chart_spec(
     stats_payload: Dict[str, Any],
-    plot_type: str = "4D_BUBBLE",
-    title: str = "Multi-Dimensional Threat Outlier Plot"
+    plot_type: str = "DUAL_Y_TIMESERIES",
+    title: str = "Outlier Investigation Chart"
 ) -> Dict[str, Any]:
-  """Generates Multi-Dimensional Vega-Lite chart specifications (4D Bubble, Heatmap, Timeseries)."""
+  """Generates Strictly-Typed Multi-Dimensional Vega-Lite chart specs (Dual-Y, 4D Bubble, Heatmap)."""
   rows = parse_columnar_stats(stats_payload)
   
-  if plot_type == "4D_BUBBLE":
+  if plot_type == "DUAL_Y_TIMESERIES":
+    # Dual-Y Axis Chart (Shared X-Axis): Volume Bars on Left Y-Axis, Statistical Anomaly Line on Right Y-Axis
+    spec = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "title": title,
+        "width": 650,
+        "height": 320,
+        "data": {"values": rows},
+        "resolve": {"scale": {"y": "independent"}},
+        "layer": [
+            {
+                "mark": {"type": "bar", "opacity": 0.45, "color": "#1a73e8"},
+                "encoding": {
+                    "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Time Window (UTC)"},
+                    "y": {"field": "observed_count", "type": "quantitative", "title": "Observed Event Volume (Left Axis)"},
+                    "tooltip": [
+                        {"field": "host", "type": "nominal", "title": "Entity"},
+                        {"field": "TIME_BUCKET", "type": "temporal", "title": "Time"},
+                        {"field": "observed_count", "type": "quantitative", "title": "Volume"}
+                    ]
+                }
+            },
+            {
+                "mark": {"type": "line", "point": {"filled": True, "size": 60}, "color": "#d93025", "strokeWidth": 2.5},
+                "encoding": {
+                    "x": {"field": "TIME_BUCKET", "type": "temporal"},
+                    "y": {"field": "z_score", "type": "quantitative", "title": "Statistical Anomaly Score (Z / Fano) (Right Axis)"},
+                    "tooltip": [
+                        {"field": "host", "type": "nominal", "title": "Entity"},
+                        {"field": "z_score", "type": "quantitative", "title": "Anomaly Score (Z)"}
+                    ]
+                }
+            }
+        ]
+    }
+  elif plot_type == "4D_BUBBLE":
     spec = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
         "title": title,
@@ -412,7 +459,7 @@ def generate_chart_spec(
         "encoding": {
             "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Timestamp / Window (UTC)"},
             "y": {"field": "observed_count", "type": "quantitative", "title": "Observed Intensity / Volume"},
-            "size": {"field": "distinct_binaries", "type": "quantitative", "title": "Target/Binary Cardinality", "scale": {"range": [50, 600]}},
+            "size": {"field": "distinct_binaries", "type": "quantitative", "title": "Cardinality / Breadth", "scale": {"range": [50, 600]}},
             "color": {
                 "field": "z_score",
                 "type": "quantitative",
@@ -448,16 +495,12 @@ def generate_chart_spec(
         "width": 600,
         "height": 300,
         "data": {"values": rows},
-        "layer": [
-            {
-                "mark": {"type": "line", "point": True},
-                "encoding": {
-                    "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Timestamp (UTC)"},
-                    "y": {"field": "observed_count", "type": "quantitative", "title": "Observed Metric"},
-                    "color": {"field": "host", "type": "nominal"}
-                }
-            }
-        ]
+        "mark": {"type": "line", "point": True},
+        "encoding": {
+            "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Timestamp (UTC)"},
+            "y": {"field": "observed_count", "type": "quantitative", "title": "Observed Metric"},
+            "color": {"field": "host", "type": "nominal"}
+        }
     }
   return spec
 

@@ -133,18 +133,19 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 10. Multi-Dimensional Threat Visualizations
+## 10. Multi-Dimensional Threat Visualizations & Dual-Y Charts
 
-To avoid single-dimensional blind spots, statistical models can be combined into multi-dimensional visualizations:
-
-1. **4D Threat Bubble Plot**:
+1. **Dual-Y Axis Outlier Timeline (`DUAL_Y_TIMESERIES`)**:
+   * **Shared $X$-Axis**: Time Window (UTC).
+   * **Left $Y$-Axis**: Observed Physical Volume / Count (Bar or Area mark).
+   * **Right $Y$-Axis**: Statistical Anomaly Score ($Z$, Fano, Modified $Z$) (Line + Points).
+   * **Vega-Lite Encodings**: Resolves independent $Y$-scales with `resolve: { scale: { y: "independent" } }`.
+2. **4D Threat Bubble Plot (`4D_BUBBLE`)**:
    * **$X$-Axis**: Timing Interval ($\Delta t$).
    * **$Y$-Axis**: Observed Event Volume.
    * **Bubble Size**: Cardinality (Distinct target IPs, unique binaries, or users).
    * **Bubble Color**: Statistical Anomaly Score ($Z$, $M_Z$, or $\text{CV}$).
-2. **3D Temporal Density Heatmap**:
+3. **3D Temporal Density Heatmap (`HEATMAP`)**:
    * **$X$-Axis**: Hour of Day ($00–23$).
    * **$Y$-Axis**: Day of Week (Monday–Sunday) or Subnet.
    * **Color Density**: Anomaly Score or Event Concentration.
-3. **Control Chart Tolerance Bands**:
-   * Renders raw metrics alongside shaded $\mu \pm 3\sigma$ and Tukey Upper Fence boundaries over time.
