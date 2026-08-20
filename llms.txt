@@ -3,12 +3,12 @@
 Agentic skill for Google SecOps SIEM multi-stage statistical outlier hunting.
 
 Key instructions for agents:
-1. CYBER-FIRST 4-TIER STRUCTURED TRIAGE REPORT (MANDATORY RESULT PRESENTATION): When presenting search results, NEVER dump raw JSON or plain unformatted tables. Format output using the 4-Tier Layout:
-   - Tier 1: Executive Anomaly Verdict & Baseline Context (Population, baseline mean/stddev/lambda, outlier count).
-   - Tier 2: Ranked Outlier Summary Table with Unicode Visual Magnitude Bars (`█████`) and SOC Severity Badges (🚨 [CRITICAL OUTLIER], ⚠️ [HIGH SUSPICION], 🟡 [ELEVATED WATCH]).
+1. COMMONMARK CYBER-FIRST 4-TIER TRIAGE REPORT (MANDATORY RESULT PRESENTATION): When presenting search results, NEVER use terminal ASCII box-drawing characters (═══, ───) because they break rich HTML/Markdown renderers. Always format output using clean CommonMark/GFM syntax:
+   - Tier 1: Executive Anomaly Verdict & Baseline Context (using standard Markdown headers `###` and bullet lists `* **Key**: Value`).
+   - Tier 2: Ranked Outlier Summary Table with Unicode Visual Magnitude Bars (`█████`) and SOC Severity Badges (🚨 **[CRITICAL OUTLIER]**, ⚠️ **[HIGH SUSPICION]**, 🟡 **[ELEVATED WATCH]**).
    - Tier 3: Top Outlier Spotlight (Deep-dive on #1 outlier: % above baseline, binary/user diversity, sample commands).
-   - Threat Translation Card: Automatically decode the math score into plain-English threat meaning, common false positives to rule out (e.g. MSBuild, SCCM, NTP), and 3-step SOC investigation playbooks.
-   - Tier 4: Scoped 1-Click Drill-Down UDM Query (Exact query with entity and epoch timestamps for raw log triage).
+   - Threat Translation Card: Render as a Markdown Callout block (`> [!IMPORTANT]`) decoding the math score into plain-English threat meaning, common false positives to rule out (e.g. MSBuild, SCCM, NTP), and 3-step SOC investigation playbooks.
+   - Tier 4: Scoped 1-Click Drill-Down UDM Query (Rendered inside a fenced ```yara code block with exact epoch timestamps).
 2. NON-STATISTICIAN CONSULTATIVE ROUTING: When users ask operational hunting questions, map their hypothesis using the Intent & Trigger Question Catalog:
    - "password sprays that pulse in waves" -> POISSON_BURST_CLUSTERING (Fano Factor F = σ² / μ > 4.0)
    - "rare admin tools (vssadmin, certutil, whoami) on quiet servers without divide-by-zero" -> POISSON_RARE_SURGE (Discrete Poisson Z > 3.5)

@@ -6,9 +6,10 @@ Validates multi-stage YARA-L search queries, enforces the UEBA/Risk Analytics
 Scope Exclusions Guardrail, verifies Canonical Multi-Stage Syntax (no 'events:' headers in stages,
 no '$s in stage' pseudo-syntax, unwrapped root stages, mandatory stage binding in root events block,
 no math.max/min, no rule wrappers), formats and inspects the mandatory Self-Documenting Methodology Header,
-formats Cyber-First 4-Tier Structured Triage Reports (with ASCII magnitude bars, Threat Translation Cards,
-SOC Severity Badges, Common False Positives, and SOC Playbooks), generates Multi-Dimensional Graph Specs
-(4D Bubble Plots, Heatmaps, Tolerance Bands), and maps Semantic Sensitivity Tiers to math boundaries.
+formats Clean CommonMark/HTML-Safe Cyber-First 4-Tier Structured Triage Reports (with Unicode visual bars,
+Threat Translation Callout Cards, SOC Severity Badges, Common False Positives, and SOC Playbooks),
+generates Multi-Dimensional Graph Specs (4D Bubble Plots, Heatmaps, Tolerance Bands), and maps Semantic
+Sensitivity Tiers to math boundaries.
 """
 
 import argparse
@@ -73,11 +74,11 @@ THREAT_EXPLANATIONS = {
     "z_score": {
         "name": "Parametric Z-Score (Standard Deviation Surge)",
         "meaning": "Volume explosion exceeding personal 30-day host baseline. Indicates script loops, build storms, mass lateral movement, or ransomware staging.",
-        "false_positives": "Software compiler builds (MSBuild/Ninja/GCC), SCCM/Ansible endpoint management jobs, local dev tests.",
+        "false_positives": "Software compiler builds (MSBuild/Ninja/GCC), SCCM/Ansible endpoint management jobs, local developer testing.",
         "playbook": [
-            "Inspect Parent Binary Lineage (e.g. cmd.exe vs devenv.exe).",
+            "Inspect Parent Binary Lineage (e.g. `cmd.exe` vs `devenv.exe` / `CcmExec.exe`).",
             "Verify executing User Account (Service Account vs Interactive End-User).",
-            "Check for executions from user-writable directories (C:\\Temp, AppData\\Local\\Temp)."
+            "Check for executions from user-writable directories (`C:\\Temp`, `AppData\\Local\\Temp`, `/tmp`)."
         ]
     },
     "fano_factor": {
@@ -85,9 +86,9 @@ THREAT_EXPLANATIONS = {
         "meaning": "Authentication failures or events arriving in synchronized, intermittent bursts rather than steady background trickle. Classic indicator of password spraying.",
         "false_positives": "Cached credential failure loops (Outlook/Mail client after password change), mapped SMB drive reconnection loops.",
         "playbook": [
-            "Check Failure Error Sub-Status (STATUS_WRONG_PASSWORD vs STATUS_ACCOUNT_LOCKED_OUT).",
+            "Check Failure Error Sub-Status (`STATUS_WRONG_PASSWORD` vs `STATUS_ACCOUNT_LOCKED_OUT`).",
             "Examine Source IP Diversity (Single internal IP = cached cred; Rotating external IPs = spray attack).",
-            "Correlate with successful logins from same source IP shortly thereafter."
+            "Correlate with successful logins from the same source IP shortly thereafter."
         ]
     },
     "poisson_z": {
@@ -102,11 +103,11 @@ THREAT_EXPLANATIONS = {
     },
     "cv": {
         "name": "Coefficient of Variation (Inter-Arrival Timing Jitter)",
-        "meaning": "Low timing variance in network callbacks. Indicates automated malware beaconing (Cobalt Strike, Sliver) with sleep jitter.",
+        "meaning": "Low timing variance in network callbacks. Indicates automated malware beaconing (Cobalt Strike, Sliver) with configured sleep jitter.",
         "false_positives": "NTP time sync, OS update telemetry pings, corporate SaaS keep-alive polling (Slack/Teams).",
         "playbook": [
             "Check Fleet Prevalence (Does destination IP talk to >10 hosts? If yes, likely CDN/SaaS).",
-            "Inspect TLS Certificate SNI and Subject Alternative Name.",
+            "Inspect TLS Certificate SNI and Subject Alternative Name in `NETWORK_HTTP`.",
             "Check Payload Size consistency across all requests."
         ]
     },
@@ -225,41 +226,41 @@ def get_soc_severity_badge(chosen_key: str, score: float) -> str:
   """Translates statistical score into a standard SOC operational rating."""
   if chosen_key in ["z_score", "poisson_z"]:
     if score >= 4.0:
-      return "🚨 [CRITICAL OUTLIER]"
+      return "🚨 **[CRITICAL OUTLIER]**"
     elif score >= 3.0:
-      return "⚠️ [HIGH SUSPICION]"
+      return "⚠️ **[HIGH SUSPICION]**"
     elif score >= 2.0:
-      return "🟡 [ELEVATED WATCH]"
+      return "🟡 **[ELEVATED WATCH]**"
     else:
-      return "🟢 [INFORMATIONAL]"
+      return "🟢 **[INFORMATIONAL]**"
   elif chosen_key == "fano_factor":
     if score >= 8.0:
-      return "🚨 [CRITICAL OUTLIER]"
+      return "🚨 **[CRITICAL OUTLIER]**"
     elif score >= 4.0:
-      return "⚠️ [HIGH SUSPICION]"
+      return "⚠️ **[HIGH SUSPICION]**"
     elif score >= 2.5:
-      return "🟡 [ELEVATED WATCH]"
+      return "🟡 **[ELEVATED WATCH]**"
     else:
-      return "🟢 [INFORMATIONAL]"
+      return "🟢 **[INFORMATIONAL]**"
   elif chosen_key == "cv":
     if score <= 0.08:
-      return "🚨 [CRITICAL OUTLIER]"
+      return "🚨 **[CRITICAL OUTLIER]**"
     elif score <= 0.20:
-      return "⚠️ [HIGH SUSPICION]"
+      return "⚠️ **[HIGH SUSPICION]**"
     elif score <= 0.35:
-      return "🟡 [ELEVATED WATCH]"
+      return "🟡 **[ELEVATED WATCH]**"
     else:
-      return "🟢 [INFORMATIONAL]"
+      return "🟢 **[INFORMATIONAL]**"
   elif chosen_key == "m_z_score":
     if score >= 3.5:
-      return "🚨 [CRITICAL OUTLIER]"
+      return "🚨 **[CRITICAL OUTLIER]**"
     elif score >= 2.5:
-      return "⚠️ [HIGH SUSPICION]"
+      return "⚠️ **[HIGH SUSPICION]**"
     elif score >= 2.0:
-      return "🟡 [ELEVATED WATCH]"
+      return "🟡 **[ELEVATED WATCH]**"
     else:
-      return "🟢 [INFORMATIONAL]"
-  return "⚠️ [ANOMALY DETECTED]"
+      return "🟢 **[INFORMATIONAL]**"
+  return "⚠️ **[ANOMALY DETECTED]**"
 
 
 def generate_visual_bar(score: float, max_score: float = 6.0, bar_length: int = 10) -> str:
@@ -282,10 +283,10 @@ def format_triage_report(
     top_n: int = 5,
     event_type: str = "PROCESS_LAUNCH"
 ) -> str:
-  """Renders raw Chronicle multi-stage stats into the Cyber-First 4-Tier Structured Triage Report."""
+  """Renders raw Chronicle multi-stage stats into a Clean CommonMark/HTML-Safe 4-Tier Report."""
   rows = parse_columnar_stats(stats_payload)
   if not rows:
-    return "⚡ STATISTICAL HUNT VERDICT: No outlier entities exceeded the configured anomaly threshold."
+    return "⚡ **STATISTICAL HUNT VERDICT**: No outlier entities exceeded the configured anomaly threshold."
 
   sort_keys = ["z_score", "poisson_z", "fano_factor", "m_z_score", "surge_ratio", "ratio_1v30", "cv"]
   chosen_key = next((k for k in sort_keys if k in rows[0]), None)
@@ -300,21 +301,22 @@ def format_triage_report(
   entity_col = next((c for c in ["host", "user", "src_ip", "dst_ip"] if c in rows[0]), "entity")
 
   out = []
-  out.append("══════════════════════════════════════════════════════════════════════════════")
-  out.append(f"⚡ STATISTICAL OUTLIER REPORT: {title}")
-  out.append("══════════════════════════════════════════════════════════════════════════════")
-  out.append(f"• Outliers Detected : {total_outliers} entities exceeded anomaly threshold")
+  out.append(f"### ⚡ Statistical Outlier Report: {title}")
+  out.append("")
+  out.append(f"* **Outliers Detected**: **{total_outliers} entities** exceeded the configured anomaly threshold.")
+  
   if "mean_val" in rows[0] and "stddev_val" in rows[0]:
-    out.append(f"• Baseline Envelope : Mean (μ) ≈ {float(rows[0]['mean_val']):.1f} | StdDev (σ) ≈ {float(rows[0]['stddev_val']):.1f}")
+    out.append(f"* **Baseline Envelope**: Mean ($\\mu$) $\\approx {float(rows[0]['mean_val']):.1f}$ | StdDev ($\\sigma$) $\\approx {float(rows[0]['stddev_val']):.1f}$")
   elif "mu" in rows[0] and "stddev_val" in rows[0]:
-    out.append(f"• Baseline Envelope : Mean (μ) ≈ {float(rows[0]['mu']):.1f} | StdDev (σ) ≈ {float(rows[0]['stddev_val']):.1f}")
+    out.append(f"* **Baseline Envelope**: Mean ($\\mu$) $\\approx {float(rows[0]['mu']):.1f}$ | StdDev ($\\sigma$) $\\approx {float(rows[0]['stddev_val']):.1f}$")
   elif "historical_lambda" in rows[0]:
-    out.append(f"• Baseline Envelope : Historical Daily Rate (λ) ≈ {float(rows[0]['historical_lambda']):.2f} runs/day")
+    out.append(f"* **Baseline Envelope**: Historical Daily Rate ($\\lambda$) $\\approx {float(rows[0]['historical_lambda']):.2f}\\text{ runs/day}$")
 
   out.append("")
-  out.append("──────────────────────────────────────────────────────────────────────────────")
-  out.append("📊 RANKED OUTLIER SUMMARY (Top Anomalies by Severity)")
-  out.append("──────────────────────────────────────────────────────────────────────────────")
+  out.append("---")
+  out.append("")
+  out.append("#### 📊 Ranked Outlier Summary (Top Anomalies by Severity)")
+  out.append("")
   out.append("| Entity Identifier | Spike Window | Observed | Baseline Envelope | Severity Rating | Visual Magnitude |")
   out.append("| :---------------- | :----------- | :------- | :---------------- | :-------------- | :--------------- |")
 
@@ -337,7 +339,7 @@ def format_triage_report(
     score_str = f"+{score_val:.2f}σ" if chosen_key in ["z_score", "poisson_z"] else f"{score_val:.2f}"
     vbar = f"`{generate_visual_bar(score_val, max_score)}`"
     
-    out.append(f"| **{ent}** | {tb[:16]} | **{obs}** | {base_str} | **{badge}** (`{score_str}`) | {vbar} |")
+    out.append(f"| `{ent}` | {tb[:16]} | **{obs}** | {base_str} | {badge} (`{score_str}`) | {vbar} |")
 
   top_ent = top_rows[0]
   top_score_val = float(top_ent.get(chosen_key, 0.0)) if chosen_key else 0.0
@@ -345,45 +347,48 @@ def format_triage_report(
   top_badge = get_soc_severity_badge(chosen_key, top_score_val)
 
   out.append("")
-  out.append("──────────────────────────────────────────────────────────────────────────────")
-  out.append(f"🔍 TOP OUTLIER SPOTLIGHT: `{top_ent.get(entity_col)}` — {top_badge} (`{top_score_str}`)")
-  out.append("──────────────────────────────────────────────────────────────────────────────")
+  out.append("---")
+  out.append("")
+  out.append(f"#### 🔍 Top Outlier Spotlight: `{top_ent.get(entity_col)}` — {top_badge} (`{top_score_str}`)")
+  out.append("")
   if "observed_count" in top_ent and "mean_val" in top_ent:
     diff = float(top_ent['observed_count']) - float(top_ent['mean_val'])
     pct = (diff / float(top_ent['mean_val'])) * 100 if float(top_ent['mean_val']) > 0 else 0
-    out.append(f"• Activity Surge   : {top_ent['observed_count']} executions (+{pct:.1f}% above historical mean).")
+    out.append(f"* **Activity Surge**: **{top_ent['observed_count']} executions** (+{pct:.1f}% above historical personal mean).")
   elif "total_fails" in top_ent and "mu" in top_ent:
-    out.append(f"• Burst Volume     : {top_ent['total_fails']} total failures across active hours (Clustering Factor F = {top_score_str}).")
+    out.append(f"* **Burst Volume**: **{top_ent['total_fails']} total failures** across active hours (Clustering Factor $F = {top_score_str}$).")
   elif "observed_today" in top_ent and "historical_lambda" in top_ent:
-    out.append(f"• Rare Invocations : {top_ent['observed_today']} executions today vs historical baseline rate of {top_ent['historical_lambda']} runs/day.")
+    out.append(f"* **Rare Invocations**: **{top_ent['observed_today']} executions today** vs historical baseline rate of {top_ent['historical_lambda']} runs/day.")
 
   if "distinct_binaries" in top_ent:
-    out.append(f"• Binary Diversity : {top_ent['distinct_binaries']} distinct full binary paths executed.")
+    out.append(f"* **Binary Diversity**: **{top_ent['distinct_binaries']} distinct full binary paths** executed.")
 
-  # Append Threat Translation Card
+  # Append Threat Translation Callout Card using standard Markdown blockquote
   if chosen_key and chosen_key in THREAT_EXPLANATIONS:
     expl = THREAT_EXPLANATIONS[chosen_key]
     out.append("")
-    out.append("──────────────────────────────────────────────────────────────────────────────")
-    out.append(f"💡 THREAT TRANSLATION CARD: {expl['name']}")
-    out.append("──────────────────────────────────────────────────────────────────────────────")
-    out.append(f"• Threat Meaning   : {expl['meaning']}")
-    out.append(f"• Common False Pos : {expl['false_positives']}")
-    out.append("• SOC Triage Steps :")
+    out.append("> [!IMPORTANT]")
+    out.append(f"> **Threat Translation: {expl['name']}**")
+    out.append(f"> * **Threat Meaning**: {expl['meaning']}")
+    out.append(f"> * **Common False Positives**: {expl['false_positives']}")
+    out.append("> * **SOC Triage Playbook**:")
     for step in expl["playbook"]:
-      out.append(f"    - [ ] {step}")
+      out.append(f">   1. {step}")
 
   out.append("")
-  out.append("──────────────────────────────────────────────────────────────────────────────")
-  out.append("🎯 IMMEDIATE DRILL-DOWN INVESTIGATION QUERY")
-  out.append("──────────────────────────────────────────────────────────────────────────────")
+  out.append("---")
+  out.append("")
+  out.append("#### 🎯 Immediate Drill-Down Investigation Query")
+  out.append("")
+  out.append("```yara")
   drilldown_str = f'principal.hostname = "{top_ent.get(entity_col)}" AND metadata.event_type = "{event_type}"'
   if "user" in top_ent and top_ent["user"]:
     drilldown_str = f'target.user.userid = "{top_ent.get("user")}" AND metadata.event_type = "{event_type}"'
   if "window_start" in top_ent and top_ent["window_start"]:
     ws = int(top_ent["window_start"])
-    drilldown_str += f" AND metadata.event_timestamp.seconds >= {ws} AND metadata.event_timestamp.seconds <= {ws + 3600}"
+    drilldown_str += f"\nAND metadata.event_timestamp.seconds >= {ws} AND metadata.event_timestamp.seconds <= {ws + 3600}"
   out.append(drilldown_str)
+  out.append("```")
 
   return "\n".join(out)
 
@@ -437,7 +442,6 @@ def generate_chart_spec(
         }
     }
   else:
-    # Timeseries Band
     spec = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
         "title": title,
@@ -492,7 +496,7 @@ def main():
   )
   parser.add_argument(
       "--format_report",
-      help="Path to raw stats JSON to format into 4-Tier Triage Report",
+      help="Path to raw stats JSON to format into Clean CommonMark 4-Tier Triage Report",
   )
 
   args = parser.parse_args()

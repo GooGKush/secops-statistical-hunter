@@ -5,8 +5,8 @@ description: |
   in Google Security Operations (SecOps). Uses inline non-parametric, time-series,
   Poisson dispersion (Fano factor), discrete Poisson rarity scores, and kinematic operators
   (window.*, math.*, arrays.*) over raw UDM telemetry and Rule Detections across arbitrary
-  ad-hoc time ranges. Formats results using an executive Cyber-First 4-Tier Structured
-  Triage Report (with ASCII magnitude bars, Threat Translation Cards, SOC Severity Badges,
+  ad-hoc time ranges. Formats results using an executive CommonMark Cyber-First 4-Tier Structured
+  Triage Report (with Unicode visual bars, Threat Translation Callout Cards, SOC Severity Badges,
   Common False Positives, SOC Playbooks, and 1-click drill-down queries) and multi-dimensional
   graph-ready specifications (4D Bubble Plots, Heatmaps, Tolerance Bands).
   Triggers: "find beaconing with jitter", "hunt for statistical outliers",
@@ -104,49 +104,50 @@ condition:
 
 ---
 
-## 📊 Cyber-First 4-Tier Structured Triage Report (Mandatory Standard)
+## 📊 CommonMark Cyber-First 4-Tier Triage Report (Mandatory Standard)
 
-When presenting search results, the agent **MUST** format output using the **Cyber-First 4-Tier Layout**:
+When presenting search results, the agent **MUST** format output using clean **CommonMark / GFM Markdown** (using standard `###`/`####` headers, `---` horizontal rules, and `> [!NOTE]` callouts instead of terminal ASCII box-drawing characters `═══`/`───` which break in rich HTML renderers):
 
 ```markdown
-══════════════════════════════════════════════════════════════════════════════
-⚡ STATISTICAL OUTLIER REPORT: Process Execution Surges
-══════════════════════════════════════════════════════════════════════════════
-• Outliers Detected : 4 entities exceeded anomaly threshold
-• Baseline Envelope : Mean (μ) ≈ 659.9 | StdDev (σ) ≈ 32.8
+### ⚡ Statistical Outlier Report: Process Execution Surges
 
-──────────────────────────────────────────────────────────────────────────────
-📊 RANKED OUTLIER SUMMARY (Top Anomalies by Severity)
-──────────────────────────────────────────────────────────────────────────────
-| Entity Identifier | Spike Window     | Observed | Baseline Envelope | Severity Rating                     | Visual Magnitude |
-| :---------------- | :--------------- | :------- | :---------------- | :---------------------------------- | :--------------- |
-| **br-win10-14**   | 2026-08-11T09:00 | **827**  | 660 ± 33          | **🚨 [CRITICAL OUTLIER]** (`+5.10σ`) | `██████████`     |
-| **dev-win10-4**   | 2026-08-12T09:00 | **888**  | 720 ± 33          | **🚨 [CRITICAL OUTLIER]** (`+5.06σ`) | `█████████▉`     |
-| **acc-win11-15**  | 2026-08-16T09:00 | **595**  | 446 ± 30          | **🚨 [CRITICAL OUTLIER]** (`+5.00σ`) | `█████████▊`     |
+* **Outliers Detected**: **4 entities** exceeded the configured anomaly threshold.
+* **Baseline Envelope**: Mean ($\mu$) $\approx 659.9$ | StdDev ($\sigma$) $\approx 32.8$
 
-──────────────────────────────────────────────────────────────────────────────
-🔍 TOP OUTLIER SPOTLIGHT: `br-win10-14` — 🚨 [CRITICAL OUTLIER] (`+5.10σ`)
-──────────────────────────────────────────────────────────────────────────────
-• Activity Surge   : 827 executions (+25.3% above historical mean).
-• Binary Diversity : 51 distinct full binary paths executed.
+---
 
-──────────────────────────────────────────────────────────────────────────────
-💡 THREAT TRANSLATION CARD: Parametric Z-Score (Standard Deviation Surge)
-──────────────────────────────────────────────────────────────────────────────
-• Threat Meaning   : Volume explosion exceeding personal 30-day host baseline. Indicates script loops, build storms, mass lateral movement, or ransomware staging.
-• Common False Pos : Software compiler builds (MSBuild/Ninja/GCC), SCCM/Ansible endpoint management jobs, local dev tests.
-• SOC Triage Steps :
-    - [ ] Inspect Parent Binary Lineage (e.g. cmd.exe vs devenv.exe).
-    - [ ] Verify executing User Account (Service Account vs Interactive End-User).
-    - [ ] Check for executions from user-writable directories (C:\Temp, AppData\Local\Temp).
+#### 📊 Ranked Outlier Summary (Top Anomalies by Severity)
 
-──────────────────────────────────────────────────────────────────────────────
-🎯 IMMEDIATE DRILL-DOWN INVESTIGATION QUERY
-──────────────────────────────────────────────────────────────────────────────
-principal.hostname = "br-win10-14" 
-AND metadata.event_type = "PROCESS_LAUNCH" 
-AND metadata.event_timestamp.seconds >= 1786438800 
-AND metadata.event_timestamp.seconds <= 1786442400
+| Entity Identifier | Spike Window | Observed | Baseline Envelope | Severity Rating | Visual Magnitude |
+| :---------------- | :----------- | :------- | :---------------- | :-------------- | :--------------- |
+| `br-win10-14` | 2026-08-11T09:00 | **827** | 660 ± 33 | 🚨 **[CRITICAL OUTLIER]** (`+5.10σ`) | `██████████` |
+| `dev-win10-4` | 2026-08-12T09:00 | **888** | 720 ± 33 | 🚨 **[CRITICAL OUTLIER]** (`+5.06σ`) | `█████████▉` |
+| `acc-win11-15` | 2026-08-16T09:00 | **595** | 446 ± 30 | 🚨 **[CRITICAL OUTLIER]** (`+5.00σ`) | `█████████▊` |
+
+---
+
+#### 🔍 Top Outlier Spotlight: `br-win10-14` — 🚨 **[CRITICAL OUTLIER]** (`+5.10σ`)
+
+* **Activity Surge**: **827 executions** (+25.3% above historical personal mean).
+* **Binary Diversity**: **51 distinct full binary paths** executed.
+
+> [!IMPORTANT]
+> **Threat Translation: Parametric Z-Score (Standard Deviation Surge)**
+> * **Threat Meaning**: Volume explosion exceeding personal 30-day host baseline. Indicates script loops, build storms, mass lateral movement, or ransomware staging.
+> * **Common False Positives**: Software compiler builds (MSBuild/Ninja/GCC), SCCM/Ansible endpoint management jobs, local developer testing.
+> * **SOC Triage Playbook**:
+>   1. Inspect Parent Binary Lineage (e.g. `cmd.exe` vs `devenv.exe` / `CcmExec.exe`).
+>   2. Verify executing User Account (Service Account vs Interactive End-User).
+>   3. Check for executions from user-writable directories (`C:\Temp`, `AppData\Local\Temp`, `/tmp`).
+
+---
+
+#### 🎯 Immediate Drill-Down Investigation Query
+
+```yara
+principal.hostname = "br-win10-14" AND metadata.event_type = "PROCESS_LAUNCH"
+AND metadata.event_timestamp.seconds >= 1786438800 AND metadata.event_timestamp.seconds <= 1786442400
+```
 ```
 
 ---
@@ -243,4 +244,4 @@ Every multi-stage query generated by this skill **MUST** start with a standardiz
   * `references/watchdog-polling-architecture.md`: LRO watchdog mechanics and F1 optimization guide.
   * `references/scope-exclusions-guardrail.md`: Deep dive on UEBA `metrics.*` vs ad-hoc multi-stage telemetry and Rules Engine separation.
 * `scripts/`:
-  * `scripts/multistage_query_builder.py`: Linter, 4-tier triage report formatter with Threat Translation Cards, and 4D Vega-Lite / Chart.js spec generator.
+  * `scripts/multistage_query_builder.py`: Linter, CommonMark 4-tier triage report formatter with Threat Translation Cards, and 4D Vega-Lite / Chart.js spec generator.
