@@ -149,3 +149,19 @@ This document outlines the mathematical models supported by `secops-statistical-
    * **$X$-Axis**: Hour of Day ($00–23$).
    * **$Y$-Axis**: Day of Week (Monday–Sunday) or Subnet.
    * **Color Density**: Anomaly Score or Event Concentration.
+
+---
+
+## 11. Malachite AST Linearization & Compiler Rules
+
+When implementing any statistical model in YARA-L 2.0 multi-stage queries, strictly adhere to the following Malachite AST rules:
+
+| Statistical Model | Formula | Malachite AST Linear Syntax | Zero-Division Protection (Condition) |
+| :--- | :--- | :--- | :--- |
+| **Parametric $Z$-Score** | $Z = \frac{x - \mu}{\sigma}$ | `$diff = $obs - $mu`<br>`$z_score = $diff / $sigma` | `condition: $sigma >= 5.0 and $z_score > 3.0` |
+| **Poisson Fano Factor** | $F = \frac{\sigma^2}{\mu}$ | `$var = $sigma * $sigma`<br>`$fano = $var / $mu` | `condition: $mu >= 1.0 and $fano >= 4.0` |
+| **Poisson Rare Arrival** | $Z_P = \frac{k - \lambda}{\sqrt{\lambda}}$ | `$poisson_sd = math.sqrt($lambda)`<br>`$diff = $k - $lambda`<br>`$poisson_z = $diff / $poisson_sd` | `condition: $lambda > 0.0 and $poisson_sd > 0.0 and $poisson_z >= 3.5` |
+| **Modified $Z$ (MAD)** | $M_Z = \frac{0.6745 \cdot \|x - \tilde{x}\|}{\text{MAD}}$ | `$diff = $obs - $median`<br>`$abs_diff = math.abs($diff)`<br>`$scaled = 0.6745 * $abs_diff`<br>`$m_z = $scaled / $mad` | `condition: $mad > 5.0 and $m_z > 2.5` |
+| **Timing Jitter ($\text{CV}$)** | $\text{CV} = \frac{\sigma_{\Delta t}}{\mu_{\Delta t}}$ | `$span = $last - $first`<br>`$intervals = $count - 1`<br>`$gap = $span / $intervals`<br>`$cv = $stddev_gap / $mean_gap` | `condition: $mean_gap >= 30.0 and $cv <= 0.20` |
+| **Tukey Upper Fence** | $Q_3 + (1.5 \cdot \text{IQR})$ | `$iqr = $q3 - $q1`<br>`$margin = 1.5 * $iqr`<br>`$fence = $q3 + $margin`<br>`$surge = $obs / $fence` | `condition: $iqr >= 10.0 and $surge >= 2.0` |
+| **Conditional Counting** | Count matching events | `$count = sum(if(condition, 1, 0))` | *Never use `count(if(...))`.* |

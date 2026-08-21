@@ -69,15 +69,18 @@ outcome:
   $historical_lambda = max($tool_baseline.lambda_rate)
   $historical_total = max($tool_baseline.total_historical_runs)
   // Poisson standard deviation is √λ
-  $poisson_sd = math.sqrt(if($historical_lambda > 0, $historical_lambda, 0.1))
-  // Poisson Z-score
-  $poisson_z = ($observed_today - $historical_lambda) / $poisson_sd
+  $poisson_sd = math.sqrt($historical_lambda)
+  // Linear AST Poisson Z-score
+  $diff = $observed_today - $historical_lambda
+  $poisson_z = $diff / $poisson_sd
 
 condition:
   // Activity Floor: at least 3 executions observed on the target day
   $observed_today >= 3
-  // Rare Event Filter: historical baseline rate must be low (λ <= 2.0 runs/day)
+  // Rare Event Filter: historical baseline rate must be positive and low (0 < λ <= 2.0 runs/day)
+  and $historical_lambda > 0.0
   and $historical_lambda <= 2.0
+  and $poisson_sd > 0.0
   // Poisson Score Floor: 3.5 Sigma threshold indicates extreme improbability
   and $poisson_z >= 3.5
 

@@ -28,8 +28,10 @@ stage host_intervals {
     $first_seen = min($ts)
     $last_seen = max($ts)
     $conn_count = count(metadata.id)
-    // Inter-arrival average interval (in seconds) within the hour
-    $avg_gap = ($last_seen - $first_seen) / ($conn_count - 1)
+    // Inter-arrival average interval (in seconds) within the hour (Linear AST)
+    $time_span = $last_seen - $first_seen
+    $intervals = $conn_count - 1
+    $avg_gap = $time_span / $intervals
 }
 
 // Stage 2: Aggregate historical timing stats across the full window

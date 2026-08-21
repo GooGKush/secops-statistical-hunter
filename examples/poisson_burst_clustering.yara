@@ -48,14 +48,14 @@ outcome:
   $stddev_val = max($dispersion_baseline.stddev_rate)
   $total_fails = max($dispersion_baseline.total_failures)
   // Variance is standard deviation squared (σ²)
-  $var_rate = max($dispersion_baseline.stddev_rate) * max($dispersion_baseline.stddev_rate)
+  $var_rate = $stddev_val * $stddev_val
   // Fano Factor: ratio of variance to mean (F = σ² / μ)
-  $fano_factor = $var_rate / if($mu > 0, $mu, 1.0)
+  $fano_factor = $var_rate / $mu
 
 condition:
   // Activity Floor: at least 15 failed logins across the search window
   $total_fails >= 15
-  // Historical Rate Floor: average at least 1 failure per active hour
+  // Historical Rate Floor: average at least 1 failure per active hour (protects against zero-division)
   and $mu >= 1.0
   // Over-dispersion Threshold: Fano Factor >= 4.0 indicates non-random burst clustering
   and $fano_factor >= 4.0

@@ -84,7 +84,9 @@ outcome:
   $mean_val = max($host_stats.host_mean)
   $stddev_val = max($host_stats.host_stddev)
   $distinct_binaries = max($host_hourly.distinct_procs)
-  $z_score = ($observed_count - $mean_val) / $stddev_val
+  // Linear AST: single-operation variable assignments (NO parentheses in outcome math)
+  $diff = $observed_count - $mean_val
+  $z_score = $diff / $stddev_val
 
 condition:
   $observed_count >= 50
@@ -92,15 +94,19 @@ condition:
   and $z_score > 3.0
 ```
 
-### 2. Five Syntax Traps to Avoid (Anti-Pattern Guide)
+### 2. Critical Compiler & Syntax Anti-Patterns (Malachite AST Rules)
 
 | ❌ INCORRECT (Syntax Error) | ✓ CORRECT (Valid Multi-Stage) | Why it Fails |
 | :--- | :--- | :--- |
+| `$z = ($a - $b) / $c` (Parentheses in math) | `$diff = $a - $b`<br>`$z = $diff / $c` | **No Parentheses in Outcome Math**: Malachite AST rejects compound/parenthesized arithmetic. Use linear single-operation variable assignments. |
+| `$val = if($b > 0, $a / $b, 0)` or `$a / if(...)` | `$val = $a / $b`<br>`condition: $b > 0 and $val > 3.0` | **No Bare `if()` in Arithmetic**: Outcome math does not support inline `if()` for zero-division. Handle divisor protection in `condition:`. |
+| `count(if(status = "FAIL", 1, 0))` | `sum(if(status = "FAIL", 1, 0))` | **Conditional Counting Standard**: `count(if(...))` is invalid syntax. Use `sum(if(condition, 1, 0))` to aggregate conditional events. |
 | `stage s1 { events: $e.metadata... }` | `stage s1 { metadata.event_type = "..." }` | Stages **do not** have an `events:` header. Event filters are written directly. |
 | `$s in stage_1` or `$s in $stage_1` | `$val = $stage_1.val` or `$stage_1.val` | There is no `in stage` keyword in YARA-L. Stage outputs are accessed via `$stage_name.field`. |
 | Missing stage binding in root events section | `$host = $s1.host; $host = $s2.host` before `match:` | `outcome_validator.go` throws `events section does not declare event variable` if an outcome stage isn't bound. |
 | `stage final_outliers { ... }` (last stage named) | Unwrapped root level (no `stage` wrapper) | The final evaluation stage must be at the root level of the query. |
-| `math.max($a, $b)` or `math.min($a, $b)` | `$a / $b` with condition floor, or `if($b > 0, $b, 1)` | `math.max` does **not** exist in YARA-L. `max()` is only an aggregator. |
+| `math.max($a, $b)` or `math.min($a, $b)` | `$diff = $a - $b`<br>Condition floor: `$a >= $b` | `math.max` and `math.min` do **not** exist in YARA-L. `max()` is only an aggregator. |
+| `options: ...` in multi-stage search | Query ends after `condition:` or `order:` | `options:` is rule-engine only. Including it in ad-hoc searches causes parser `<EOF>` errors. |
 
 ---
 

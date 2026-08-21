@@ -47,7 +47,8 @@ stage abs_dev {
   outcome:
     $daily_val = max($daily_stats.distinct_subdomains)
     $median_val = max($median_stats.host_median)
-    $dev = math.abs($daily_val - $median_val)
+    $raw_dev = $daily_val - $median_val
+    $dev = math.abs($raw_dev)
 }
 
 // Stage 4: Compute Median Absolute Deviation (MAD) across all daily deviations
@@ -72,7 +73,10 @@ outcome:
   $host_median = max($abs_dev.median_val)
   $mad_val = max($mad_stats.mad)
   // Modified Z-score formula for robust outlier detection on skewed distributions
-  $m_z_score = math.abs((0.6745 * ($daily_subdomains - $host_median)) / $mad_val)
+  $diff = $daily_subdomains - $host_median
+  $abs_diff = math.abs($diff)
+  $scaled_diff = 0.6745 * $abs_diff
+  $m_z_score = $scaled_diff / $mad_val
 
 condition:
   // Volume Floor: at least 50 distinct queries today

@@ -54,8 +54,9 @@ outcome:
   $q3_val = max($iqr_fences.q3)
   $median_val = max($iqr_fences.median_mb)
   $iqr = $q3_val - $q1_val
-  // Tukey's Mild Outlier Upper Fence: Q3 + 1.5 * IQR
-  $upper_fence = $q3_val + (1.5 * $iqr)
+  // Tukey's Mild Outlier Upper Fence: Q3 + 1.5 * IQR (Linear AST)
+  $iqr_margin = 1.5 * $iqr
+  $upper_fence = $q3_val + $iqr_margin
   // Anomaly severity ratio relative to upper fence
   $surge_ratio = $observed_mb / $upper_fence
 

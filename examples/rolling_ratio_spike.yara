@@ -36,22 +36,38 @@ stage max_day_tracker {
     $max_day = max($day_id)
 }
 
-// Stage 3: Bucket sums into 1-Day (today), 7-Day rolling, and 30-Day rolling windows
-stage window_buckets {
+// Stage 3: Calculate linear day offset per day bucket
+stage day_offsets {
     $user = $daily_auth_fails.user
     $day_id = $daily_auth_fails.day_id
+    $fail_count = $daily_auth_fails.fail_count
     $user = $max_day_tracker.user
     $max_day = $max_day_tracker.max_day
+
+  match:
+    $user, $day_id
+  outcome:
+    $max_val = max($max_day)
+    $curr_val = max($day_id)
+    $offset = $max_val - $curr_val
+    $bucket_fails = max($fail_count)
+}
+
+// Stage 4: Bucket sums into 1-Day (today), 7-Day rolling, and 30-Day rolling windows
+stage window_buckets {
+    $user = $day_offsets.user
+    $offset = $day_offsets.offset
+    $bucket_fails = $day_offsets.bucket_fails
 
   match:
     $user
   outcome:
     // Today's count (offset = 0)
-    $sum_1d = sum(if(($max_day - $day_id) = 0, $daily_auth_fails.fail_count, 0))
-    // Last 7 days total
-    $sum_7d = sum(if(($max_day - $day_id) <= 6, $daily_auth_fails.fail_count, 0))
-    // Last 30 days total
-    $sum_30d = sum(if(($max_day - $day_id) <= 29, $daily_auth_fails.fail_count, 0))
+    $sum_1d = sum(if($offset = 0, $bucket_fails, 0))
+    // Last 7 days total (offset <= 6)
+    $sum_7d = sum(if($offset <= 6, $bucket_fails, 0))
+    // Last 30 days total (offset <= 29)
+    $sum_30d = sum(if($offset <= 29, $bucket_fails, 0))
 }
 
 // Root Stage: Calculate moving averages and surge ratios
@@ -61,11 +77,19 @@ match:
   $user
 outcome:
   $today_fails = max($window_buckets.sum_1d)
-  $avg_7d = math.round(max($window_buckets.sum_7d) / 7.0, 2)
-  $avg_30d = math.round(max($window_buckets.sum_30d) / 30.0, 2)
-  // Velocity ratios
-  $ratio_1v7 = math.round($today_fails / ($avg_7d + 0.1), 2)
-  $ratio_1v30 = math.round($today_fails / ($avg_30d + 0.1), 2)
+  $sum_7d = max($window_buckets.sum_7d)
+  $avg_7d_raw = $sum_7d / 7.0
+  $avg_7d = math.round($avg_7d_raw, 2)
+  $sum_30d = max($window_buckets.sum_30d)
+  $avg_30d_raw = $sum_30d / 30.0
+  $avg_30d = math.round($avg_30d_raw, 2)
+  // Velocity ratios (Linear AST)
+  $denom_7d = $avg_7d + 0.1
+  $raw_ratio_1v7 = $today_fails / $denom_7d
+  $ratio_1v7 = math.round($raw_ratio_1v7, 2)
+  $denom_30d = $avg_30d + 0.1
+  $raw_ratio_1v30 = $today_fails / $denom_30d
+  $ratio_1v30 = math.round($raw_ratio_1v30, 2)
 
 condition:
   // Volume Floor: at least 100 failed logins today

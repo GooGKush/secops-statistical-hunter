@@ -30,6 +30,8 @@ SYNTAX_TRAPS = [
     (r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\bevents\s*:", "SYNTAX ERROR: Multi-stage named stages do NOT use an 'events:' header. Place event filters directly inside the stage block."),
     (r"\$\w+\s+in\s+\$?[a-zA-Z0-9_]+", "SYNTAX ERROR: Do NOT use '$var in stage_name'. Access stage outputs directly via '$stage_name.variable_name' or '$var = $stage_name.variable_name'."),
     (r"\bmath\.(max|min)\b", "SYNTAX ERROR: 'math.max' and 'math.min' do NOT exist in YARA-L. Use aggregate max()/min(), condition floors, or if(cond, val1, val2)."),
+    (r"\bcount\s*\(\s*if\s*\(", "SYNTAX ERROR: 'count(if(...))' is invalid syntax. Use 'sum(if(condition, 1, 0))' for conditional event counting."),
+    (r"^\s*options\s*:", "SYNTAX ERROR: 'options:' blocks are Rule-Engine only and rejected in Search/Dashboard queries. Searches terminate after 'condition:' or 'order:'."),
 ]
 
 SENSITIVITY_MAP = {
@@ -160,6 +162,30 @@ def validate_multistage_syntax(query: str) -> List[str]:
             f"STAGE BINDING ERROR: Stage '{stage_name}' is referenced in the root outcome block "
             f"but is not declared in the root events section (above match:). "
             f"Add '$var = ${stage_name}.<key>' or 'cross join ...' to bind it."
+        )
+
+  # Validate all outcome blocks for Malachite AST rules (Linear AST, no parentheses, no bare if)
+  outcome_blocks = re.findall(r"outcome\s*:(.*?)(?=\n\s*(?:condition|order|stage|\Z))", query, flags=re.DOTALL | re.MULTILINE)
+  for block in outcome_blocks:
+    for line in block.splitlines():
+      line_clean = re.sub(r"//.*", "", line).strip()
+      if not line_clean or "=" not in line_clean:
+        continue
+      rhs = line_clean.split("=", 1)[1].strip()
+      
+      # Check for inline/bare if in arithmetic: e.g. / if(...) or * if(...)
+      if re.search(r"[-+*/]\s*if\s*\(|if\s*\([^)]*\)\s*[-+*/]", rhs):
+        errors.append(
+            f"MALACHITE AST ERROR: Inline if() inside outcome arithmetic: '{line_clean}'. "
+            f"Outcome math rejects inline if() for division protection. Enforce non-zero divisor in 'condition:' instead."
+        )
+
+      # Check for parenthesized arithmetic in outcome assignments: e.g. ($a - $b) / $c, or func((...) / ...)
+      if re.search(r"\([^)]*[-+*/][^)]*\)", rhs):
+        # Ignore valid single-argument functions without internal operators if any, but any parens with arithmetic operators should be flagged
+        errors.append(
+            f"MALACHITE AST ERROR: Parentheses in outcome arithmetic: '{line_clean}'. "
+            f"Malachite AST rejects compound/parenthesized arithmetic. Use linear variable assignments ($diff = $a - $b, $res = $diff / $c)."
         )
 
   if not re.search(r"//\s*Goal:", query, re.IGNORECASE):

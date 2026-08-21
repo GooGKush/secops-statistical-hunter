@@ -48,7 +48,8 @@ outcome:
   $mean_val = max($host_stats.host_mean)
   $stddev_val = max($host_stats.host_stddev)
   $distinct_binaries = max($host_hourly.distinct_procs)
-  $z_score = ($observed_count - $mean_val) / $stddev_val
+  $diff = $observed_count - $mean_val
+  $z_score = $diff / $stddev_val
 
 condition:
   // Activity Floor: at least 50 executions in this hour
