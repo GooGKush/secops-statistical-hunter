@@ -51,3 +51,23 @@ EXCLUDED_PATTERNS = [
     (r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", "Multi-stage queries cannot be wrapped in rule blocks. They are Search-only."),
 ]
 ```
+
+---
+
+## 4. Search Window Ceilings: Single-Stage (90 Days) vs. Multi-Stage (30 Days)
+
+Google SecOps enforces strict backend execution limits depending on query topology:
+
+| Query Architecture | Maximum Window Ceiling | Underlying Reason | Recommended Hunting Use Case |
+| :--- | :--- | :--- | :--- |
+| **Single-Stage Macro Stats Search**<br>(`match: $host outcome: ...`) | **90 Consecutive Days**<br>(7,776,000 seconds / 2,160 hours) | Single map-reduce aggregation pass without cross-stage shuffle buffers. | Historical host averages, 90-day entity profile summaries, total volume baselines. |
+| **Multi-Stage DAG Outlier Hunt**<br>(`stage s1 { ... } stage s2 { ... }`) | **30 Consecutive Days**<br>(2,592,000 seconds / 720 hours) | Intermediate stage joins and shuffle states are buffered in distributed F1 worker memory. Queries $>30\text{d}$ exceed join buffer quotas. | Hourly 3-Sigma $Z$-scores, MAD outlier detection, Poisson burst clustering (Fano factor). |
+
+### Prescriptive Agent Interception
+* If an analyst asks for a **Multi-Stage Hunt** $>30\text{ days}$:
+  1. Advise that multi-stage queries have a 30-day maximum limit due to distributed join state buffers.
+  2. Run the multi-stage hunt over the maximum 30-day window (720 hourly points are statistically optimal for 3-Sigma).
+  3. Offer a 90-day single-stage macro search if they specifically need longer historical averages.
+* If an analyst asks for any search $>90\text{ days}$:
+  1. Advise that the absolute Chronicle Search API ceiling is 90 days.
+  2. Scope the search to the 90-day maximum window.

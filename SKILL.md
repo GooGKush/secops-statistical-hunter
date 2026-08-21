@@ -107,6 +107,7 @@ condition:
 | `stage final_outliers { ... }` (last stage named) | Unwrapped root level (no `stage` wrapper) | The final evaluation stage must be at the root level of the query. |
 | `math.max($a, $b)` or `math.min($a, $b)` | `$diff = $a - $b`<br>Condition floor: `$a >= $b` | `math.max` and `math.min` do **not** exist in YARA-L. `max()` is only an aggregator. |
 | `options: ...` in multi-stage search | Query ends after `condition:` or `order:` | `options:` is rule-engine only. Including it in ad-hoc searches causes parser `<EOF>` errors. |
+| `match: $host by 1h hop 15m` or `by 1h over 15m` | `match: $host by 1h` (Tumbling)<br>or `match: $host over 15m` (Sliding) | **Window Syntax Rule**: YARA-L does not support compound `by X hop Y`. Use `by <duration>` for discrete tumbling buckets, `over <duration>` for sliding windows, or `match: $entity` for unwindowed baseline stages. |
 
 ---
 
@@ -198,6 +199,17 @@ For clients that support rich UI graphing, the skill provides **Strictly-Typed J
 ### 3. Exclusion of UEBA & Risk Analytics (`metrics.*`, `graph.risk_score`)
 * ❌ **DO NOT USE**: `metrics.*` (e.g., `metrics.network_bytes_outbound`), `graph.risk_score`, or `source_dataset: UEBA_EVENTS`. These require fixed batch schedules and belong in **`secops-risk-analytics`**.
 * ✓ **USE INSTEAD**: Raw telemetry (`UDM_EVENTS`) or alerts (`RULE_DETECTIONS`) with inline window/math functions (`window.median`, `window.percentile`, `stddev`, `math.abs`).
+
+### 4. Search Window Ceilings: Single-Stage (90 Days) vs. Multi-Stage (30 Days)
+* **Single-Stage Macro Stats Searches (`match: $entity outcome: ...`)**:
+  * ✓ **Supported Window**: Up to **90 consecutive days** (7,776,000s / 2,160h).
+  * **Use Case**: Macro historical sweeps, 90-day host average bytes, total failure counts, and entity profile baselines.
+* **Multi-Stage DAG Outlier Queries (`stage s1 { ... } stage s2 { ... }`)**:
+  * ✓ **Supported Window**: Up to **30 consecutive days** (2,592,000s / 720h).
+  * ❌ **Hard Ceiling**: Requests $> 30\text{ days}$ for multi-stage queries fail with `INVALID_ARGUMENT` due to distributed intermediate join state buffer limits in F1.
+* **Prescriptive Analyst Guidance for Requests $>30\text{ Days}$**:
+  * If an analyst requests a multi-stage hunt spanning $>30\text{ days}$ (e.g., *"hunt for 3-sigma process surges across the last 90 days"*), advise:
+    > *"Multi-stage anomaly queries (hourly Z-scores, MAD, Fano factor) have a 30-day maximum limit due to distributed join state buffers. We can run this multi-stage hunt over the maximum 30-day window (which provides 720 hourly samples—statistically optimal for 3-Sigma), or run a 90-day single-stage macro search for overall historical baselines."*
 
 ---
 

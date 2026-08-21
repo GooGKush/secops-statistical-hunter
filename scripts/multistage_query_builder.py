@@ -32,6 +32,7 @@ SYNTAX_TRAPS = [
     (r"\bmath\.(max|min)\b", "SYNTAX ERROR: 'math.max' and 'math.min' do NOT exist in YARA-L. Use aggregate max()/min(), condition floors, or if(cond, val1, val2)."),
     (r"\bcount\s*\(\s*if\s*\(", "SYNTAX ERROR: 'count(if(...))' is invalid syntax. Use 'sum(if(condition, 1, 0))' for conditional event counting."),
     (r"^\s*options\s*:", "SYNTAX ERROR: 'options:' blocks are Rule-Engine only and rejected in Search/Dashboard queries. Searches terminate after 'condition:' or 'order:'."),
+    (r"match:\s*[^;\n]+\bby\b[^;\n]+\b(hop|over)\b", "SYNTAX ERROR: Compound 'by X hop Y' or 'by X over Y' is invalid syntax in YARA-L. Use 'match: $var by <duration>' for tumbling buckets, 'match: $var over <duration>' for sliding windows, or 'match: $var' for unwindowed baseline stages."),
 ]
 
 SENSITIVITY_MAP = {
@@ -144,25 +145,31 @@ def validate_multistage_syntax(query: str) -> List[str]:
       errors.append(msg)
 
   stages = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{", query)
-  if not stages:
-    errors.append("MISSING STAGES: A multi-stage query requires at least one named 'stage <name> { ... }' block.")
+  is_multistage = bool(stages)
 
-  stripped = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
-  if not re.search(r"^\s*outcome\s*:", stripped, re.MULTILINE):
-    errors.append("MISSING UNWRAPPED ROOT OUTCOME: The final stage must NOT be inside a named 'stage { ... }' block. It must be unwrapped at the root level.")
+  if is_multistage:
+    stripped = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
+    if not re.search(r"^\s*outcome\s*:", stripped, re.MULTILINE):
+      errors.append("MISSING UNWRAPPED ROOT OUTCOME: The final stage must NOT be inside a named 'stage { ... }' block. It must be unwrapped at the root level.")
 
-  outcome_match = re.search(r"^\s*outcome\s*:(.*?)(\ncondition\s*:|\norder\s*:|$)", stripped, flags=re.DOTALL | re.MULTILINE)
-  if outcome_match:
-    outcome_text = outcome_match.group(1)
-    outcome_stages = set(re.findall(r"\$([a-zA-Z0-9_]+)\.[a-zA-Z0-9_]+", outcome_text))
-    root_events_text = stripped[:outcome_match.start()]
-    for stage_name in outcome_stages:
-      if not re.search(r"\$" + stage_name + r"\.", root_events_text):
-        errors.append(
-            f"STAGE BINDING ERROR: Stage '{stage_name}' is referenced in the root outcome block "
-            f"but is not declared in the root events section (above match:). "
-            f"Add '$var = ${stage_name}.<key>' or 'cross join ...' to bind it."
-        )
+    outcome_match = re.search(r"^\s*outcome\s*:(.*?)(\ncondition\s*:|\norder\s*:|$)", stripped, flags=re.DOTALL | re.MULTILINE)
+    if outcome_match:
+      outcome_text = outcome_match.group(1)
+      outcome_stages = set(re.findall(r"\$([a-zA-Z0-9_]+)\.[a-zA-Z0-9_]+", outcome_text))
+      root_events_text = stripped[:outcome_match.start()]
+      for stage_name in outcome_stages:
+        if not re.search(r"\$" + stage_name + r"\.", root_events_text):
+          errors.append(
+              f"STAGE BINDING ERROR: Stage '{stage_name}' is referenced in the root outcome block "
+              f"but is not declared in the root events section (above match:). "
+              f"Add '$var = ${stage_name}.<key>' or 'cross join ...' to bind it."
+          )
+  else:
+    # Single-stage stats search validation
+    if not re.search(r"^\s*match\s*:", query, re.MULTILINE):
+      errors.append("MISSING MATCH SECTION: Single-stage stats searches require a 'match:' section.")
+    if not re.search(r"^\s*outcome\s*:", query, re.MULTILINE):
+      errors.append("MISSING OUTCOME SECTION: Single-stage stats searches require an 'outcome:' section.")
 
   # Validate all outcome blocks for Malachite AST rules (Linear AST, no parentheses, no bare if)
   outcome_blocks = re.findall(r"outcome\s*:(.*?)(?=\n\s*(?:condition|order|stage|\Z))", query, flags=re.DOTALL | re.MULTILINE)
@@ -191,6 +198,33 @@ def validate_multistage_syntax(query: str) -> List[str]:
   if not re.search(r"//\s*Goal:", query, re.IGNORECASE):
     errors.append("MISSING METHODOLOGY HEADER: Recommended to include '// Goal:' and '// Statistical Model:' methodology block.")
 
+  return errors
+
+
+def check_search_window(start_time: str, end_time: str, is_multistage: bool) -> List[str]:
+  """Enforces the Two-Tier Search Window Ceilings (30d multi-stage vs 90d single-stage)."""
+  from datetime import datetime
+  errors = []
+  try:
+    t0 = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+    t1 = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+    delta_days = (t1 - t0).total_seconds() / 86400.0
+
+    if delta_days <= 0:
+      errors.append(f"INVALID TIME RANGE: start_time ({start_time}) must be earlier than end_time ({end_time}).")
+
+    if is_multistage and delta_days > 30.0:
+      errors.append(
+          f"WINDOW CEILING EXCEEDED ({delta_days:.1f} days): Multi-stage queries have a hard 30-day (720h) ceiling. "
+          f"Reduce window to <= 30 days (provides 720 hourly baseline samples) or use single-stage macro search."
+      )
+    elif not is_multistage and delta_days > 90.0:
+      errors.append(
+          f"WINDOW CEILING EXCEEDED ({delta_days:.1f} days): Single-stage searches have a hard 90-day (2,160h) ceiling. "
+          f"Reduce window to <= 90 days."
+      )
+  except Exception as e:
+    errors.append(f"TIMESTAMP PARSE ERROR: Could not parse start/end times: {e}")
   return errors
 
 
@@ -602,8 +636,29 @@ def main():
       "--chart_spec",
       help="Path to raw stats JSON to generate Dual-Y Vega-Lite chart spec",
   )
+  parser.add_argument(
+      "--start_time",
+      help="Query start time in ISO 8601 format (e.g. 2026-08-01T00:00:00Z)",
+  )
+  parser.add_argument(
+      "--end_time",
+      help="Query end time in ISO 8601 format (e.g. 2026-08-21T00:00:00Z)",
+  )
 
   args = parser.parse_args()
+
+  if args.start_time and args.end_time:
+    is_multi = True
+    if args.query_file:
+      with open(args.query_file, "r") as f:
+        q_text = f.read()
+      is_multi = "stage " in q_text
+    window_errors = check_search_window(args.start_time, args.end_time, is_multi)
+    if window_errors:
+      print("\n❌ SEARCH WINDOW ERROR:")
+      for w in window_errors:
+        print(f"  {w}")
+      sys.exit(1)
 
   if args.format_report:
     with open(args.format_report, "r") as f:
