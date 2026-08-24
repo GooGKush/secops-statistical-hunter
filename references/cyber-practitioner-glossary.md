@@ -73,3 +73,29 @@ Every anomaly model has legitimate business causes. Use these checklists to rule
 * **SOC Triage Checklist**:
   1. [ ] Check Failure Reason: Is error code `STATUS_WRONG_PASSWORD` vs `STATUS_ACCOUNT_LOCKED_OUT`?
   2. [ ] Check Source IP Diversity: Are failures originating from a single internal IP (cached cred) or rotating external IPs (spray)?
+
+---
+
+## 4. The 6 Standardized Evidence Pillars
+
+Every statistical detection must emit these 6 standardized evidence variables to provide complete forensic traceability:
+
+| Evidence Pillar | Outcome Field | Plain-English Meaning for SOC Analysts |
+| :--- | :--- | :--- |
+| **1. Activity Spike (Observation)** | `$observation_count` | What the computer actually did during the spike window (e.g. 850 process executions). |
+| **2. Baseline History (Sample Depth)** | `$baseline_active_samples` | How much history was analyzed to ensure this isn't a new or unobserved machine (e.g. 168 active hours). |
+| **3. Typical Normal Level** | `$baseline_mean` | The normal expected volume when things are operating routinely (e.g. 250 executions/hour). |
+| **4. Normal Daily Spread** | `$baseline_dispersion` | Typical day-to-day variation range (e.g. ±35); this surge blew far past this envelope. |
+| **5. Company-Wide Breadth** | `$fleet_prevalence` | 1 host = isolated/targeted; 100 hosts = company-wide software push. |
+| **6. Variety of Programs / Targets** | `$distinct_binaries` | Breadth of distinct commands/binaries involved (high variety = batch recon/staging). |
+
+---
+
+## 5. Confidence Tiers & First-Class Outcomes
+
+To prevent false alarms caused by the Law of Small Numbers:
+
+* 🟢 **`HIGH CONFIDENCE`**: Robust sample size ($\ge 30$ active hourly units or $\ge 7$ active days), high statistical magnitude ($Z > 3.0$ or $F > 4.0$), and low fleet prevalence ($\le 2$ hosts).
+* 🟡 **`MODERATE CONFIDENCE`**: Moderate sample size ($15–30$ units), elevated score ($Z > 2.0$), warrants analyst triage.
+* ⚪ **`INSUFFICIENT BASELINE EVIDENCE`**: Baseline active samples below statistical power floor ($< 15$ units). **Unranked outcome** — prevents small-sample division noise from triggering false alerts.
+

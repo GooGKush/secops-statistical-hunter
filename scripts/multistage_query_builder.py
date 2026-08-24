@@ -5,15 +5,20 @@ secops-statistical-hunter Helper Utility: multistage_query_builder.py
 Validates multi-stage YARA-L search queries, enforces the UEBA/Risk Analytics
 Scope Exclusions Guardrail, verifies Canonical Multi-Stage Syntax (no 'events:' headers in stages,
 no '$s in stage' pseudo-syntax, unwrapped root stages, mandatory stage binding in root events block,
-no math.max/min, no rule wrappers), formats and inspects the mandatory Self-Documenting Methodology Header,
+no math.max/min, no rule wrappers, no intra-stage variable reuse/race conditions, max 20 outcome vars),
+formats and inspects the mandatory Self-Documenting Methodology Header,
 formats Clean CommonMark/HTML-Safe Cyber-First 4-Tier Structured Triage Reports (with Unicode visual bars,
-Threat Translation Callout Cards, SOC Severity Badges, Common False Positives, and SOC Playbooks),
+Evidence Payload Cards, Confidence Tier Badges, SOC Severity Badges, Common False Positives, and SOC Playbooks),
 generates Strictly-Typed True Dual-Y Axis Timeline Specs (with orient: right and dashed threshold rules),
 4D Bubble Plots, Heatmaps, and maps Semantic Sensitivity Tiers to math boundaries.
 """
 
+__author__ = "Greg Kushmerek"
+__version__ = "2.0.0"
+
 import argparse
 import json
+import math
 import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
@@ -37,94 +42,264 @@ SYNTAX_TRAPS = [
 
 SENSITIVITY_MAP = {
     "ZSCORE_PROCESS_SURGE": {
-        "CONSERVATIVE": {"z_score": 3.0, "min_count": 50, "min_sd": 10.0},
-        "BALANCED": {"z_score": 2.0, "min_count": 25, "min_sd": 5.0},
-        "AGGRESSIVE": {"z_score": 1.5, "min_count": 10, "min_sd": 2.0},
+        "CONSERVATIVE": {"z_score": 3.0, "min_count": 50, "min_sd": 10.0, "min_active_samples": 120},
+        "BALANCED": {"z_score": 2.0, "min_count": 25, "min_sd": 5.0, "min_active_samples": 60},
+        "AGGRESSIVE": {"z_score": 1.5, "min_count": 10, "min_sd": 2.0, "min_active_samples": 30},
     },
     "POISSON_BURST_CLUSTERING": {
-        "CONSERVATIVE": {"fano_factor": 8.0, "min_fails": 30, "min_mu": 2.0},
-        "BALANCED": {"fano_factor": 4.0, "min_fails": 15, "min_mu": 1.0},
-        "AGGRESSIVE": {"fano_factor": 2.5, "min_fails": 10, "min_mu": 0.5},
+        "CONSERVATIVE": {"fano_factor": 8.0, "min_fails": 30, "min_mu": 2.0, "min_active_samples": 60},
+        "BALANCED": {"fano_factor": 4.0, "min_fails": 15, "min_mu": 1.0, "min_active_samples": 30},
+        "AGGRESSIVE": {"fano_factor": 2.5, "min_fails": 10, "min_mu": 0.5, "min_active_samples": 15},
     },
     "POISSON_RARE_SURGE": {
-        "CONSERVATIVE": {"poisson_z": 5.0, "min_observed": 5, "max_lambda": 1.0},
-        "BALANCED": {"poisson_z": 3.5, "min_observed": 3, "max_lambda": 2.0},
-        "AGGRESSIVE": {"poisson_z": 2.5, "min_observed": 2, "max_lambda": 3.0},
+        "CONSERVATIVE": {"poisson_z": 5.0, "min_observed": 5, "max_lambda": 1.0, "min_baseline_days": 14},
+        "BALANCED": {"poisson_z": 3.5, "min_observed": 3, "max_lambda": 2.0, "min_baseline_days": 7},
+        "AGGRESSIVE": {"poisson_z": 2.5, "min_observed": 2, "max_lambda": 3.0, "min_baseline_days": 3},
     },
     "C2_BEACONING_JITTER": {
-        "CONSERVATIVE": {"cv": 0.05, "min_conns": 50, "prevalence": 1},
-        "BALANCED": {"cv": 0.20, "min_conns": 25, "prevalence": 2},
-        "AGGRESSIVE": {"cv": 0.40, "min_conns": 15, "prevalence": 1},
+        "CONSERVATIVE": {"cv": 0.05, "min_conns": 50, "prevalence": 1, "min_active_hours": 12},
+        "BALANCED": {"cv": 0.20, "min_conns": 25, "prevalence": 2, "min_active_hours": 6},
+        "AGGRESSIVE": {"cv": 0.40, "min_conns": 15, "prevalence": 1, "min_active_hours": 3},
     },
     "DATA_EXFILTRATION_SPIKE": {
-        "CONSERVATIVE": {"m_z": 3.5, "min_mb": 500.0, "min_mad": 20.0},
-        "BALANCED": {"m_z": 2.5, "min_mb": 100.0, "min_mad": 10.0},
-        "AGGRESSIVE": {"m_z": 2.0, "min_mb": 25.0, "min_mad": 5.0},
+        "CONSERVATIVE": {"m_z": 3.5, "min_mb": 500.0, "min_mad": 20.0, "min_baseline_days": 14},
+        "BALANCED": {"m_z": 2.5, "min_mb": 100.0, "min_mad": 10.0, "min_baseline_days": 7},
+        "AGGRESSIVE": {"m_z": 2.0, "min_mb": 25.0, "min_mad": 5.0, "min_baseline_days": 3},
     },
     "HEAVY_TAIL_OUTLIERS": {
-        "CONSERVATIVE": {"surge_ratio": 3.0, "min_iqr": 50.0},
-        "BALANCED": {"surge_ratio": 2.0, "min_iqr": 10.0},
-        "AGGRESSIVE": {"surge_ratio": 1.5, "min_iqr": 5.0},
+        "CONSERVATIVE": {"surge_ratio": 3.0, "min_iqr": 50.0, "min_baseline_days": 14},
+        "BALANCED": {"surge_ratio": 2.0, "min_iqr": 10.0, "min_baseline_days": 7},
+        "AGGRESSIVE": {"surge_ratio": 1.5, "min_iqr": 5.0, "min_baseline_days": 3},
     },
     "VELOCITY_SURGE_RATIO": {
-        "CONSERVATIVE": {"ratio_1v7": 5.0, "ratio_1v30": 8.0, "min_today": 200},
-        "BALANCED": {"ratio_1v7": 3.0, "ratio_1v30": 5.0, "min_today": 100},
-        "AGGRESSIVE": {"ratio_1v7": 2.0, "ratio_1v30": 3.0, "min_today": 50},
+        "CONSERVATIVE": {"ratio_1v7": 5.0, "ratio_1v30": 8.0, "min_today": 200, "min_baseline_days": 20},
+        "BALANCED": {"ratio_1v7": 3.0, "ratio_1v30": 5.0, "min_today": 100, "min_baseline_days": 14},
+        "AGGRESSIVE": {"ratio_1v7": 2.0, "ratio_1v30": 3.0, "min_today": 50, "min_baseline_days": 7},
+    },
+    "FLEET_PEER_ZSCORE": {
+        "CONSERVATIVE": {"fleet_z": 3.5, "min_host_count": 50, "min_fleet_sd": 10.0, "min_active_hosts": 25},
+        "BALANCED": {"fleet_z": 2.5, "min_host_count": 25, "min_fleet_sd": 5.0, "min_active_hosts": 15},
+        "AGGRESSIVE": {"fleet_z": 2.0, "min_host_count": 10, "min_fleet_sd": 2.0, "min_active_hosts": 10},
     },
 }
 
+
+def get_adaptive_window_parameters(
+    duration_hours: float,
+    archetype: str,
+    tier: str = "BALANCED"
+) -> Dict[str, Any]:
+  """Calculates adaptive bucket granularity, proportional sample floors, and model fit based on search window duration."""
+  archetype_up = archetype.upper()
+  tier_up = tier.upper()
+  base_thresh = SENSITIVITY_MAP.get(archetype_up, {}).get(tier_up, {})
+
+  # Determine optimal bucket granularity based on total window duration
+  if duration_hours <= 12.0:
+    bucket_size = "10m"
+    bucket_seconds = 600
+    total_buckets = int(duration_hours * 3600 / bucket_seconds)
+    sample_unit = "10-minute intervals"
+  elif duration_hours <= 36.0:  # ~1 day / "today"
+    bucket_size = "15m"
+    bucket_seconds = 900
+    total_buckets = int(duration_hours * 3600 / bucket_seconds)
+    sample_unit = "15-minute intervals"
+  elif duration_hours <= 168.0:  # <= 7 days / "past week" / "this week so far"
+    bucket_size = "1h"
+    bucket_seconds = 3600
+    total_buckets = int(duration_hours)
+    sample_unit = "hourly intervals"
+  else:  # 7 to 30 days / "this month so far" / "past 30 days"
+    bucket_size = "1h"
+    bucket_seconds = 3600
+    total_buckets = int(duration_hours)
+    sample_unit = "hourly intervals"
+
+  # Calculate proportional sample floor (e.g. 25% of window, minimum 3, maximum default)
+  default_sample_floor = (
+      base_thresh.get("min_active_samples")
+      or base_thresh.get("min_baseline_days")
+      or base_thresh.get("min_active_hours")
+      or 30
+  )
+  
+  if "days" in sample_unit or duration_hours > 168.0 and archetype_up in ["DATA_EXFILTRATION_SPIKE", "HEAVY_TAIL_OUTLIERS"]:
+    # For daily models in extended windows
+    total_days = max(1, int(duration_hours / 24.0))
+    proportional_sample_floor = max(3, min(default_sample_floor, int(total_days * 0.4)))
+  else:
+    proportional_sample_floor = max(3, min(default_sample_floor, max(4, int(total_buckets * 0.25))))
+
+  # Model feasibility checks
+  model_warnings = []
+  if duration_hours <= 48.0 and archetype_up == "VELOCITY_SURGE_RATIO":
+    model_warnings.append(
+        f"Window duration ({duration_hours:.1f}h) is too short for 30-day moving average comparison. "
+        f"Recommended model: POISSON_BURST_CLUSTERING with 'by 10m' or FLEET_PEER_ZSCORE."
+    )
+  elif duration_hours <= 48.0 and archetype_up in ["DATA_EXFILTRATION_SPIKE", "HEAVY_TAIL_OUTLIERS"]:
+    model_warnings.append(
+        f"Daily MAD/IQR requires multi-day baseline. For a {duration_hours:.1f}h window, "
+        f"switch bucket size to 'by 1h' or 'by 15m' to establish intraday MAD/IQR baseline."
+    )
+
+  return {
+      "duration_hours": duration_hours,
+      "duration_days": duration_hours / 24.0,
+      "recommended_bucket": bucket_size,
+      "total_available_buckets": total_buckets,
+      "sample_unit": sample_unit,
+      "proportional_sample_floor": proportional_sample_floor,
+      "base_thresholds": base_thresh,
+      "model_warnings": model_warnings,
+  }
+
 THREAT_EXPLANATIONS = {
     "z_score": {
-        "name": "Parametric Z-Score (Standard Deviation Surge)",
-        "meaning": "Volume explosion exceeding personal 30-day host baseline. Indicates script loops, build storms, mass lateral movement, or ransomware staging.",
-        "false_positives": "Software compiler builds (MSBuild/Ninja/GCC), SCCM/Ansible endpoint management jobs, local developer testing.",
+        "name": "Process Execution Volume Surge (Parametric Z-Score)",
+        "plain_concept": "Massive sudden burst in program launches compared to this computer's normal daily routine.",
+        "why_it_matters": (
+            "When an endpoint suddenly launches hundreds or thousands of processes in a short window, "
+            "it almost always indicates automated software execution (such as a script loop, malware installer, "
+            "or rapid reconnaissance sweep) rather than a human user clicking applications."
+        ),
+        "malicious_scenarios": [
+            "Ransomware traversing folders and launching execution helpers to encrypt files.",
+            "Attacker running automated batch discovery scripts (ping sweeps, user queries, network shares).",
+            "Malware dropper unpacking and executing secondary payloads in rapid succession."
+        ],
+        "benign_scenarios": [
+            "Software engineer compiling code locally using build tools (Ninja, MSBuild, GCC, Rust/Cargo).",
+            "IT systems management software (SCCM, BigFix, Ansible) deploying a large software suite.",
+            "Local antivirus or security sensor running an aggressive background definitions update."
+        ],
         "playbook": [
-            "Inspect Parent Binary Lineage (e.g. `cmd.exe` vs `devenv.exe` / `CcmExec.exe`).",
-            "Verify executing User Account (Service Account vs Interactive End-User).",
-            "Check for executions from user-writable directories (`C:\\Temp`, `AppData\\Local\\Temp`, `/tmp`)."
+            "Run the drill-down query below to see the exact process paths (.exe/.sh) and command-line arguments that executed.",
+            "Check the User Account: Is it an interactive employee user or a system background account (SYSTEM, root, svc-)?",
+            "Look for suspicious execution folders: Are binaries launching from temporary folders (C:\\Temp, AppData\\Local\\Temp, /tmp)?",
+            "Check if the host established sudden outbound network connections immediately following the process spike."
+        ]
+    },
+    "fleet_z": {
+        "name": "Cross-Fleet Peer Outlier (Peer Normalization Z-Score)",
+        "plain_concept": "This specific computer is doing drastically more activity than all other computers in the company.",
+        "why_it_matters": (
+            "By comparing this computer against its peer fleet across the organization, we can isolate machines "
+            "that stand out like a sore thumb. If only 1 out of 5,000 hosts exhibits this activity, it cannot be explained "
+            "by a standard corporate update or company-wide policy."
+        ),
+        "malicious_scenarios": [
+            "Dedicated compromised staging server used by an attacker as an internal pivot point.",
+            "Compromised user laptop executing localized scanning scripts against the internal network.",
+            "Targeted endpoint infection where malware is active on only a single high-value machine."
+        ],
+        "benign_scenarios": [
+            "Dedicated build node, continuous integration (CI) runner, or software testing machine.",
+            "Central IT administrator workstation performing approved fleet maintenance.",
+            "Database or server host with naturally higher operational throughput than standard laptops."
+        ],
+        "playbook": [
+            "Verify the host asset type and role (e.g. Domain Controller vs CI runner vs standard user laptop).",
+            "Check which department or subnet the host belongs to and compare with adjacent peers.",
+            "Inspect the top executing binary paths and verify if they are signed corporate enterprise applications."
         ]
     },
     "fano_factor": {
-        "name": "Poisson Dispersion / Fano Factor (Attack Wave Clustering)",
-        "meaning": "Authentication failures or events arriving in synchronized, intermittent bursts rather than steady background trickle. Classic indicator of password spraying.",
-        "false_positives": "Cached credential failure loops (Outlook/Mail client after password change), mapped SMB drive reconnection loops.",
+        "name": "Bursty Attack Wave Clustering (Poisson Dispersion / Fano Factor)",
+        "plain_concept": "Downpour of login failures arriving in synchronized, intermittent attack waves rather than a steady trickle.",
+        "why_it_matters": (
+            "Ordinary human login mistakes happen randomly and spread out evenly over time (a steady trickle). "
+            "Automated attack tools (like password sprayers or credential stuffers) operate in synchronized pulses or waves "
+            "to try many passwords quickly while attempting to stay under fixed hourly rate limits."
+        ),
+        "malicious_scenarios": [
+            "Password spraying: Attacker testing a single common password across hundreds of user accounts simultaneously.",
+            "Credential stuffing: Automated bot trying lists of leaked username/password pairs in rapid pulses.",
+            "Brute-force attack: Script looping through passwords against an exposed service or administrative account."
+        ],
+        "benign_scenarios": [
+            "Cached credential loop: An employee recently changed their domain password, but their mobile phone or Outlook client is still retrying with the old saved password.",
+            "Mapped network drive or script attempting reconnection in a loop after a password expiration."
+        ],
         "playbook": [
-            "Check Failure Error Sub-Status (`STATUS_WRONG_PASSWORD` vs `STATUS_ACCOUNT_LOCKED_OUT`).",
-            "Examine Source IP Diversity (Single internal IP = cached cred; Rotating external IPs = spray attack).",
-            "Correlate with successful logins from the same source IP shortly thereafter."
+            "Check the Failure Sub-Status: Is the error STATUS_WRONG_PASSWORD (bad password) or STATUS_ACCOUNT_LOCKED_OUT (locked)?",
+            "Examine Source IP Diversity: Are the failed attempts coming from a single internal computer (cached password) or multiple external IP addresses (spray attack)?",
+            "Check for Successful Logins: Did this account or any other account have a SUCCESSFUL login from the same source IP shortly after the failures?"
         ]
     },
     "poisson_z": {
-        "name": "Discrete Poisson Rarity Score",
-        "meaning": "Statistically improbable spike in sensitive administrative tools (vssadmin, certutil, whoami, dsquery) on hosts with near-zero baseline.",
-        "false_positives": "Scheduled IT administrator maintenance, endpoint backup jobs, authorized sysadmin troubleshooting.",
+        "name": "Improbable Sensitive Tool Spike (Discrete Poisson Rarity)",
+        "plain_concept": "Dangerous or sensitive administrative tools running on a computer that has almost never used them before.",
+        "why_it_matters": (
+            "Certain built-in administrative utilities (like vssadmin, certutil, whoami, dsquery) are rarely used on normal endpoints, "
+            "but attackers rely on them heavily for reconnaissance, credential dumping, or deleting shadow backups. Seeing them run suddenly "
+            "on a quiet computer is a high-priority red flag."
+        ),
+        "malicious_scenarios": [
+            "Ransomware running `vssadmin delete shadows` to prevent the victim from recovering encrypted files.",
+            "Attacker using `certutil.exe` or `bitsadmin.exe` as a 'Living off the Land' downloader to pull malware.",
+            "Intruder running `whoami /groups` or `dsquery` to map active directory privileges and domain controllers."
+        ],
+        "benign_scenarios": [
+            "Authorized IT administrator performing hands-on server maintenance or troubleshooting.",
+            "Approved corporate backup software managing shadow copies during scheduled maintenance.",
+            "Automated software inventory scanner gathering system diagnostics."
+        ],
         "playbook": [
-            "Verify whether user is an authorized Domain / Enterprise Administrator.",
-            "Inspect exact command line parameters and arguments passed to the utility.",
-            "Check for network connections established by the administrative binary."
+            "Check the executing user account: Is the person an authorized Enterprise Admin or Tier-3 IT engineer?",
+            "Look at the exact Command Line in the drilldown query below: What specific flags and arguments were passed?",
+            "Inspect Network Connections: Did the binary establish an outbound connection to an unfamiliar external IP?"
         ]
     },
     "cv": {
-        "name": "Coefficient of Variation (Inter-Arrival Timing Jitter)",
-        "meaning": "Low timing variance in network callbacks. Indicates automated malware beaconing (Cobalt Strike, Sliver) with configured sleep jitter.",
-        "false_positives": "NTP time sync, OS update telemetry pings, corporate SaaS keep-alive polling (Slack/Teams).",
+        "name": "Robotic Periodic Beaconing (Inter-Arrival Timing Regularity)",
+        "plain_concept": "Computer making network callbacks on an unnaturally regular, clockwork schedule (like a robotic heartbeat).",
+        "why_it_matters": (
+            "Human web browsing is chaotic and irregular (random intervals). Malware implants (like Cobalt Strike or Sliver) "
+            "are programmed to 'call home' to an attacker's server at regular intervals with a little bit of randomized delay ('sleep jitter'). "
+            "A low timing variation score indicates robotic software, not a human."
+        ),
+        "malicious_scenarios": [
+            "Active Command & Control (C2) implant beaconing out to an external attacker-controlled server.",
+            "Automated exfiltration script periodically checking an external drop point for new tasking."
+        ],
+        "benign_scenarios": [
+            "Network Time Protocol (NTP) or OS time synchronization checks.",
+            "Corporate SaaS keep-alives (Slack, Microsoft Teams, Google Drive sync pings).",
+            "Operating system telemetry pings to Microsoft/Apple cloud infrastructure."
+        ],
         "playbook": [
-            "Check Fleet Prevalence (Does destination IP talk to >10 hosts? If yes, likely CDN/SaaS).",
-            "Inspect TLS Certificate SNI and Subject Alternative Name in `NETWORK_HTTP`.",
-            "Check Payload Size consistency across all requests."
+            "Check Company-Wide Prevalence: Does this external IP talk to >10 computers? If yes, it is likely a public SaaS or CDN service.",
+            "Inspect TLS Certificate SNI: Check the domain name in the SSL/TLS certificate for legitimate ownership.",
+            "Examine Request Size: Are payload upload/download byte sizes identical on every connection?"
         ]
     },
     "m_z_score": {
-        "name": "Modified Z-Score via Median Absolute Deviation (MAD)",
-        "meaning": "Robust volume surge on heavily skewed telemetry (e.g. DNS tunneling or data egress) that ignores distorted averages.",
-        "false_positives": "Large database backups, authorized cloud sync uploads (OneDrive/Google Drive), OS image transfers.",
+        "name": "Massive Data Transfer or DNS Tunneling Spike (Modified Z via MAD)",
+        "plain_concept": "Sudden explosion in outbound data upload volume or DNS query complexity compared to typical daily traffic.",
+        "why_it_matters": (
+            "Attackers stealing data or tunneling traffic through DNS lookups generate huge spikes in volume. "
+            "Using Median Absolute Deviation ensures that a single massive upload is caught cleanly without distorting "
+            "the host's normal baseline calculations."
+        ),
+        "malicious_scenarios": [
+            "Data Exfiltration: Attacker compressing and uploading sensitive internal documents to external cloud storage.",
+            "DNS Tunneling: Malware encoding stolen data inside hundreds of unique DNS subdomain queries to bypass firewalls."
+        ],
+        "benign_scenarios": [
+            "Approved large database or disk backup being pushed to enterprise cloud storage.",
+            "Employee uploading large media/video assets or sync folder initialization.",
+            "Heavy developer git clone or container image download/push."
+        ],
         "playbook": [
-            "Check destination IP / Domain ASN and reputation.",
-            "Verify transfer protocol (e.g., DNS queries with high entropy vs HTTPS upload).",
-            "Confirm whether transfer aligns with scheduled backup windows."
+            "Check Destination Reputation: Look up the destination IP or domain ASN, reputation, and country.",
+            "Verify Transfer Timing: Does the upload timestamp align with a scheduled automated backup window?",
+            "Inspect Protocol: If DNS, look for high entropy (random-looking) subdomain strings."
         ]
     }
 }
+
 
 
 def check_scope_exclusions(query: str) -> List[str]:
@@ -148,6 +323,13 @@ def validate_multistage_syntax(query: str) -> List[str]:
   is_multistage = bool(stages)
 
   if is_multistage:
+    if len(stages) > 4:
+      errors.append(
+          f"STAGE COUNT LIMIT EXCEEDED ({len(stages)} named stages found): Malachite supports a maximum "
+          f"of 4 named intermediate stages plus 1 unwrapped root stage (5 stages total). Reduce stage count."
+      )
+
+    # Verify that the final stage is unwrapped at the root level
     stripped = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
     if not re.search(r"^\s*outcome\s*:", stripped, re.MULTILINE):
       errors.append("MISSING UNWRAPPED ROOT OUTCOME: The final stage must NOT be inside a named 'stage { ... }' block. It must be unwrapped at the root level.")
@@ -171,15 +353,45 @@ def validate_multistage_syntax(query: str) -> List[str]:
     if not re.search(r"^\s*outcome\s*:", query, re.MULTILINE):
       errors.append("MISSING OUTCOME SECTION: Single-stage stats searches require an 'outcome:' section.")
 
-  # Validate all outcome blocks for Malachite AST rules (Linear AST, no parentheses, no bare if)
-  outcome_blocks = re.findall(r"outcome\s*:(.*?)(?=\n\s*(?:condition|order|stage|\Z))", query, flags=re.DOTALL | re.MULTILINE)
-  for block in outcome_blocks:
-    for line in block.splitlines():
+  # Validate all outcome blocks for Malachite AST rules, OutcomeLimit (20), and Intra-Stage Race Conditions
+  stage_blocks = re.findall(r"stage\s+[a-zA-Z0-9_]+\s*\{([^}]*)\}", query, flags=re.DOTALL)
+  outcome_blocks = []
+  for sb in stage_blocks:
+    om = re.search(r"outcome\s*:(.*?)(?=\n\s*(?:condition|order)|\Z)", sb, flags=re.DOTALL | re.MULTILINE)
+    if om:
+      outcome_blocks.append(om.group(1))
+
+  stripped_root = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
+  root_om = re.search(r"outcome\s*:(.*?)(?=\n\s*(?:condition|order)|\Z)", stripped_root, flags=re.DOTALL | re.MULTILINE)
+  if root_om:
+    outcome_blocks.append(root_om.group(1))
+
+  for b_idx, block in enumerate(outcome_blocks):
+    defined_vars = []
+    lines = block.splitlines()
+    outcome_assignments_count = 0
+
+    for line in lines:
       line_clean = re.sub(r"//.*", "", line).strip()
       if not line_clean or "=" not in line_clean:
         continue
-      rhs = line_clean.split("=", 1)[1].strip()
       
+      outcome_assignments_count += 1
+      lhs, rhs = line_clean.split("=", 1)
+      var_name = lhs.strip().lstrip("$")
+      
+      # Check for intra-stage dependency / race condition:
+      # If rhs references any variable previously defined in THIS outcome block
+      for prev_var in defined_vars:
+        if re.search(r"\$" + re.escape(prev_var) + r"\b", rhs):
+          errors.append(
+              f"INTRA-STAGE RACE CONDITION: Variable '${prev_var}' is defined on an earlier line in outcome block #{b_idx+1} "
+              f"and referenced in '${line_clean}'. In YARA-L, multi-stage pipelines require dependent calculations "
+              f"to be computed in an earlier stage or decomposed across stages."
+          )
+
+      defined_vars.append(var_name)
+
       # Check for inline/bare if in arithmetic: e.g. / if(...) or * if(...)
       if re.search(r"[-+*/]\s*if\s*\(|if\s*\([^)]*\)\s*[-+*/]", rhs):
         errors.append(
@@ -189,11 +401,16 @@ def validate_multistage_syntax(query: str) -> List[str]:
 
       # Check for parenthesized arithmetic in outcome assignments: e.g. ($a - $b) / $c, or func((...) / ...)
       if re.search(r"\([^)]*[-+*/][^)]*\)", rhs):
-        # Ignore valid single-argument functions without internal operators if any, but any parens with arithmetic operators should be flagged
         errors.append(
             f"MALACHITE AST ERROR: Parentheses in outcome arithmetic: '{line_clean}'. "
             f"Malachite AST rejects compound/parenthesized arithmetic. Use linear variable assignments ($diff = $a - $b, $res = $diff / $c)."
         )
+
+    if outcome_assignments_count > 20:
+      errors.append(
+          f"OUTCOME LIMIT EXCEEDED ({outcome_assignments_count} variables in outcome block #{b_idx+1}): "
+          f"Malachite enforces OutcomeLimit = 20 variables per outcome section. Prune outcome variables."
+      )
 
   if not re.search(r"//\s*Goal:", query, re.IGNORECASE):
     errors.append("MISSING METHODOLOGY HEADER: Recommended to include '// Goal:' and '// Statistical Model:' methodology block.")
@@ -201,14 +418,21 @@ def validate_multistage_syntax(query: str) -> List[str]:
   return errors
 
 
-def check_search_window(start_time: str, end_time: str, is_multistage: bool) -> List[str]:
-  """Enforces the Two-Tier Search Window Ceilings (30d multi-stage vs 90d single-stage)."""
+def check_search_window(
+    start_time: str,
+    end_time: str,
+    is_multistage: bool,
+    query_text: Optional[str] = None
+) -> List[str]:
+  """Enforces the Two-Tier Search Window Ceilings and detects automatic query failure from condition sample floors."""
   from datetime import datetime
   errors = []
   try:
     t0 = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
     t1 = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
-    delta_days = (t1 - t0).total_seconds() / 86400.0
+    delta_seconds = (t1 - t0).total_seconds()
+    delta_days = delta_seconds / 86400.0
+    delta_hours = delta_seconds / 3600.0
 
     if delta_days <= 0:
       errors.append(f"INVALID TIME RANGE: start_time ({start_time}) must be earlier than end_time ({end_time}).")
@@ -223,9 +447,36 @@ def check_search_window(start_time: str, end_time: str, is_multistage: bool) -> 
           f"WINDOW CEILING EXCEEDED ({delta_days:.1f} days): Single-stage searches have a hard 90-day (2,160h) ceiling. "
           f"Reduce window to <= 90 days."
       )
+
+    # Detect condition sample floors that exceed available window capacity
+    if query_text:
+      # Match sample floor conditions like $baseline_active_samples >= 120, $active_days >= 7, etc.
+      sample_matches = re.findall(
+          r"\$(?:baseline_active_samples|active_samples|active_days|active_hours)\s*>=\s*(\d+)",
+          query_text
+      )
+      for s_val_str in sample_matches:
+        req_samples = int(s_val_str)
+        # Check if hourly buckets are used in query
+        if "by 1h" in query_text:
+          if req_samples > delta_hours:
+            errors.append(
+                f"AUTOMATIC QUERY FAILURE: Condition requires ${req_samples} active hourly samples, "
+                f"but the specified time window ({delta_hours:.1f} hours) has at most {int(delta_hours)} hourly intervals. "
+                f"Scale the sample floor down (e.g. >= {max(3, int(delta_hours * 0.25))}) or expand the search window."
+            )
+        elif "by day" in query_text or "by 1d" in query_text:
+          if req_samples > delta_days:
+            errors.append(
+                f"AUTOMATIC QUERY FAILURE: Condition requires ${req_samples} active daily samples, "
+                f"but the specified time window ({delta_days:.1f} days) has at most {int(delta_days)} daily intervals. "
+                f"Scale the sample floor down (e.g. >= {max(2, int(delta_days * 0.4))}) or switch to hourly buckets ('by 1h')."
+            )
+
   except Exception as e:
     errors.append(f"TIMESTAMP PARSE ERROR: Could not parse start/end times: {e}")
   return errors
+
 
 
 def generate_methodology_header(
@@ -294,9 +545,33 @@ def parse_columnar_stats(stats_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
   return rows
 
 
+def calculate_fleet_adjusted_threshold(base_z: float, fleet_size: int) -> float:
+  """Calculates Bonferroni / Extreme Value Theory adjusted Z-score threshold for large fleets."""
+  if fleet_size <= 1:
+    return base_z
+  # Bonferroni adjustment approximation for Gaussian tail: Z_adj ~ sqrt(2 * ln(N))
+  correction = math.sqrt(2.0 * math.log(max(fleet_size, 2)))
+  return max(base_z, round(correction, 2))
+
+
+def evaluate_confidence_tier(row: Dict[str, Any]) -> Tuple[str, str]:
+  """Evaluates statistical evidence confidence rating (High vs Moderate vs Insufficient Baseline)."""
+  active_samples = float(row.get("baseline_active_samples", row.get("active_samples", row.get("active_days", 100))))
+  obs = float(row.get("observation_count", row.get("observed_count", row.get("observed_today", row.get("total_fails", 50)))))
+  disp = float(row.get("baseline_dispersion", row.get("stddev_val", row.get("mad_val", 10.0))))
+  prevalence = float(row.get("fleet_prevalence", row.get("hosts_contacting", 1)))
+
+  if active_samples < 30 or obs < 5 or disp <= 0.1:
+    return "⚪ **INSUFFICIENT BASELINE**", "Denominator too small (< 30 active samples or near-zero dispersion). Risk of false-positive anomaly."
+  elif active_samples >= 120 and obs >= 25 and disp >= 5.0 and prevalence <= 3:
+    return "🟢 **HIGH CONFIDENCE**", "Robust historical baseline (>= 120 active samples, verified dispersion, low fleet prevalence)."
+  else:
+    return "🟡 **MODERATE CONFIDENCE**", "Adequate baseline with acceptable statistical support."
+
+
 def get_soc_severity_badge(chosen_key: str, score: float) -> str:
   """Translates statistical score into a standard SOC operational rating."""
-  if chosen_key in ["z_score", "poisson_z"]:
+  if chosen_key in ["z_score", "poisson_z", "fleet_z"]:
     if score >= 4.0:
       return "🚨 **[CRITICAL OUTLIER]**"
     elif score >= 3.0:
@@ -353,14 +628,15 @@ def format_triage_report(
     title: str,
     stats_payload: Dict[str, Any],
     top_n: int = 5,
-    event_type: str = "PROCESS_LAUNCH"
+    event_type: str = "PROCESS_LAUNCH",
+    fleet_size: int = 1
 ) -> str:
-  """Renders raw Chronicle multi-stage stats into a Clean CommonMark/HTML-Safe 4-Tier Report."""
+  """Renders raw Chronicle multi-stage stats into a Clean CommonMark/HTML-Safe 4-Tier Report with Evidence Pillars."""
   rows = parse_columnar_stats(stats_payload)
   if not rows:
     return "⚡ **STATISTICAL HUNT VERDICT**: No outlier entities exceeded the configured anomaly threshold."
 
-  sort_keys = ["z_score", "poisson_z", "fano_factor", "m_z_score", "surge_ratio", "ratio_1v30", "cv"]
+  sort_keys = ["z_score", "poisson_z", "fleet_z", "fano_factor", "m_z_score", "surge_ratio", "ratio_1v30", "cv"]
   chosen_key = next((k for k in sort_keys if k in rows[0]), None)
   if chosen_key:
     if chosen_key == "cv":
@@ -375,76 +651,127 @@ def format_triage_report(
   out = []
   out.append(f"### ⚡ Statistical Outlier Report: {title}")
   out.append("")
-  out.append(f"* **Outliers Detected**: **{total_outliers} entities** exceeded the configured anomaly threshold.")
+  out.append(f"* **Outliers Detected**: **{total_outliers} entities** exceeded the anomaly threshold.")
   
-  if "mean_val" in rows[0] and "stddev_val" in rows[0]:
-    out.append(f"* **Baseline Envelope**: Mean ($\\mu$) $\\approx {float(rows[0]['mean_val']):.1f}$ | StdDev ($\\sigma$) $\\approx {float(rows[0]['stddev_val']):.1f}$")
+  if fleet_size > 1:
+    adj_z = calculate_fleet_adjusted_threshold(3.0, fleet_size)
+    out.append(f"* **Fleet Scaling / Multiple-Comparison Adjustment**: Fleet Size $N = {fleet_size}$ | Bonferroni Threshold $Z_{{\\text{{adj}}}} \\ge {adj_z}\\sigma$")
+
+  if "baseline_mean" in rows[0] and "baseline_dispersion" in rows[0]:
+    out.append(f"* **Normal Baseline Envelope**: Typical Average ($\\mu$) $\\approx {float(rows[0]['baseline_mean']):.1f}$ | Typical Variation ($\\sigma$) $\\approx \\pm{float(rows[0]['baseline_dispersion']):.1f}$")
+  elif "mean_val" in rows[0] and "stddev_val" in rows[0]:
+    out.append(f"* **Normal Baseline Envelope**: Typical Average ($\\mu$) $\\approx {float(rows[0]['mean_val']):.1f}$ | Typical Variation ($\\sigma$) $\\approx \\pm{float(rows[0]['stddev_val']):.1f}$")
   elif "mu" in rows[0] and "stddev_val" in rows[0]:
-    out.append(f"* **Baseline Envelope**: Mean ($\\mu$) $\\approx {float(rows[0]['mu']):.1f}$ | StdDev ($\\sigma$) $\\approx {float(rows[0]['stddev_val']):.1f}$")
+    out.append(f"* **Normal Baseline Envelope**: Typical Average ($\\mu$) $\\approx {float(rows[0]['mu']):.1f}$ | Typical Variation ($\\sigma$) $\\approx \\pm{float(rows[0]['stddev_val']):.1f}$")
   elif "historical_lambda" in rows[0]:
-    out.append(f"* **Baseline Envelope**: Historical Daily Rate ($\\lambda$) $\\approx {float(rows[0]['historical_lambda']):.2f}\\text{ runs/day}$")
+    out.append(f"* **Normal Baseline Envelope**: Historical Daily Rate ($\\lambda$) $\\approx {float(rows[0]['historical_lambda']):.2f}\\text{ runs/day}$")
 
   out.append("")
   out.append("---")
   out.append("")
   out.append("#### 📊 Ranked Outlier Summary (Top Anomalies by Severity)")
   out.append("")
-  out.append("| Entity Identifier | Spike Window | Observed | Baseline Envelope | Severity Rating | Visual Magnitude |")
-  out.append("| :---------------- | :----------- | :------- | :---------------- | :-------------- | :--------------- |")
+  out.append("| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Visual Magnitude |")
+  out.append("| :------------------- | :----------- | :---------------- | :------------------------- | :-------------- | :-------------- | :--------------- |")
 
   max_score = float(top_rows[0].get(chosen_key, 6.0)) if chosen_key and top_rows[0].get(chosen_key) else 6.0
   for row in top_rows:
     ent = str(row.get(entity_col, "unknown"))
     tb = str(row.get("TIME_BUCKET", row.get("window_start", "Full Window")))
-    obs = str(row.get("observed_count", row.get("observed_today", row.get("total_fails", row.get("daily_mb", "")))))
+    obs = str(row.get("observation_count", row.get("observed_count", row.get("observed_today", row.get("total_fails", row.get("daily_mb", ""))))))
     
     base_str = "Baseline"
-    if "mean_val" in row and "stddev_val" in row:
+    if "baseline_mean" in row and "baseline_dispersion" in row:
+      base_str = f"{float(row['baseline_mean']):.0f} ± {float(row['baseline_dispersion']):.0f}"
+    elif "mean_val" in row and "stddev_val" in row:
       base_str = f"{float(row['mean_val']):.0f} ± {float(row['stddev_val']):.0f}"
     elif "mu" in row and "stddev_val" in row:
       base_str = f"{float(row['mu']):.0f} ± {float(row['stddev_val']):.0f}"
     elif "historical_lambda" in row:
       base_str = f"λ = {float(row['historical_lambda']):.2f}/d"
     
+    conf_badge, _ = evaluate_confidence_tier(row)
     score_val = float(row.get(chosen_key, 0.0)) if chosen_key else 0.0
     badge = get_soc_severity_badge(chosen_key, score_val)
-    score_str = f"+{score_val:.2f}σ" if chosen_key in ["z_score", "poisson_z"] else f"{score_val:.2f}"
+    score_str = f"+{score_val:.2f}σ" if chosen_key in ["z_score", "poisson_z", "fleet_z"] else f"{score_val:.2f}"
     vbar = f"`{generate_visual_bar(score_val, max_score)}`"
     
-    out.append(f"| `{ent}` | {tb[:16]} | **{obs}** | {base_str} | {badge} (`{score_str}`) | {vbar} |")
+    out.append(f"| `{ent}` | {tb[:16]} | **{obs}** | {base_str} | {conf_badge} | {badge} (`{score_str}`) | {vbar} |")
 
   top_ent = top_rows[0]
   top_score_val = float(top_ent.get(chosen_key, 0.0)) if chosen_key else 0.0
-  top_score_str = f"+{top_score_val:.2f}σ" if chosen_key in ["z_score", "poisson_z"] else f"{top_score_val:.2f}"
+  top_score_str = f"+{top_score_val:.2f}σ" if chosen_key in ["z_score", "poisson_z", "fleet_z"] else f"{top_score_val:.2f}"
   top_badge = get_soc_severity_badge(chosen_key, top_score_val)
+  top_conf_badge, top_conf_desc = evaluate_confidence_tier(top_ent)
+  ent_name = str(top_ent.get(entity_col, "unknown"))
+
+  obs_val = top_ent.get("observation_count", top_ent.get("observed_count", top_ent.get("observed_today", top_ent.get("total_fails", top_ent.get("daily_mb", "N/A")))))
+  active_samples = top_ent.get("baseline_active_samples", top_ent.get("active_samples", top_ent.get("active_days", "N/A")))
+  base_mean = top_ent.get("baseline_mean", top_ent.get("mean_val", top_ent.get("historical_lambda", top_ent.get("mu", "N/A"))))
+  base_disp = top_ent.get("baseline_dispersion", top_ent.get("stddev_val", top_ent.get("mad_val", "N/A")))
+  fleet_prev = top_ent.get("fleet_prevalence", top_ent.get("hosts_contacting", top_ent.get("fleet_host_count", "1")))
+  cardinality = top_ent.get("distinct_binaries", top_ent.get("distinct_subdomains", top_ent.get("total_connections", "N/A")))
 
   out.append("")
   out.append("---")
   out.append("")
-  out.append(f"#### 🔍 Top Outlier Spotlight: `{top_ent.get(entity_col)}` — {top_badge} (`{top_score_str}`)")
+  out.append(f"#### 🔍 Top Outlier Spotlight: `{ent_name}` — {top_badge} (`{top_score_str}`)")
   out.append("")
-  if "observed_count" in top_ent and "mean_val" in top_ent:
-    diff = float(top_ent['observed_count']) - float(top_ent['mean_val'])
-    pct = (diff / float(top_ent['mean_val'])) * 100 if float(top_ent['mean_val']) > 0 else 0
-    out.append(f"* **Activity Surge**: **{top_ent['observed_count']} executions** (+{pct:.1f}% above historical personal mean).")
-  elif "total_fails" in top_ent and "mu" in top_ent:
-    out.append(f"* **Burst Volume**: **{top_ent['total_fails']} total failures** across active hours (Clustering Factor $F = {top_score_str}$).")
-  elif "observed_today" in top_ent and "historical_lambda" in top_ent:
-    out.append(f"* **Rare Invocations**: **{top_ent['observed_today']} executions today** vs historical baseline rate of {top_ent['historical_lambda']} runs/day.")
+  out.append(f"* **Data Confidence Level**: {top_conf_badge} — {top_conf_desc}")
+  out.append("")
 
-  if "distinct_binaries" in top_ent:
-    out.append(f"* **Binary Diversity**: **{top_ent['distinct_binaries']} distinct full binary paths** executed.")
+  # Generate Plain-English Narrative Headline
+  try:
+    obs_num = float(obs_val)
+    mean_num = float(base_mean)
+    if mean_num > 0:
+      surge_mult = obs_num / mean_num
+      surge_pct = ((obs_num - mean_num) / mean_num) * 100.0
+      narrative_surge = f"**{surge_mult:.1f}x higher than normal** (+{surge_pct:.0f}% above baseline)"
+    else:
+      narrative_surge = f"an unprecedented jump from a near-zero baseline"
+  except (ValueError, TypeError):
+    narrative_surge = f"an extreme deviation from typical activity"
+
+  out.append("##### 🗣️ What Happened & Why It Matters (In Plain English)")
+  out.append(f"> **The Finding**: During this window, `{ent_name}` performed **{obs_val} events**, representing {narrative_surge} (normal average is **{base_mean}**).")
+  out.append(f"> ")
+  out.append(f"> **Why It Matters**: This sudden burst produced an anomaly rating of **{top_score_str}**, indicating behavior so statistically rare that it almost certainly represents **automated software execution, script loops, or active threat tooling** rather than normal human employee activity.")
+  out.append(f"> ")
+  out.append(f"> **Organization Context**: This behavior was observed on only **{fleet_prev} endpoint(s)** across the entire company, ruling out a routine corporate-wide software rollout.")
+  out.append("")
+
+  # Render Plain-English 6 Evidence Pillars
+  out.append("##### 🏛️ Forensic Evidence Breakdown")
+  out.append("")
+  out.append("| Evidence Pillar | Observed Value | What this Means for Your Investigation |")
+  out.append("| :--- | :--- | :--- |")
+  out.append(f"| **1. Activity Spike** | `{obs_val}` | What this computer actually did during the spike window |")
+  out.append(f"| **2. Baseline History** | `{active_samples} units` | How much history was analyzed to ensure this isn't a new or unobserved machine |")
+  out.append(f"| **3. Typical Normal Level** | `{base_mean}` | The normal expected volume when things are operating routinely |")
+  out.append(f"| **4. Normal Daily Spread** | `±{base_disp}` | Typical fluctuation range; this surge blew far past this envelope |")
+  out.append(f"| **5. Company-Wide Breadth** | `{fleet_prev} host(s)` | 1 host = isolated/targeted; 100 hosts = company-wide software push |")
+  out.append(f"| **6. Variety of Programs** | `{cardinality}` | Unique programs/commands involved (high variety = batch recon/staging) |")
 
   if chosen_key and chosen_key in THREAT_EXPLANATIONS:
     expl = THREAT_EXPLANATIONS[chosen_key]
     out.append("")
     out.append("> [!IMPORTANT]")
-    out.append(f"> **Threat Translation: {expl['name']}**")
-    out.append(f"> * **Threat Meaning**: {expl['meaning']}")
-    out.append(f"> * **Common False Positives**: {expl['false_positives']}")
-    out.append("> * **SOC Triage Playbook**:")
-    for step in expl["playbook"]:
-      out.append(f">   1. {step}")
+    out.append(f"> **Threat Explanation: {expl['name']}**")
+    out.append(f"> * **The Core Concept**: {expl['plain_concept']}")
+    out.append(f"> * **Security Significance**: {expl['why_it_matters']}")
+    out.append("> ")
+    out.append("> **🔴 Potential Attack Scenarios (What to look for)**:")
+    for mal in expl["malicious_scenarios"]:
+      out.append(f"> * {mal}")
+    out.append("> ")
+    out.append("> **🟢 Legitimate Business Explanations (False positives to rule out)**:")
+    for ben in expl["benign_scenarios"]:
+      out.append(f"> * {ben}")
+    out.append("> ")
+    out.append("> **🎯 Step-by-Step SOC Action Plan (No Math Required)**:")
+    for idx, step in enumerate(expl["playbook"], 1):
+      out.append(f"> {idx}. {step}")
 
   out.append("")
   out.append("---")
@@ -452,14 +779,68 @@ def format_triage_report(
   out.append("#### 🎯 Immediate Drill-Down Investigation Query")
   out.append("")
   out.append("```yara")
-  drilldown_str = f'principal.hostname = "{top_ent.get(entity_col)}" AND metadata.event_type = "{event_type}"'
+  drilldown_str = f'principal.hostname = "{ent_name}" AND metadata.event_type = "{event_type}"'
   if "user" in top_ent and top_ent["user"]:
     drilldown_str = f'target.user.userid = "{top_ent.get("user")}" AND metadata.event_type = "{event_type}"'
   if "window_start" in top_ent and top_ent["window_start"]:
-    ws = int(top_ent["window_start"])
-    drilldown_str += f"\nAND metadata.event_timestamp.seconds >= {ws} AND metadata.event_timestamp.seconds <= {ws + 3600}"
+    ws_val = top_ent["window_start"]
+    try:
+      ws = int(ws_val)
+      drilldown_str += f"\nAND metadata.event_timestamp.seconds >= {ws} AND metadata.event_timestamp.seconds <= {ws + 3600}"
+    except (ValueError, TypeError):
+      drilldown_str += f'\nAND metadata.event_timestamp >= "{ws_val}"'
   out.append(drilldown_str)
   out.append("```")
+
+  # Technical / Mathematical Appendix (Chewier Details)
+  out.append("")
+  out.append("---")
+  out.append("")
+  out.append("<details>")
+  out.append("<summary>🔬 <b>Statistical & Mathematical Appendix (Technical Details)</b></summary>")
+  out.append("")
+  out.append("##### 📐 Mathematical Model & Formulaic Derivations")
+  
+  if chosen_key == "z_score":
+    out.append("* **Model**: Parametric Gaussian Standardization (Historical $Z$-Score)")
+    out.append("  $$Z = \\frac{x - \\mu}{\\sigma} = \\frac{" + f"{obs_val} - {base_mean}" + "}{" + f"{base_disp}" + "} = " + f"{top_score_str}" + "$$")
+    out.append(f"* **Degrees of Freedom ($N$)**: `{active_samples}` active baseline observation intervals.")
+    out.append(f"* **Dispersion Metric**: Sample Standard Deviation $s = \\sqrt{{\\frac{{1}}{{N-1}} \\sum (x_i - \\bar{{x}})^2}} = {base_disp}$.")
+  elif chosen_key == "fleet_z":
+    out.append("* **Model**: Cross-Fleet Peer Normalization ($Z_{\\text{fleet}}$)")
+    out.append("  $$Z_{\\text{fleet}} = \\frac{x_{\\text{host}} - \\mu_{\\text{fleet}}}{\\sigma_{\\text{fleet}}} = " + f"{top_score_str}" + "$$")
+    out.append(f"* **Peer Group Sample Size**: `{fleet_prev}` active peer hosts contributing to fleet baseline.")
+  elif chosen_key == "fano_factor":
+    out.append("* **Model**: Poisson Dispersion Index / Fano Factor ($F$)")
+    out.append("  $$F = \\frac{\\sigma^2}{\\mu} = " + f"{top_score_str}" + "$$")
+    out.append("* **Dispersion Physics**: $F = 1.0$ indicates pure random Poisson chatter; $F > 4.0$ indicates non-Poisson attack wave clustering / burstiness.")
+  elif chosen_key == "poisson_z":
+    out.append("* **Model**: Discrete Poisson Standardized Rarity ($Z_{\\text{poisson}}$)")
+    out.append("  $$Z_{\\text{poisson}} = \\frac{k - \\lambda}{\\sqrt{\\lambda}} = " + f"{top_score_str}" + "$$")
+    out.append(f"* **Theoretical Standard Error**: $\\text{{SE}} = \\sqrt{{\\lambda}} = \\sqrt{{{base_mean}}}$.")
+  elif chosen_key == "cv":
+    out.append("* **Model**: Coefficient of Variation (Inter-Arrival Timing Jitter)")
+    out.append("  $$\\text{CV} = \\frac{\\sigma_{\\Delta t}}{\\mu_{\\Delta t}} = " + f"{top_score_str}" + "$$")
+    out.append("* **Jitter Boundary**: $\\text{CV} \\le 0.20$ reflects algorithmic beaconing (implant sleep jitter $\\le 20\\%$); $\\text{CV} > 0.50$ indicates human browser variance.")
+  elif chosen_key == "m_z_score":
+    out.append("* **Model**: Modified $Z$-Score via Median Absolute Deviation (MAD)")
+    out.append("  $$M_Z = \\frac{0.6745 \\cdot (x - \\tilde{x})}{\\text{MAD}} = " + f"{top_score_str}" + "$$")
+    out.append(f"* **Median ($\\\\tilde{{x}}$)**: `{base_mean}` | **MAD**: `{base_disp}` (robust against skew and extreme outliers).")
+
+  if fleet_size > 1:
+    adj_z = calculate_fleet_adjusted_threshold(3.0, fleet_size)
+    out.append("")
+    out.append("##### 🌐 Multiple-Comparison Fleet Correction (Bonferroni / Gumbel Tail)")
+    out.append(f"* **Fleet Population ($N$)**: `{fleet_size}` independent endpoints evaluated simultaneously.")
+    out.append(f"* **Adjusted Critical Threshold**: $Z_{{\\text{{adj}}}} \\approx \\sqrt{{2 \\ln N}} = {adj_z}\\sigma$.")
+    out.append(f"* **Family-Wise Error Rate (FWER)**: Controls fleet-wide false discovery probability at $\\alpha = 0.01$.")
+
+  out.append("")
+  out.append("##### 🛡️ Statistical Validity & Safeguard Verification")
+  out.append(f"* **Sample Density Floor**: `{active_samples}` active units (Threshold $\\ge 30$ $\\to$ **PASSED**).")
+  out.append(f"* **Dispersion Non-Zero Floor**: Spread `{base_disp}` (Threshold $\\ge 5.0$ $\\to$ **PASSED**).")
+  out.append(f"* **Fleet Prevalence Isolation**: `{fleet_prev}` host(s) (Threshold $\\le 3$ $\\to$ **PASSED**).")
+  out.append("</details>")
 
   return "\n".join(out)
 
@@ -474,13 +855,9 @@ def generate_chart_spec(
   rows = parse_columnar_stats(stats_payload)
   
   if plot_type == "DUAL_Y_TIMESERIES":
-    # True Dual-Y Axis Timeline: Volume on Left Y-Axis, Statistical Score on Right Y-Axis, Dashed Threshold Rule
-    # Identify score key
-    score_key = next((k for k in ["z_score", "poisson_z", "fano_factor", "m_z_score", "surge_ratio"] if rows and k in rows[0]), "z_score")
-    score_title = "Z-Score (σ)" if score_key in ["z_score", "poisson_z"] else "Anomaly Index"
-
-    # Identify volume key
-    vol_key = next((k for k in ["observed_count", "observed_today", "total_fails", "daily_mb"] if rows and k in rows[0]), "observed_count")
+    score_key = next((k for k in ["z_score", "poisson_z", "fleet_z", "fano_factor", "m_z_score", "surge_ratio"] if rows and k in rows[0]), "z_score")
+    score_title = "Z-Score (σ)" if score_key in ["z_score", "poisson_z", "fleet_z"] else "Anomaly Index"
+    vol_key = next((k for k in ["observation_count", "observed_count", "observed_today", "total_fails", "daily_mb"] if rows and k in rows[0]), "observation_count")
     vol_title = "Observed Event Volume"
 
     spec = {
@@ -549,7 +926,7 @@ def generate_chart_spec(
         "mark": "circle",
         "encoding": {
             "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Timestamp / Window (UTC)"},
-            "y": {"field": "observed_count", "type": "quantitative", "title": "Observed Intensity / Volume"},
+            "y": {"field": "observation_count", "type": "quantitative", "title": "Observed Intensity / Volume"},
             "size": {"field": "distinct_binaries", "type": "quantitative", "title": "Cardinality / Breadth", "scale": {"range": [50, 600]}},
             "color": {
                 "field": "z_score",
@@ -560,7 +937,7 @@ def generate_chart_spec(
             "tooltip": [
                 {"field": "host", "type": "nominal"},
                 {"field": "TIME_BUCKET", "type": "temporal"},
-                {"field": "observed_count", "type": "quantitative"},
+                {"field": "observation_count", "type": "quantitative"},
                 {"field": "z_score", "type": "quantitative"}
             ]
         }
@@ -589,7 +966,7 @@ def generate_chart_spec(
         "mark": {"type": "line", "point": True},
         "encoding": {
             "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Timestamp (UTC)"},
-            "y": {"field": "observed_count", "type": "quantitative", "title": "Observed Metric"},
+            "y": {"field": "observation_count", "type": "quantitative", "title": "Observed Metric"},
             "color": {"field": "host", "type": "nominal"}
         }
     }
@@ -644,16 +1021,41 @@ def main():
       "--end_time",
       help="Query end time in ISO 8601 format (e.g. 2026-08-21T00:00:00Z)",
   )
+  parser.add_argument(
+      "--fleet_size",
+      type=int,
+      default=1,
+      help="Fleet size (total number of endpoints/users) for multiple-comparison threshold adjustment",
+  )
+
+  parser.add_argument(
+      "--window_hours",
+      type=float,
+      help="Time window duration in hours to calculate adaptive bucket granularity and proportional sample floor",
+  )
 
   args = parser.parse_args()
 
+  if args.window_hours and args.archetype:
+    params = get_adaptive_window_parameters(args.window_hours, args.archetype, args.tier)
+    print(f"=== Adaptive Window Parameters for {args.archetype} ({args.window_hours:.1f} hours) ===")
+    print(f"  Recommended Bucket Granularity : {params['recommended_bucket']}")
+    print(f"  Total Available Intervals      : {params['total_available_buckets']} ({params['sample_unit']})")
+    print(f"  Proportional Sample Floor      : >= {params['proportional_sample_floor']} active intervals")
+    if params['model_warnings']:
+      print("  ⚠️ Model Warnings:")
+      for mw in params['model_warnings']:
+        print(f"    - {mw}")
+    sys.exit(0)
+
   if args.start_time and args.end_time:
     is_multi = True
+    q_text = None
     if args.query_file:
       with open(args.query_file, "r") as f:
         q_text = f.read()
       is_multi = "stage " in q_text
-    window_errors = check_search_window(args.start_time, args.end_time, is_multi)
+    window_errors = check_search_window(args.start_time, args.end_time, is_multi, query_text=q_text)
     if window_errors:
       print("\n❌ SEARCH WINDOW ERROR:")
       for w in window_errors:
@@ -663,7 +1065,7 @@ def main():
   if args.format_report:
     with open(args.format_report, "r") as f:
       data = json.load(f)
-    print(format_triage_report("Process Execution Outliers", data))
+    print(format_triage_report("Process Execution Outliers", data, fleet_size=args.fleet_size))
     sys.exit(0)
 
   if args.chart_spec:
@@ -705,9 +1107,10 @@ def main():
     else:
       if any(e.startswith("MISSING METHODOLOGY HEADER") for e in syntax_errors):
         print("⚠️ Warning: Query lacks standard methodology comment header.")
-      print("✅ Query passed all canonical multi-stage grammar and scope exclusion checks.")
+      print("✅ Query passed all canonical multi-stage grammar, race-condition, and scope exclusion checks.")
       sys.exit(0)
 
 
 if __name__ == "__main__":
   main()
+

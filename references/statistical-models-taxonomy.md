@@ -1,6 +1,6 @@
 # SecOps Statistical Hunter — Statistical Models Taxonomy
 
-This document outlines the mathematical models supported by `secops-statistical-hunter`, their physical adversary TTP mappings, and the **Semantic Sensitivity Tiers** to use when guiding non-practitioners.
+This document outlines the mathematical models supported by `secops-statistical-hunter`, their physical adversary TTP mappings, the **Four-Stage DAG Pipeline Architecture**, and the **Semantic Sensitivity Tiers** to use when guiding non-practitioners.
 
 ---
 
@@ -15,9 +15,9 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 | Tier | Mathematical Boundary | Physical Interpretation | Recommended Secondary Filters |
 | :--- | :--- | :--- | :--- |
-| **`PRECISION`** | $\text{CV} \le 0.05$ | Hardcoded fixed interval ($\pm 3\%$ jitter). Robotic polling. | None needed. |
-| **`BALANCED`** | $\text{CV} \le 0.20$ | Standard default C2 sleep jitter ($15\%–20\%$ variance). | `fleet_prevalence <= 2` hosts |
-| **`AGGRESSIVE`** | $\text{CV} \le 0.40$ | Heavily randomized C2 sleep intervals designed to evade basic detection. | `fleet_prevalence == 1` & `min_conns >= 50` |
+| **`PRECISION`** | $\text{CV} \le 0.05$ | Hardcoded fixed interval ($\pm 3\%$ jitter). Robotic polling. | `min_conns >= 50, active_hours >= 12` |
+| **`BALANCED`** | $\text{CV} \le 0.20$ | Standard default C2 sleep jitter ($15\%–20\%$ variance). | `fleet_prevalence <= 2, active_hours >= 6` |
+| **`AGGRESSIVE`** | $\text{CV} \le 0.40$ | Heavily randomized C2 sleep intervals designed to evade basic detection. | `fleet_prevalence == 1, active_hours >= 3` |
 | ❌ **`NOISE CLIFF`** | $\text{CV} > 0.50$ | Approaching Poisson randomness (normal web browsing). | **Refuse search.** |
 
 ---
@@ -31,13 +31,13 @@ This document outlines the mathematical models supported by `secops-statistical-
 * **Why MAD over Standard $Z$-Score?**
   In security telemetry, a single massive exfiltration day ($100\text{ GB}$) inflates the standard deviation ($\sigma$) so much that $Z$-score drops below $2.0$. MAD is **breakdown-resilient up to $50\%$ outliers**, making it the premier metric for security volume anomalies.
 
-### Sensitivity Tiers (`MODIFIED_Z_SCORE_MAD`)
+### Sensitivity Tiers (`DATA_EXFILTRATION_SPIKE`)
 
 | Tier | Mathematical Boundary | Physical Interpretation | Volume Floor Guardrail |
 | :--- | :--- | :--- | :--- |
-| **`PRECISION`** | $M_Z > 3.5$ | Top $\approx 0.05\%$ extreme distribution tail. Major operational event. | `$MAD > 10` |
-| **`BALANCED`** | $M_Z > 2.5$ | Top $\approx 2\%$ anomalies above personal entity median. | `$MAD > 5` |
-| **`AGGRESSIVE`** | $M_Z > 2.0$ | Top $\approx 5\%$ surges. Good for hunting stealthy data leakage. | `$MAD > 2` |
+| **`PRECISION`** | $M_Z > 3.5$ | Top $\approx 0.05\%$ extreme distribution tail. Major operational event. | `MAD > 20, active_days >= 14` |
+| **`BALANCED`** | $M_Z > 2.5$ | Top $\approx 2\%$ anomalies above personal entity median. | `MAD > 10, active_days >= 7` |
+| **`AGGRESSIVE`** | $M_Z > 2.0$ | Top $\approx 5\%$ surges. Good for hunting stealthy data leakage. | `MAD > 5, active_days >= 3` |
 | ❌ **`NOISE CLIFF`** | $M_Z < 1.5$ | Daily peak hour traffic fluctuations. | **Refuse search.** |
 
 ---
@@ -53,9 +53,9 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 | Tier | Mathematical Boundary | Physical Interpretation | Variance Floor Guardrail |
 | :--- | :--- | :--- | :--- |
-| **`CONSERVATIVE`** | $Z > 3.0$ | 3-Sigma threshold (top $0.13\%$ distribution tail). Very low noise. | `$stddev >= 10.0`, `$obs >= 50` |
-| **`BALANCED`** | $Z > 2.0$ | 2-Sigma threshold (top $\approx 2.5\%$ distribution tail). Standard baseline sweep. | `$stddev >= 5.0`, `$obs >= 25` |
-| **`AGGRESSIVE`** | $Z > 1.5$ | 1.5-Sigma threshold (top $\approx 7\%$ distribution tail). Sensitive hunt. | `$stddev >= 2.0`, `$obs >= 10` |
+| **`CONSERVATIVE`** | $Z > 3.0$ | 3-Sigma threshold (top $0.13\%$ distribution tail). Very low noise. | `stddev >= 10.0, obs >= 50, active_samples >= 120` |
+| **`BALANCED`** | $Z > 2.0$ | 2-Sigma threshold (top $\approx 2.5\%$ distribution tail). Standard baseline sweep. | `stddev >= 5.0, obs >= 25, active_samples >= 60` |
+| **`AGGRESSIVE`** | $Z > 1.5$ | 1.5-Sigma threshold (top $\approx 7\%$ distribution tail). Sensitive hunt. | `stddev >= 2.0, obs >= 10, active_samples >= 30` |
 | ❌ **`NOISE CLIFF`** | $Z \le 1.0$ | Within standard daily operational variance. | **Refuse search.** |
 
 ---
@@ -73,9 +73,9 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 | Tier | Mathematical Boundary | Physical Interpretation | Floor Guardrail |
 | :--- | :--- | :--- | :--- |
-| **`CONSERVATIVE`** | $F \ge 8.0$ | Severe synchronized attack downpours. | `min_fails >= 30, mu >= 2.0` |
-| **`BALANCED`** | $F \ge 4.0$ | Clear wave-like password spraying / recon pulses. | `min_fails >= 15, mu >= 1.0` |
-| **`AGGRESSIVE`** | $F \ge 2.5$ | Moderate clumping in authentication failures. | `min_fails >= 10, mu >= 0.5` |
+| **`CONSERVATIVE`** | $F \ge 8.0$ | Severe synchronized attack downpours. | `min_fails >= 30, mu >= 2.0, active_hours >= 60` |
+| **`BALANCED`** | $F \ge 4.0$ | Clear wave-like password spraying / recon pulses. | `min_fails >= 15, mu >= 1.0, active_hours >= 30` |
+| **`AGGRESSIVE`** | $F \ge 2.5$ | Moderate clumping in authentication failures. | `min_fails >= 10, mu >= 0.5, active_hours >= 15` |
 | ❌ **`NOISE CLIFF`** | $F \le 1.5$ | Independent random login typos. | **Refuse search.** |
 
 ---
@@ -85,15 +85,15 @@ This document outlines the mathematical models supported by `secops-statistical-
 * **Primary Adversary Behavior**: Sensitive administrative tool invocations (`vssadmin`, `certutil`, `whoami`, `dsquery`) on endpoints with near-zero baseline history.
 * **Mathematical Formula**:
   $$\text{Poisson } Z = \frac{k - \lambda}{\sqrt{\lambda}}$$
-  where $k$ is observed executions today and $\lambda$ is historical daily mean arrival rate.
+  where $k$ is observed executions today, $\lambda$ is historical daily mean arrival rate, and theoretical standard deviation $\sigma = \sqrt{\lambda}$.
 
 ### Sensitivity Tiers (`POISSON_RARE_SURGE`)
 
 | Tier | Mathematical Boundary | Physical Interpretation | Floor Guardrail |
 | :--- | :--- | :--- | :--- |
-| **`CONSERVATIVE`** | $\text{Poisson } Z \ge 5.0$ | Extreme mathematical impossibility on quiet host. | `k >= 5, lambda <= 1.0` |
-| **`BALANCED`** | $\text{Poisson } Z \ge 3.5$ | Improbable jump in rare administrative execution. | `k >= 3, lambda <= 2.0` |
-| **`AGGRESSIVE`** | $\text{Poisson } Z \ge 2.5$ | Noticeable uptick in low-frequency binary usage. | `k >= 2, lambda <= 3.0` |
+| **`CONSERVATIVE`** | $\text{Poisson } Z \ge 5.0$ | Extreme mathematical impossibility on quiet host. | `k >= 5, lambda <= 1.0, active_days >= 14` |
+| **`BALANCED`** | $\text{Poisson } Z \ge 3.5$ | Improbable jump in rare administrative execution. | `k >= 3, lambda <= 2.0, active_days >= 7` |
+| **`AGGRESSIVE`** | $\text{Poisson } Z \ge 2.5$ | Noticeable uptick in low-frequency binary usage. | `k >= 2, lambda <= 3.0, active_days >= 3` |
 
 ---
 
@@ -115,53 +115,71 @@ This document outlines the mathematical models supported by `secops-statistical-
 
 ---
 
-## 8. Categorical Dispersion (Herfindahl-Hirschman Index / Simpson Index)
+## 8. Cross-Fleet Peer Normalization ($Z_{\text{fleet}} = (x_{\text{host}} - \mu_{\text{fleet}}) / \sigma_{\text{fleet}}$)
 
-* **Primary Adversary Behavior**: Internal lateral movement (reconnaissance sweeps across many internal IPs/ports).
+* **Primary Adversary Behavior**: Singular compromised host exceeding enterprise-wide peer population execution norms.
 * **Mathematical Formula**:
-  $$D = 1 - \sum_{i=1}^{k} \left(\frac{n_i}{N}\right)^2$$
-  where $n_i$ is connections to target $i$ and $N$ is total connections. When an entity talks to only 1 server, $D = 0$. When an entity scans 100 servers equally, $D \to 1.0$.
+  $$Z_{\text{fleet}} = \frac{x_{\text{host}} - \mu_{\text{fleet}}}{\sigma_{\text{fleet}}}$$
 
 ---
 
-## 9. Impossible Travel Velocity (Haversine Kinematics)
+## 9. Small-Sample Protection, Adaptive Windowing & Fleet Scaling
 
-* **Primary Adversary Behavior**: Stolen session cookie reuse, geo-impossible credential login.
-* **Mathematical Formula**:
-  $$\text{Speed} = \frac{\text{math.geo\_distance}(\text{lat}_1, \text{lon}_1, \text{lat}_2, \text{lon}_2)}{|t_2 - t_1| / 3600} \quad (\text{km/h})$$
-  *Threshold*: `Speed > 800 km/h` (faster than commercial jet travel).
+### A. The Law of Small Numbers in Threat Hunting
+Low-prevalence telemetry and small sample sizes make routine events look deceptively anomalous. To ensure high fidelity:
+1. **Dynamic Sample Density Floors**: Scale sample density floors proportionally based on total window capacity ($\Delta T$). Never apply static 30-day thresholds to 24-hour or 48-hour hunts.
+2. **First-Class Outcome: Insufficient Evidence**: Rather than forcing a false positive anomaly ranking when the denominator is too small, flag the entity as `INSUFFICIENT BASELINE EVIDENCE`.
+3. **Dispersion Floor Protection**: Enforce non-zero variance floors ($\sigma \ge 5.0$, $\text{MAD} > 5.0$) to avoid divide-by-zero explosions on dormant endpoints.
 
----
-
-## 10. Multi-Dimensional Threat Visualizations & Dual-Y Charts
-
-1. **Dual-Y Axis Outlier Timeline (`DUAL_Y_TIMESERIES`)**:
-   * **Shared $X$-Axis**: Time Window (UTC).
-   * **Left $Y$-Axis**: Observed Physical Volume / Count (Bar or Area mark).
-   * **Right $Y$-Axis**: Statistical Anomaly Score ($Z$, Fano, Modified $Z$) (Line + Points).
-   * **Vega-Lite Encodings**: Resolves independent $Y$-scales with `resolve: { scale: { y: "independent" } }`.
-2. **4D Threat Bubble Plot (`4D_BUBBLE`)**:
-   * **$X$-Axis**: Timing Interval ($\Delta t$).
-   * **$Y$-Axis**: Observed Event Volume.
-   * **Bubble Size**: Cardinality (Distinct target IPs, unique binaries, or users).
-   * **Bubble Color**: Statistical Anomaly Score ($Z$, $M_Z$, or $\text{CV}$).
-3. **3D Temporal Density Heatmap (`HEATMAP`)**:
-   * **$X$-Axis**: Hour of Day ($00–23$).
-   * **$Y$-Axis**: Day of Week (Monday–Sunday) or Subnet.
-   * **Color Density**: Anomaly Score or Event Concentration.
-
----
-
-## 11. Malachite AST Linearization & Compiler Rules
-
-When implementing any statistical model in YARA-L 2.0 multi-stage queries, strictly adhere to the following Malachite AST rules:
-
-| Statistical Model | Formula | Malachite AST Linear Syntax | Zero-Division Protection (Condition) |
+### B. Adaptive Window Granularity Matrix
+| Search Window Duration ($\Delta T$) | Tumbling Bucket Granularity | Total Intervals | Proportional Sample Density Floor ($\ge$) |
 | :--- | :--- | :--- | :--- |
-| **Parametric $Z$-Score** | $Z = \frac{x - \mu}{\sigma}$ | `$diff = $obs - $mu`<br>`$z_score = $diff / $sigma` | `condition: $sigma >= 5.0 and $z_score > 3.0` |
-| **Poisson Fano Factor** | $F = \frac{\sigma^2}{\mu}$ | `$var = $sigma * $sigma`<br>`$fano = $var / $mu` | `condition: $mu >= 1.0 and $fano >= 4.0` |
-| **Poisson Rare Arrival** | $Z_P = \frac{k - \lambda}{\sqrt{\lambda}}$ | `$poisson_sd = math.sqrt($lambda)`<br>`$diff = $k - $lambda`<br>`$poisson_z = $diff / $poisson_sd` | `condition: $lambda > 0.0 and $poisson_sd > 0.0 and $poisson_z >= 3.5` |
-| **Modified $Z$ (MAD)** | $M_Z = \frac{0.6745 \cdot \|x - \tilde{x}\|}{\text{MAD}}$ | `$diff = $obs - $median`<br>`$abs_diff = math.abs($diff)`<br>`$scaled = 0.6745 * $abs_diff`<br>`$m_z = $scaled / $mad` | `condition: $mad > 5.0 and $m_z > 2.5` |
-| **Timing Jitter ($\text{CV}$)** | $\text{CV} = \frac{\sigma_{\Delta t}}{\mu_{\Delta t}}$ | `$span = $last - $first`<br>`$intervals = $count - 1`<br>`$gap = $span / $intervals`<br>`$cv = $stddev_gap / $mean_gap` | `condition: $mean_gap >= 30.0 and $cv <= 0.20` |
-| **Tukey Upper Fence** | $Q_3 + (1.5 \cdot \text{IQR})$ | `$iqr = $q3 - $q1`<br>`$margin = 1.5 * $iqr`<br>`$fence = $q3 + $margin`<br>`$surge = $obs / $fence` | `condition: $iqr >= 10.0 and $surge >= 2.0` |
-| **Conditional Counting** | Count matching events | `$count = sum(if(condition, 1, 0))` | *Never use `count(if(...))`.* |
+| **Intra-Day** ($\le 24\text{h}$, "today") | `by 10m` or `by 15m` | $96–144$ | $12–24$ active intervals |
+| **Short Window** ($24\text{h}–7\text{d}$, "past 2 days", "this week") | `by 1h` | $48–168$ | $12$ (2d) to $48$ (7d) active hours |
+| **Extended Window** ($7\text{d}–30\text{d}$, "this month", "past 30d") | `by 1h` or `by 1d` | $168–720$ / $7–30$ | $60$ (hourly) or $7$ (daily) active units |
+
+### C. Multiple-Comparison & Fleet Scaling (Bonferroni Adjustment)
+When hunting across a fleet of $N$ endpoints, testing $N$ hypotheses simultaneously increases the probability of false positives. Adjust significance thresholds dynamically:
+$$Z_{\text{adj}} \approx \sqrt{2 \ln(N)}$$
+* For $N = 100$ endpoints: $Z_{\text{adj}} \ge 3.03\sigma$
+* For $N = 1,000$ endpoints: $Z_{\text{adj}} \ge 3.72\sigma$
+* For $N = 10,000$ endpoints: $Z_{\text{adj}} \ge 4.29\sigma$
+
+---
+
+
+## 10. The Four-Stage DAG Pipeline Architecture
+
+Complex statistical pipelines in Malachite use up to **4 named intermediate stages plus 1 unwrapped root stage (5 stages total)**:
+
+```mermaid
+graph TD
+    A[Stage 1: Observation Binning & Extraction] --> B[Stage 2: Historical Baseline & Sample Density Tracking]
+    A --> C[Stage 3: Enterprise Fleet Prevalence & Context]
+    B --> D[Root Stage: Join, Linear Scoring, & Evidence Emission]
+    C --> D
+    D --> E[Condition: Small-Sample Gates & Outlier Thresholds]
+```
+
+### The Clean Materialization Barrier Rule
+1. **Zero Intra-Stage Outcome Race Conditions**: Never define an outcome variable `$var` and immediately use it as an operand in another calculation within the same `outcome:` block.
+2. **Decompose Across Stages**: Compute base metrics ($\mu$, $\sigma$, $\text{MAD}$, active units, square roots, fleet counts) in upstream stages.
+3. **Or Compute in Event Filter Section**: Perform linear arithmetic (`$diff = $host.count - $base.mean`, `$z = $diff / $base.sd`) in the stage's events body before `match:`, then aggregate cleanly in `outcome:` via `max($z)`.
+
+---
+
+## 11. Malachite Function Catalog & Compiler Rules
+
+YARA-L 2.0 supports a broad catalog of functions through its **Factory Function subsystem**:
+
+| Module | Supported Functions | Where Allowed | Compiler Notes |
+| :--- | :--- | :--- | :--- |
+| **`math`** | `math.sqrt()`, `math.pow()`, `math.floor()`, `math.ceil()`, `math.abs()`, `math.log()`, `math.round()`, `math.random()` | `events:` & Stage Body | When used in `outcome:` inside a match window, must wrap aggregated event fields. |
+| **`window`** | `window.median()`, `window.percentile()`, `window.stddev()`, `window.variance()`, `window.avg()`, `window.mode()`, `window.range()`, `window.first()`, `window.last()` | `outcome:` | Used for robust non-parametric baselines across historical buckets. |
+| **`cast`** | `cast.as_int()`, `cast.as_float()`, `cast.as_string()`, `cast.as_uint()`, `cast.as_bool()` | `events:` & `outcome:` | Type coercion for epoch day arithmetic and strings. |
+| **`strings`** | `strings.trim()`, `strings.split()`, `strings.substr()`, `strings.contains()`, `strings.reverse()`, `strings.to_lower()`, `strings.to_upper()`, `strings.concat()` | `events:` & Stage Body | Scalar string transformations on UDM fields. |
+| **`re`** | `re.regex()`, `re.capture()`, `re.capture_all()`, `re.replace()`, `re.count()`, `re.count_distinct()` | `events:` & Stage Body | Regular expression extraction and filtering. |
+| **`timestamp`** | `timestamp.get_hour()`, `timestamp.get_day_of_week()`, `timestamp.truncate()`, `timestamp.diff()`, `timestamp.current_seconds()` | `events:` & Stage Body | Seasonality and maintenance window modeling. |
+| **`hash`** | `hash.sha256()`, `hash.sha512()`, `hash.md5()`, `hash.fingerprint2011()` | `events:` & Stage Body | Telemetry hashing and bucketing. |
+| **Aggregates** | `count()`, `count_distinct()`, `approx_count_distinct()`, `sum()`, `avg()`, `stddev()`, `min()`, `max()`, `array()`, `array_distinct()`, `earliest()`, `latest()` | `outcome:` | **OutcomeLimit = 20** variables per section. Always use `array_distinct` for strings. |
+

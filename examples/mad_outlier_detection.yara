@@ -7,9 +7,9 @@
 //   - Why this model: Security telemetry distributions (like daily DNS lookups) are heavily right-skewed and zero-inflated.
 //     Standard standard-deviation (Z-Score) breaks down because massive exfiltration spikes distort the mean and variance.
 //     MAD is robust up to 50% outliers, ensuring an accurate baseline median for each host.
-//   - Noise protection: Enforces a daily volume floor of >= 50 distinct queries and a minimum MAD threshold > 10.0 to prevent
-//     zero-deviation division explosions on idle hosts.
-// Sensitivity Boundary: BALANCED (M_Z > 2.5 represents top ~2% statistical tail, Daily Queries >= 50, MAD > 10.0)
+//   - Noise protection: Enforces a daily volume floor of >= 50 distinct queries, a baseline sample density floor (>= 7 active days),
+//     and a minimum MAD threshold > 10.0 to prevent zero-deviation division explosions on idle hosts.
+// Sensitivity Boundary: BALANCED (M_Z > 2.5 represents top ~2% statistical tail, Daily Queries >= 50, MAD > 10.0, Active Days >= 7)
 // ============================================================================
 
 // Stage 1: Daily distinct subdomain query count per host
@@ -33,58 +33,61 @@ stage median_stats {
   match:
     $host
   outcome:
-    // True enables exact median computation
     $host_median = window.median($daily_stats.distinct_subdomains, true)
 }
 
-// Stage 3: Compute Absolute Deviation |x - median| for each day
-stage abs_dev {
+// Stage 3: Compute Median Absolute Deviation (MAD) across all daily deviations
+stage mad_stats {
     $host = $daily_stats.host
     $host = $median_stats.host
-
-  match:
-    $host by day
-  outcome:
-    $daily_val = max($daily_stats.distinct_subdomains)
-    $median_val = max($median_stats.host_median)
-    $raw_dev = $daily_val - $median_val
+    
+    // Linear event-level absolute deviation calculation
+    $raw_dev = $daily_stats.distinct_subdomains - $median_stats.host_median
     $dev = math.abs($raw_dev)
-}
-
-// Stage 4: Compute Median Absolute Deviation (MAD) across all daily deviations
-stage mad_stats {
-    $host = $abs_dev.host
 
   match:
     $host
   outcome:
-    $mad = window.median($abs_dev.dev, true)
+    $mad = window.median($dev, true)
+    $host_median_val = max($median_stats.host_median)
+    $active_days = count_distinct($daily_stats.window_start)
 }
 
-// Root Stage: Calculate Modified Z-Score (0.6745 * deviation / MAD)
-$host = $abs_dev.host
+// Root Stage: Calculate Modified Z-Score (0.6745 * deviation / MAD) and emit 6 Evidence Pillars
+$host = $daily_stats.host
 $host = $mad_stats.host
-$window_start = $abs_dev.window_start
+$window_start = $daily_stats.window_start
+
+// Linear event-level Modified Z-score calculation (eliminates intra-stage outcome race conditions)
+$raw_diff = $daily_stats.distinct_subdomains - $mad_stats.host_median_val
+$abs_diff = math.abs($raw_diff)
+$scaled_diff = 0.6745 * $abs_diff
+$m_z = $scaled_diff / $mad_stats.mad
 
 match:
   $host, $window_start by day
 outcome:
-  $daily_subdomains = max($abs_dev.daily_val)
-  $host_median = max($abs_dev.median_val)
-  $mad_val = max($mad_stats.mad)
-  // Modified Z-score formula for robust outlier detection on skewed distributions
-  $diff = $daily_subdomains - $host_median
-  $abs_diff = math.abs($diff)
-  $scaled_diff = 0.6745 * $abs_diff
-  $m_z_score = $scaled_diff / $mad_val
+  // 6 Core Evidence Pillars
+  $observation_count = max($daily_stats.distinct_subdomains)
+  $baseline_active_samples = max($mad_stats.active_days)
+  $baseline_mean = max($mad_stats.host_median_val)
+  $baseline_dispersion = max($mad_stats.mad)
+  $fleet_prevalence = 1
+  $distinct_binaries = max($daily_stats.distinct_subdomains)
+  
+  // Aggregate Modified Z-Score
+  $m_z_score = max($m_z)
 
 condition:
+  // Small-Sample Protection: Require at least 7 active daily observation windows
+  $baseline_active_samples >= 7
   // Volume Floor: at least 50 distinct queries today
-  $daily_subdomains >= 50
+  and $observation_count >= 50
   // Noise Floor: MAD must be non-zero and > 10 to avoid division by zero on flat baselines
-  and $mad_val > 10.0
+  and $baseline_dispersion > 10.0
   // Sensitivity Tier: BALANCED (M_Z > 2.5 identifies the top ~2% anomalies)
   and $m_z_score > 2.5
 
 order:
   $m_z_score desc
+

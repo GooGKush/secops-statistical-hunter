@@ -8,9 +8,9 @@
 //     occur with very low historical daily frequency (λ <= 0.5 runs/day). Standard Z-score breaks down because the sample
 //     standard deviation (s) across 30 days is nearly zero, causing false-positive divide-by-zero or mathematical distortion.
 //     Under Poisson theory, the theoretical standard deviation is inherently √λ, providing an exact, stable rarity metric.
-//   - Noise protection: Enforces a daily observed floor (k >= 3 executions) and restricts baseline rate (λ <= 2.0)
-//     to isolate true discrete rare-event surges from standard routine operational tools.
-// Sensitivity Boundary: BALANCED (Poisson Z >= 3.5σ, Today Executions k >= 3, Historical Rate λ <= 2.0/day)
+//   - Noise protection: Enforces a daily observed floor (k >= 3 executions), a baseline sample density floor (>= 7 active days),
+//     and restricts baseline rate (λ <= 2.0) to isolate true discrete rare-event surges from standard routine operational tools.
+// Sensitivity Boundary: BALANCED (Poisson Z >= 3.5σ, Today Executions k >= 3, Historical Rate λ <= 2.0/day, Active Days >= 7)
 // ============================================================================
 
 // Stage 1: Daily execution counts for sensitive utilities per host
@@ -31,7 +31,7 @@ stage daily_tool_activity {
     $sample_cmd = array_distinct(target.process.command_line)
 }
 
-// Stage 2: Historical daily arrival rate (λ = mean daily executions) and max day tracking
+// Stage 2: Historical daily arrival rate (λ = mean daily executions), active days, and theoretical Poisson SD (√λ)
 stage tool_baseline {
     $host = $daily_tool_activity.host
     $day_id = $daily_tool_activity.day_id
@@ -40,8 +40,10 @@ stage tool_baseline {
     $host
   outcome:
     $lambda_rate = avg($daily_tool_activity.daily_count)
+    $poisson_sd = math.sqrt(avg($daily_tool_activity.daily_count))
     $max_day = max($day_id)
     $total_historical_runs = sum($daily_tool_activity.daily_count)
+    $active_days = count_distinct($daily_tool_activity.day_id)
 }
 
 // Stage 3: Today's execution count (day_id = max_day)
@@ -58,31 +60,41 @@ stage today_activity {
     $today_cmds = array_distinct(if($day_id = $max_day, $daily_tool_activity.sample_cmd, ""))
 }
 
-// Root Stage: Calculate Discrete Poisson Score ( (k - λ) / √λ )
+// Root Stage: Calculate Discrete Poisson Score and emit 6 Evidence Pillars
 $host = $tool_baseline.host
 $host = $today_activity.host
+
+// Linear event-level Poisson Z-score calculation (eliminates intra-stage outcome race conditions)
+$diff = $today_activity.today_runs - $tool_baseline.lambda_rate
+$z = $diff / $tool_baseline.poisson_sd
 
 match:
   $host
 outcome:
-  $observed_today = max($today_activity.today_runs)
-  $historical_lambda = max($tool_baseline.lambda_rate)
-  $historical_total = max($tool_baseline.total_historical_runs)
-  // Poisson standard deviation is √λ
-  $poisson_sd = math.sqrt($historical_lambda)
-  // Linear AST Poisson Z-score
-  $diff = $observed_today - $historical_lambda
-  $poisson_z = $diff / $poisson_sd
+  // 6 Core Evidence Pillars
+  $observation_count = max($today_activity.today_runs)
+  $baseline_active_samples = max($tool_baseline.active_days)
+  $baseline_mean = max($tool_baseline.lambda_rate)
+  $baseline_dispersion = max($tool_baseline.poisson_sd)
+  $fleet_prevalence = 1
+  $distinct_binaries = max($today_activity.today_runs)
+  $sample_commands = array_distinct($today_activity.today_cmds)
+  
+  // Aggregate Poisson Z-Score
+  $poisson_z = max($z)
 
 condition:
+  // Small-Sample Protection: Require at least 7 active daily observation windows
+  $baseline_active_samples >= 7
   // Activity Floor: at least 3 executions observed on the target day
-  $observed_today >= 3
+  and $observation_count >= 3
   // Rare Event Filter: historical baseline rate must be positive and low (0 < λ <= 2.0 runs/day)
-  and $historical_lambda > 0.0
-  and $historical_lambda <= 2.0
-  and $poisson_sd > 0.0
+  and $baseline_mean > 0.0
+  and $baseline_mean <= 2.0
+  and $baseline_dispersion > 0.0
   // Poisson Score Floor: 3.5 Sigma threshold indicates extreme improbability
   and $poisson_z >= 3.5
 
 order:
   $poisson_z desc
+

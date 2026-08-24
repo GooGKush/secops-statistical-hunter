@@ -1,5 +1,7 @@
 ---
 name: secops-statistical-hunter
+author: Greg Kushmerek
+version: 2.0.0
 description: |
   Guides and executes multi-stage statistical anomaly detection and outlier hunting
   in Google Security Operations (SecOps). Uses inline non-parametric, time-series,
@@ -41,14 +43,13 @@ When interacting with a cybersecurity analyst who does not have an advanced back
 
 Multi-stage queries in Google SecOps use a specific DAG grammar parsed by the Search/Dashboard engine (`parser.MultiStageQuery`). **Do NOT confuse this with standard Detection Rule syntax.**
 
-### 1. Structure of a Multi-Stage Query
+### 1. The Four-Stage DAG Architecture
 
-A multi-stage query consists of **one or more named intermediate stages** followed by an **unwrapped root stage**:
+A multi-stage query consists of **up to 4 named intermediate stages** followed by an **unwrapped root stage (5 stages total)**:
 
 ```yara
-// Stage 1: Named Intermediate Stage (Bucketed by time window)
+// Stage 1: Extraction & Binning (by time window)
 stage host_hourly {
-    // Direct telemetry filters (NO "events:" header)
     metadata.event_type = "PROCESS_LAUNCH"
     principal.hostname = $host
     $host != ""
@@ -58,9 +59,10 @@ stage host_hourly {
   outcome:
     $hourly_count = count(metadata.id)
     $distinct_procs = count_distinct(target.process.file.full_path)
+    $sample_cmd = array_distinct(target.process.command_line)
 }
 
-// Stage 2: Historical Baseline Stage (Across the full window)
+// Stage 2: Historical Baseline & Sample Density Tracking
 stage host_stats {
     $host = $host_hourly.host
 
@@ -69,36 +71,58 @@ stage host_stats {
   outcome:
     $host_mean = avg($host_hourly.hourly_count)
     $host_stddev = stddev($host_hourly.hourly_count)
+    $active_samples = count($host_hourly.window_start)
+}
+
+// Stage 3: Enterprise-Wide Peer Prevalence & Context
+stage fleet_prevalence {
+    $host = $host_hourly.host
+
+  match:
+    $host
+  outcome:
+    $fleet_hosts = count_distinct($host_hourly.host)
 }
 
 // Root Stage: Final Unwrapped Stage (NEVER wrap in "stage name { ... }")
-// CRITICAL: Explicitly bind all upstream stages used in outcome above the match block!
 $host = $host_hourly.host
 $host = $host_stats.host
+$host = $fleet_prevalence.host
 $window_start = $host_hourly.window_start
+
+// Linear event-level statistical transformation (prevents intra-stage outcome race conditions)
+$diff = $host_hourly.hourly_count - $host_stats.host_mean
+$z = $diff / $host_stats.host_stddev
 
 match:
   $host, $window_start by 1h
 outcome:
-  $observed_count = max($host_hourly.hourly_count)
-  $mean_val = max($host_stats.host_mean)
-  $stddev_val = max($host_stats.host_stddev)
+  // 6 Standardized Evidence Pillars
+  $observation_count = max($host_hourly.hourly_count)
+  $baseline_active_samples = max($host_stats.active_samples)
+  $baseline_mean = max($host_stats.host_mean)
+  $baseline_dispersion = max($host_stats.host_stddev)
+  $fleet_prevalence = max($fleet_prevalence.fleet_hosts)
   $distinct_binaries = max($host_hourly.distinct_procs)
-  // Linear AST: single-operation variable assignments (NO parentheses in outcome math)
-  $diff = $observed_count - $mean_val
-  $z_score = $diff / $stddev_val
+  $sample_commands = array_distinct($host_hourly.sample_cmd)
+  
+  // Aggregate Computed Score
+  $z_score = max($z)
 
 condition:
-  $observed_count >= 50
-  and $stddev_val >= 10.0
+  // Small-Sample Protection Gate
+  $baseline_active_samples >= 120
+  and $observation_count >= 50
+  and $baseline_dispersion >= 10.0
   and $z_score > 3.0
 ```
 
 ### 2. Critical Compiler & Syntax Anti-Patterns (Malachite AST Rules)
 
-| ❌ INCORRECT (Syntax Error) | ✓ CORRECT (Valid Multi-Stage) | Why it Fails |
+| ❌ INCORRECT (Syntax Error / Race Condition) | ✓ CORRECT (Valid Multi-Stage) | Why it Fails |
 | :--- | :--- | :--- |
-| `$z = ($a - $b) / $c` (Parentheses in math) | `$diff = $a - $b`<br>`$z = $diff / $c` | **No Parentheses in Outcome Math**: Malachite AST rejects compound/parenthesized arithmetic. Use linear single-operation variable assignments. |
+| **Intra-Stage Chaining**: `$diff = $a - $b`<br>`$z = $diff / $c` inside same `outcome:` | Linear transform in `events:` section:<br>`$diff = $a - $b`<br>`$z = $diff / $c`<br>`outcome: $z_score = max($z)` | **Clean Materialization Barrier Rule**: Outcome variables cannot reference other outcome variables defined within the same block. Decompose across stages or compute in the event body before `match:`. |
+| `$z = ($a - $b) / $c` (Parentheses in math) | Linear transforms in event body or across stages | **No Parentheses in Outcome Math**: Malachite AST rejects compound/parenthesized arithmetic. |
 | `$val = if($b > 0, $a / $b, 0)` or `$a / if(...)` | `$val = $a / $b`<br>`condition: $b > 0 and $val > 3.0` | **No Bare `if()` in Arithmetic**: Outcome math does not support inline `if()` for zero-division. Handle divisor protection in `condition:`. |
 | `count(if(status = "FAIL", 1, 0))` | `sum(if(status = "FAIL", 1, 0))` | **Conditional Counting Standard**: `count(if(...))` is invalid syntax. Use `sum(if(condition, 1, 0))` to aggregate conditional events. |
 | `stage s1 { events: $e.metadata... }` | `stage s1 { metadata.event_type = "..." }` | Stages **do not** have an `events:` header. Event filters are written directly. |
@@ -108,6 +132,8 @@ condition:
 | `math.max($a, $b)` or `math.min($a, $b)` | `$diff = $a - $b`<br>Condition floor: `$a >= $b` | `math.max` and `math.min` do **not** exist in YARA-L. `max()` is only an aggregator. |
 | `options: ...` in multi-stage search | Query ends after `condition:` or `order:` | `options:` is rule-engine only. Including it in ad-hoc searches causes parser `<EOF>` errors. |
 | `match: $host by 1h hop 15m` or `by 1h over 15m` | `match: $host by 1h` (Tumbling)<br>or `match: $host over 15m` (Sliding) | **Window Syntax Rule**: YARA-L does not support compound `by X hop Y`. Use `by <duration>` for discrete tumbling buckets, `over <duration>` for sliding windows, or `match: $entity` for unwindowed baseline stages. |
+| Exceeding 20 outcome variables per section | Group variables or keep $\le 20$ | `outcome_validator.go` strictly enforces `OutcomeLimit = 20` per block. |
+
 
 ---
 
@@ -118,43 +144,93 @@ When presenting search results, the agent **MUST** format output using clean **C
 ```markdown
 ### ⚡ Statistical Outlier Report: Process Execution Surges
 
-* **Outliers Detected**: **4 entities** exceeded the configured anomaly threshold.
-* **Baseline Envelope**: Mean ($\mu$) $\approx 659.9$ | StdDev ($\sigma$) $\approx 32.8$
+* **Outliers Detected**: **1 entities** exceeded the configured anomaly threshold.
+* **Fleet Scaling / Multiple-Comparison Adjustment**: Fleet Size $N = 5000$ | Bonferroni Threshold $Z_{\text{adj}} \ge 4.13\sigma$
+* **Normal Baseline Envelope**: Typical Average ($\mu$) $\approx 250.0$ | Typical Variation ($\sigma$) $\approx \pm35.0$
 
 ---
 
 #### 📊 Ranked Outlier Summary (Top Anomalies by Severity)
 
-| Entity Identifier | Spike Window | Observed | Baseline Envelope | Severity Rating | Visual Magnitude |
-| :---------------- | :----------- | :------- | :---------------- | :-------------- | :--------------- |
-| `br-win10-14` | 2026-08-11T09:00 | **827** | 660 ± 33 | 🚨 **[CRITICAL OUTLIER]** (`+5.10σ`) | `██████████` |
-| `dev-win10-4` | 2026-08-12T09:00 | **888** | 720 ± 33 | 🚨 **[CRITICAL OUTLIER]** (`+5.06σ`) | `█████████▉` |
-| `acc-win11-15` | 2026-08-16T09:00 | **595** | 446 ± 30 | 🚨 **[CRITICAL OUTLIER]** (`+5.00σ`) | `█████████▊` |
+| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Visual Magnitude |
+| :------------------- | :----------- | :---------------- | :------------------------- | :-------------- | :-------------- | :--------------- |
+| `host-alpha-prod` | 2026-08-24T08:00 | **850** | 250 ± 35 | 🟢 **HIGH CONFIDENCE** | 🚨 **[CRITICAL OUTLIER]** (`+17.14σ`) | `██████████` |
 
 ---
 
-#### 🔍 Top Outlier Spotlight: `br-win10-14` — 🚨 **[CRITICAL OUTLIER]** (`+5.10σ`)
+#### 🔍 Top Outlier Spotlight: `host-alpha-prod` — 🚨 **[CRITICAL OUTLIER]** (`+17.14σ`)
 
-* **Activity Surge**: **827 executions** (+25.3% above historical personal mean).
-* **Binary Diversity**: **51 distinct full binary paths** executed.
+* **Data Confidence Level**: 🟢 **HIGH CONFIDENCE** — Robust historical baseline (>= 120 active samples, verified dispersion, low fleet prevalence).
+
+##### 🗣️ What Happened & Why It Matters (In Plain English)
+> **The Finding**: During this window, `host-alpha-prod` performed **850 events**, representing **3.4x higher than normal** (+240% above baseline) (normal average is **250.0**).
+> 
+> **Why It Matters**: This sudden burst produced an anomaly rating of **+17.14σ**, indicating behavior so statistically rare that it almost certainly represents **automated software execution, script loops, or active threat tooling** rather than normal human employee activity.
+> 
+> **Organization Context**: This behavior was observed on only **1 endpoint(s)** across the entire company, ruling out a routine corporate-wide software rollout.
+
+##### 🏛️ Forensic Evidence Breakdown
+
+| Evidence Pillar | Observed Value | What this Means for Your Investigation |
+| :--- | :--- | :--- |
+| **1. Activity Spike** | `850` | What this computer actually did during the spike window |
+| **2. Baseline History** | `168 units` | How much history was analyzed to ensure this isn't a new or unobserved machine |
+| **3. Typical Normal Level** | `250.0` | The normal expected volume when things are operating routinely |
+| **4. Normal Daily Spread** | `±35.0` | Typical fluctuation range; this surge blew far past this envelope |
+| **5. Company-Wide Breadth** | `1 host(s)` | 1 host = isolated/targeted; 100 hosts = company-wide software push |
+| **6. Variety of Programs** | `42` | Unique programs/commands involved (high variety = batch recon/staging) |
 
 > [!IMPORTANT]
-> **Threat Translation: Parametric Z-Score (Standard Deviation Surge)**
-> * **Threat Meaning**: Volume explosion exceeding personal 30-day host baseline. Indicates script loops, build storms, mass lateral movement, or ransomware staging.
-> * **Common False Positives**: Software compiler builds (MSBuild/Ninja/GCC), SCCM/Ansible endpoint management jobs, local developer testing.
-> * **SOC Triage Playbook**:
->   1. Inspect Parent Binary Lineage (e.g. `cmd.exe` vs `devenv.exe` / `CcmExec.exe`).
->   2. Verify executing User Account (Service Account vs Interactive End-User).
->   3. Check for executions from user-writable directories (`C:\Temp`, `AppData\Local\Temp`, `/tmp`).
+> **Threat Explanation: Process Execution Volume Surge (Parametric Z-Score)**
+> * **The Core Concept**: Massive sudden burst in program launches compared to this computer's normal daily routine.
+> * **Security Significance**: When an endpoint suddenly launches hundreds or thousands of processes in a short window, it almost always indicates automated software execution (such as a script loop, malware installer, or rapid reconnaissance sweep) rather than a human user clicking applications.
+> 
+> **🔴 Potential Attack Scenarios (What to look for)**:
+> * Ransomware traversing folders and launching execution helpers to encrypt files.
+> * Attacker running automated batch discovery scripts (ping sweeps, user queries, network shares).
+> * Malware dropper unpacking and executing secondary payloads in rapid succession.
+> 
+> **🟢 Legitimate Business Explanations (False positives to rule out)**:
+> * Software engineer compiling code locally using build tools (Ninja, MSBuild, GCC, Rust/Cargo).
+> * IT systems management software (SCCM, BigFix, Ansible) deploying a large software suite.
+> * Local antivirus or security sensor running an aggressive background definitions update.
+> 
+> **🎯 Step-by-Step SOC Action Plan (No Math Required)**:
+> 1. Run the drill-down query below to see the exact process paths (.exe/.sh) and command-line arguments that executed.
+> 2. Check the User Account: Is it an interactive employee user or a system background account (SYSTEM, root, svc-)?
+> 3. Look for suspicious execution folders: Are binaries launching from temporary folders (C:\Temp, AppData\Local\Temp, /tmp)?
+> 4. Check if the host established sudden outbound network connections immediately following the process spike.
 
 ---
 
 #### 🎯 Immediate Drill-Down Investigation Query
 
 ```yara
-principal.hostname = "br-win10-14" AND metadata.event_type = "PROCESS_LAUNCH"
+principal.hostname = "host-alpha-prod" AND metadata.event_type = "PROCESS_LAUNCH"
 AND metadata.event_timestamp.seconds >= 1786438800 AND metadata.event_timestamp.seconds <= 1786442400
 ```
+
+---
+
+<details>
+<summary>🔬 <b>Statistical & Mathematical Appendix (Technical Details)</b></summary>
+
+##### 📐 Mathematical Model & Formulaic Derivations
+* **Model**: Parametric Gaussian Standardization (Historical $Z$-Score)
+  $$Z = \frac{x - \mu}{\sigma} = \frac{850 - 250.0}{35.0} = +17.14\sigma$$
+* **Degrees of Freedom ($N$)**: `168` active baseline observation intervals.
+* **Dispersion Metric**: Sample Standard Deviation $s = \sqrt{\frac{1}{N-1} \sum (x_i - \bar{x})^2} = 35.0$.
+
+##### 🌐 Multiple-Comparison Fleet Correction (Bonferroni / Gumbel Tail)
+* **Fleet Population ($N$)**: `5000` independent endpoints evaluated simultaneously.
+* **Adjusted Critical Threshold**: $Z_{\text{adj}} \approx \sqrt{2 \ln N} = 4.13\sigma$.
+* **Family-Wise Error Rate (FWER)**: Controls fleet-wide false discovery probability at $\alpha = 0.01$.
+
+##### 🛡️ Statistical Validity & Safeguard Verification
+* **Sample Density Floor**: `168` active units (Threshold $\ge 30$ $\to$ **PASSED**).
+* **Dispersion Non-Zero Floor**: Spread `35.0` (Threshold $\ge 5.0$ $\to$ **PASSED**).
+* **Fleet Prevalence Isolation**: `1` host(s) (Threshold $\le 3$ $\to$ **PASSED**).
+</details>
 ```
 
 ---
@@ -200,7 +276,37 @@ For clients that support rich UI graphing, the skill provides **Strictly-Typed J
 * ❌ **DO NOT USE**: `metrics.*` (e.g., `metrics.network_bytes_outbound`), `graph.risk_score`, or `source_dataset: UEBA_EVENTS`. These require fixed batch schedules and belong in **`secops-risk-analytics`**.
 * ✓ **USE INSTEAD**: Raw telemetry (`UDM_EVENTS`) or alerts (`RULE_DETECTIONS`) with inline window/math functions (`window.median`, `window.percentile`, `stddev`, `math.abs`).
 
-### 4. Search Window Ceilings: Single-Stage (90 Days) vs. Multi-Stage (30 Days)
+### 4. Dynamic Time-Window Protocol & Adaptive Granularity (CRITICAL)
+
+The skill is **inherently flexible on time** and adapts seamlessly to any user-requested search window—whether "today" (last 24 hours), "past 2 days", "the past week", "days this week so far", "days this month so far", or "the past 30 days".
+
+#### A. Up-Front Time Window Clarification
+* If the user specifies a time window (e.g. *"hunt for process surges over the last 2 days"* or *"analyze failed logins for today"*), adopt and lock that window immediately.
+* If the user's request lacks a time window (e.g. *"hunt for C2 beaconing"*), proactively propose or confirm a standard default (e.g. 7-day or 30-day baseline) and state the window explicitly in the methodology header.
+
+#### B. Dynamic Granularity & Proportional Sample Density Matrix
+**NEVER hardcode fixed 30-day sample floors (like `$baseline_active_samples >= 120` or `$active_days >= 30`) on short windows.** Doing so creates an **automatic query failure** (zero results) because the total intervals in the search window cannot meet the condition.
+
+Instead, scale the bucket granularity and sample density floor dynamically based on the window duration ($\Delta T$):
+
+| Target Search Window ($\Delta T$) | Example Analyst Requests | Recommended Tumbling Bucket | Total Window Capacity | Proportional Sample Density Floor | Optimal Statistical Models |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Intra-Day / Ultra-Short** ($\le 24\text{h}$) | *"today"*, *"past 12 hours"*, *"last 24 hours"* | `by 10m` or `by 15m` | $96–144$ intervals | `$baseline_active_samples >= 12` to `24` | `POISSON_BURST_CLUSTERING`, `C2_BEACONING_JITTER`, `FLEET_PEER_ZSCORE` |
+| **Short Window** ($24\text{h}–7\text{d}$) | *"past 2 days"*, *"the past week"*, *"days this week so far"* | `by 1h` | $48–168$ hourly intervals | `$baseline_active_samples >= 12` (2d) to `48` (7d) | `ZSCORE_PROCESS_SURGE`, `POISSON_BURST_CLUSTERING`, `C2_BEACONING_JITTER`, `FLEET_PEER_ZSCORE` |
+| **Extended Window** ($7\text{d}–30\text{d}$) | *"days this month so far"*, *"past 30 days"* | `by 1h` or `by 1d` | $168–720$ hourly / $7–30$ daily | `$baseline_active_samples >= 60` (hourly) or `7` (daily) | `ZSCORE_PROCESS_SURGE`, `DATA_EXFILTRATION_SPIKE` (MAD), `HEAVY_TAIL_OUTLIERS` (IQR), `VELOCITY_SURGE_RATIO` |
+| **Macro Historical** ($30\text{d}–90\text{d}$) | *"past 90 days macro baseline"* | Single-Stage `match: $entity` | Full Macro Window | Single-stage macro aggregations | Single-Stage Macro Search |
+
+#### C. Proportional Sample Density Floor Rule
+$$\text{Proportional Sample Floor} = \max(3, \min(\text{Default Floor}, \lfloor 0.25 \times N_{\text{total\_intervals}} \rfloor))$$
+* Example for a **2-day hunt (48 hours with 1h buckets)**: Total capacity is 48. Enforce `$baseline_active_samples >= 12` (NOT 120!).
+* Example for a **24-hour hunt (96 15-minute buckets)**: Total capacity is 96. Enforce `$baseline_active_samples >= 24`.
+
+#### D. Model Selection by Window Duration
+* If an analyst asks for an anomaly search over $\le 48\text{ hours}$ using a model that normally relies on multi-day baselines (e.g. 30-day moving average ratios or daily MAD lookups), **shift bucket granularity down from days to hours (`by 1h` / `by 15m`)** or **shift the comparison axis from longitudinal time-series to cross-sectional peer fleet normalization (`FLEET_PEER_ZSCORE`)**.
+
+---
+
+### 5. Search Window Ceilings: Single-Stage (90 Days) vs. Multi-Stage (30 Days)
 * **Single-Stage Macro Stats Searches (`match: $entity outcome: ...`)**:
   * ✓ **Supported Window**: Up to **90 consecutive days** (7,776,000s / 2,160h).
   * **Use Case**: Macro historical sweeps, 90-day host average bytes, total failure counts, and entity profile baselines.
@@ -210,6 +316,7 @@ For clients that support rich UI graphing, the skill provides **Strictly-Typed J
 * **Prescriptive Analyst Guidance for Requests $>30\text{ Days}$**:
   * If an analyst requests a multi-stage hunt spanning $>30\text{ days}$ (e.g., *"hunt for 3-sigma process surges across the last 90 days"*), advise:
     > *"Multi-stage anomaly queries (hourly Z-scores, MAD, Fano factor) have a 30-day maximum limit due to distributed join state buffers. We can run this multi-stage hunt over the maximum 30-day window (which provides 720 hourly samples—statistically optimal for 3-Sigma), or run a 90-day single-stage macro search for overall historical baselines."*
+
 
 ---
 
@@ -266,3 +373,7 @@ Every multi-stage query generated by this skill **MUST** start with a standardiz
   * `references/scope-exclusions-guardrail.md`: Deep dive on UEBA `metrics.*` vs ad-hoc multi-stage telemetry and Rules Engine separation.
 * `scripts/`:
   * `scripts/multistage_query_builder.py`: Linter, CommonMark 4-tier triage report formatter, and Dual-Y / 4D Vega-Lite spec generator.
+
+---
+*Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
+

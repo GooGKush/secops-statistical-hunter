@@ -63,3 +63,7 @@ secops-statistical-hunter/
 | **Execution Window** | **Arbitrary ad-hoc time slices** (e.g. 14 days, exact start/end) | **Fixed batch windows** (Pre-computed 24h/1h scheduled profiles) |
 | **Functions Used** | Inline dynamic math (`window.median`, `percentile`, `CV`, `Fano`, Poisson) | Curated machine-learning anomaly baselines (`metrics.*`) |
 | **Analyst Persona** | Active Threat Hunter building custom hypothesis queries | Alert Responder reviewing pre-scored user/asset risk posture |
+
+---
+*Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
+
