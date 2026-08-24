@@ -14,7 +14,7 @@ generates Strictly-Typed True Dual-Y Axis Timeline Specs (with orient: right and
 """
 
 __author__ = "Greg Kushmerek"
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 import argparse
 import json
@@ -942,18 +942,23 @@ def generate_chart_spec(
             ]
         }
     }
-  elif plot_type == "HEATMAP":
+  elif plot_type == "CATEGORICAL_BAR":
+    cat_key = next((k for k in ["extension_id", "host", "user", "process", "principal_ip", "entity"] if rows and k in rows[0]), "host")
+    val_key = next((k for k in ["event_count", "observation_count", "observed_count", "request_count", "count"] if rows and k in rows[0]), "observation_count")
     spec = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
         "title": title,
-        "width": 600,
+        "width": 650,
         "height": 300,
         "data": {"values": rows},
-        "mark": "rect",
+        "mark": {"type": "bar", "color": "#1a73e8"},
         "encoding": {
-            "x": {"field": "TIME_BUCKET", "type": "temporal", "timeUnit": "hours", "title": "Hour of Day (UTC)"},
-            "y": {"field": "host", "type": "nominal", "title": "Entity / Host"},
-            "color": {"field": "z_score", "type": "quantitative", "title": "Anomaly Density", "scale": {"scheme": "magma"}}
+            "x": {"field": cat_key, "type": "nominal", "sort": "-y", "title": "Entity Identifier", "axis": {"labelAngle": -45}},
+            "y": {"field": val_key, "type": "quantitative", "title": "Observed Activity Count"},
+            "tooltip": [
+                {"field": cat_key, "type": "nominal", "title": "Entity"},
+                {"field": val_key, "type": "quantitative", "title": "Activity Count"}
+            ]
         }
     }
   else:
@@ -971,6 +976,93 @@ def generate_chart_spec(
         }
     }
   return spec
+
+
+def generate_chartjs_spec(
+    stats_payload: Dict[str, Any],
+    plot_type: str = "CATEGORICAL_BAR",
+    title: str = "Activity Distribution by Entity"
+) -> Dict[str, Any]:
+  """Generates strictly-typed, axis-isolated Chart.js JSON configs to prevent mixed categorical/numeric Y-axis corruption."""
+  rows = parse_columnar_stats(stats_payload)
+  if not rows:
+    return {"type": "bar", "data": {"labels": [], "datasets": []}}
+  
+  if plot_type == "CATEGORICAL_BAR":
+    cat_key = next((k for k in ["extension_id", "host", "user", "process", "principal_ip", "entity"] if k in rows[0]), "host")
+    val_key = next((k for k in ["event_count", "observation_count", "observed_count", "request_count", "count"] if k in rows[0]), "observation_count")
+    
+    labels = [str(r.get(cat_key, "Unknown")) for r in rows]
+    data_points = [float(r.get(val_key, 0)) for r in rows]
+    
+    return {
+        "type": "bar",
+        "data": {
+            "labels": labels,
+            "datasets": [
+                {
+                    "label": "Activity Count",
+                    "data": data_points,
+                    "backgroundColor": "rgba(26, 115, 232, 0.75)",
+                    "borderColor": "rgba(26, 115, 232, 1.0)",
+                    "borderWidth": 1
+                }
+            ]
+        },
+        "options": {
+            "responsive": True,
+            "plugins": {
+                "title": {"display": True, "text": title},
+                "legend": {"display": False}
+            },
+            "scales": {
+                "x": {"title": {"display": True, "text": "Entity Identifier"}},
+                "y": {"type": "linear", "beginAtZero": True, "title": {"display": True, "text": "Observed Event Count"}}
+            }
+        }
+    }
+  elif plot_type == "DUAL_Y_TIMESERIES":
+    time_labels = [str(r.get("TIME_BUCKET", "N/A")) for r in rows]
+    vol_key = next((k for k in ["observation_count", "observed_count", "event_count"] if k in rows[0]), "observation_count")
+    score_key = next((k for k in ["z_score", "fleet_z", "poisson_z", "fano_factor"] if k in rows[0]), "z_score")
+    
+    vol_data = [float(r.get(vol_key, 0)) for r in rows]
+    score_data = [float(r.get(score_key, 0)) for r in rows]
+    
+    return {
+        "type": "bar",
+        "data": {
+            "labels": time_labels,
+            "datasets": [
+                {
+                    "type": "bar",
+                    "label": "Event Volume",
+                    "data": vol_data,
+                    "yAxisID": "y",
+                    "backgroundColor": "rgba(118, 192, 248, 0.65)"
+                },
+                {
+                    "type": "line",
+                    "label": "Statistical Score (Z)",
+                    "data": score_data,
+                    "yAxisID": "y1",
+                    "borderColor": "rgba(217, 48, 37, 1.0)",
+                    "backgroundColor": "rgba(217, 48, 37, 1.0)",
+                    "tension": 0.1
+                }
+            ]
+        },
+        "options": {
+            "responsive": True,
+            "plugins": {"title": {"display": True, "text": title}},
+            "scales": {
+                "x": {"title": {"display": True, "text": "Time Window (UTC)"}},
+                "y": {"type": "linear", "position": "left", "title": {"display": True, "text": "Event Volume"}},
+                "y1": {"type": "linear", "position": "right", "grid": {"drawOnChartArea": False}, "title": {"display": True, "text": "Z-Score (σ)"}}
+            }
+        }
+    }
+  return {"type": "bar", "data": {"labels": [], "datasets": []}}
 
 
 def get_thresholds_for_tier(

@@ -1,12 +1,17 @@
-# Release Notes: SecOps Statistical Hunter (v2.0 Upgrade)
+# Release Notes: SecOps Statistical Hunter
 
-**Release Date:** August 24, 2026  
-**Module:** `secops-statistical-hunter`  
-**Scope:** Architecture, Compiler Compliance, Time-Windowing, Statistical Rigor, and SOC Explainability  
+## 📦 Version 2.0.1 (August 24, 2026) — Non-CLI & Rich Charting Clarifications
+
+* **Mandatory 5-Section Reporting Enforcement**: Clarified instructions so that non-CLI agents do not regress to free-form bullet points; enforces all 5 sections (Executive Envelope, Ranked Outlier Summary Table, Spotlight with 6 Evidence Pillars, 1-Click Drilldown, and Collapsible Technical Appendix).
+* **Strict Axis Type Isolation for UI Charting**: Added explicit rules and copy-pasteable Vega-Lite / Chart.js schemas to prevent mixed string/numeric data corruption on chart Y-axes (categorical strings belong only on the nominal X-axis or in tooltips).
+* **Search-Only Action Playbook Guardrail**: Reinforced the constraint that multi-stage queries cannot be deployed as continuous real-time alert rules, ensuring action playbooks only recommend scheduled cron searches, dashboards, or allowlist reviews.
+* **CLI Chart Helper Enhancements**: Added `generate_chartjs_spec()` and `CATEGORICAL_BAR` generation in `multistage_query_builder.py`.
 
 ---
 
-## 🌟 Executive Summary
+## 🌟 Version 2.0.0 (August 24, 2026) — Major Architectural Upgrade
+
+### Executive Summary
 
 This release represents a comprehensive overhaul of the **`secops-statistical-hunter`** skill. Key additions include the **Four-Stage DAG Pipeline Architecture**, **Race-Free Compiler Materialization**, an **Adaptive Dynamic Time-Window Protocol**, **6 Forensic Evidence Pillars**, **Fleet-Wide Multiple-Comparison Scaling**, and a **Plain-English SOC Triage Reporting Engine** designed specifically for security practitioners without a mathematics background.
 

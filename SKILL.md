@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.0.0
+version: 2.0.1
 description: |
   Guides and executes multi-stage statistical anomaly detection and outlier hunting
   in Google Security Operations (SecOps). Uses inline non-parametric, time-series,
@@ -139,7 +139,12 @@ condition:
 
 ## 📊 CommonMark Cyber-First 4-Tier Triage Report (Mandatory Standard)
 
-When presenting search results, the agent **MUST** format output using clean **CommonMark / GFM Markdown** (using standard `###`/`####` headers, `---` horizontal rules, and `> [!NOTE]` callouts instead of terminal ASCII box-drawing characters `═══`/`───` which break in rich HTML renderers):
+When presenting search results, the agent **MUST** format output using clean **CommonMark / GFM Markdown** (using standard `###`/`####` headers, `---` horizontal rules, and `> [!NOTE]` callouts instead of terminal ASCII box-drawing characters `═══`/`───` which break in rich HTML renderers).
+
+### 🚨 Mandatory Reporting Rules for All Agents & Clients:
+1. **Strict 5-Section Schema**: Every response MUST contain all 5 sections: (1) Executive Headline & Envelope, (2) Ranked Outlier Summary Table, (3) Top Outlier Spotlight with Forensic Evidence Table, Threat Meaning & Scenarios, and 4-Step SOC Action Plan, (4) Immediate 1-Click Drill-Down Query, and (5) Collapsible Technical Appendix.
+2. **No Free-Form Regression**: ❌ **NEVER** replace the Ranked Outlier Table or Forensic Evidence Breakdown with unstructured bullet points.
+3. **Search-Only Action Plans**: ❌ **NEVER** recommend deploying multi-stage queries as real-time alert rules in Step 4 of the SOC Action Plan (multi-stage is search-only). Recommend scheduled cron hunting searches, dashboard widgets, or endpoint allowlist audits instead.
 
 ```markdown
 ### ⚡ Statistical Outlier Report: Process Execution Surges
@@ -235,24 +240,67 @@ AND metadata.event_timestamp.seconds >= 1786438800 AND metadata.event_timestamp.
 
 ---
 
-## 📈 Multi-Dimensional Threat Visualizations & Strict Data Typing
+## 📈 Multi-Dimensional Threat Visualizations & Strict Data Typing (Non-CLI & UI Clients)
 
-For clients that support rich UI graphing, the skill provides **Strictly-Typed JSON Specifications (Vega-Lite & Chart.js)** with pure numeric coordinates:
+For MCP clients that support rich JavaScript/Chart.js or Vega-Lite charting, agents **MUST** enforce **Strict Axis Type Isolation**:
 
-1. **Dual-Y Axis Timeline Plot (`DUAL_Y_TIMESERIES`)**:
-   * **Shared $X$-Axis**: `TIME_BUCKET` (Temporal timestamp).
-   * **Left $Y$-Axis**: Observed Volume / Event Count (e.g. Bar / Area mark).
-   * **Right $Y$-Axis**: Normalized Statistical Anomaly Score ($Z$-Score, Fano Factor, or Modified $Z$) (Line + Point mark).
-   * **Vega-Lite Resolution**: Uses `resolve: { scale: { y: "independent" } }`.
-2. **4D Threat Bubble Plot (`4D_BUBBLE`)**:
-   * **$X$-Axis**: Timing Interval ($\Delta t$).
-   * **$Y$-Axis**: Observed Intensity / Volume.
-   * **Bubble Size**: Cardinality (Distinct destination IPs, unique binaries, or users).
-   * **Bubble Color**: Statistical Anomaly Score ($Z$, $M_Z$, or $\text{CV}$).
-3. **3D Temporal Density Heatmap (`HEATMAP`)**:
-   * **$X$-Axis**: Hour of Day ($00–23$).
-   * **$Y$-Axis**: Day of Week (Monday–Sunday) or Host Subnet.
-   * **Color Density**: Anomaly Score or Event Concentration.
+### 🚫 Anti-Patterns in UI Charting (CRITICAL):
+* ❌ **NEVER** dump a raw heterogeneous tabular JSON row object (containing mixed string fields like `extension_id`, `page`, `host` alongside numbers) into generic auto-charting functions. Doing so scrambles the vertical axis into a broken categorical string list.
+* ❌ **NEVER** plot string names/identifiers on a numeric Y-axis.
+* ❌ **NEVER** include excluded fields like `risk_score` or `graph.*` in charts.
+* ✓ **MANDATORY**: Categorical dimensions belong exclusively on the nominal X-axis or in tooltips. All Y-axes must be strictly quantitative/numeric.
+
+### 📐 Copy-Pasteable Strictly-Typed Chart Specifications
+
+#### 1. Categorical Entity Bar Chart (Activity by Extension / Host / Process)
+* **Vega-Lite**:
+```json
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Activity Distribution by Entity Identifier",
+  "mark": {"type": "bar", "color": "#1a73e8"},
+  "encoding": {
+    "x": {"field": "extension_id", "type": "nominal", "sort": "-y", "title": "Entity Identifier", "axis": {"labelAngle": -45}},
+    "y": {"field": "event_count", "type": "quantitative", "title": "Observed Activity Count"},
+    "tooltip": [
+      {"field": "extension_id", "type": "nominal", "title": "Entity"},
+      {"field": "event_count", "type": "quantitative", "title": "Count"}
+    ]
+  }
+}
+```
+* **Chart.js (Clean Axis Isolation)**:
+```json
+{
+  "type": "bar",
+  "data": {
+    "labels": ["mmfbcljfglbok...", "cnbggqchhmkk...", "jkghodnilhce..."],
+    "datasets": [{
+      "label": "Observed Event Count",
+      "data": [14, 13, 10],
+      "backgroundColor": "rgba(26, 115, 232, 0.75)"
+    }]
+  },
+  "options": {
+    "scales": {
+      "x": {"title": {"display": true, "text": "Entity Identifier"}},
+      "y": {"type": "linear", "beginAtZero": true, "title": {"display": true, "text": "Observed Event Count"}}
+    }
+  }
+}
+```
+
+#### 2. Dual-Y Axis Timeline Plot (`DUAL_Y_TIMESERIES`)
+* **Shared $X$-Axis**: `TIME_BUCKET` (Temporal timestamp).
+* **Left $Y$-Axis**: Observed Volume / Event Count (`type: "quantitative"`, bar mark).
+* **Right $Y$-Axis**: Statistical Anomaly Score ($Z$-Score / Fano Factor, `type: "quantitative"`, line mark, `orient: "right"`).
+* **Vega-Lite Resolution**: Uses `resolve: { scale: { y: "independent" } }`.
+
+#### 3. 4D Threat Bubble Plot (`4D_BUBBLE`)
+* **$X$-Axis**: Timing Interval ($\Delta t$) or Timestamp (temporal/quantitative).
+* **$Y$-Axis**: Observed Volume (`type: "quantitative"`).
+* **Bubble Size**: Cardinality (Distinct destination IPs, unique binaries, `type: "quantitative"`).
+* **Bubble Color**: Statistical Anomaly Score ($Z$-Score, `type: "quantitative"`).
 
 ---
 
