@@ -51,6 +51,28 @@ When interacting with a cybersecurity analyst who does not have an advanced back
 
 ---
 
+## 🚦 MANDATORY STEP 1: PRE-FLIGHT CLEARANCE & HARD TURN BOUNDARY (ZERO EXECUTION ON SELECTION TURN)
+
+Whenever the analyst initiates a threat hunt, selects an archetype (e.g. C2 Beaconing, Password Spray, MAD on Egress), or refines parameters, **THE AGENT MUST NEVER CALL SEARCH TOOLS ON THAT TURN**.
+
+### Mandatory Step 1 Execution Checklist:
+1. **ZERO Tool Execution**: Execute 0 tool calls to `udm_search`, `list_security_alerts`, or `import_logs`.
+2. **Plain-English Operational Analogy**: Provide a 1-2 sentence down-to-earth analogy explaining how the mathematical model catches the behavior (e.g., *"The Clockwork Metronome: Automated implants sleep between callbacks with fixed periodicity..."*).
+3. **Structured Pre-Flight Hunting Specification Card**: Present the exact parameters:
+   ```markdown
+   ┌────────────────────────────────────────────────────────────────────────────────────────┐
+   │                        PRE-FLIGHT HUNTING SPECIFICATION                                │
+   │  • Hunting Objective:       Stealth C2 Beaconing via Inter-Arrival Timing Jitter       │
+   │  • Telemetry Scope:         NETWORK_CONNECTION (Outbound External Traffic)             │
+   │  • Search Horizon:          7-Day Active Evaluation Window                             │
+   │  • Statistical Model:       Inter-Arrival Coefficient of Variation (CV = σ / μ)        │
+   │  • Significance Threshold:  CV ≤ 0.20 (Robotic Periodicity), Min Conns ≥ 25, Prev ≤ 2  │
+   └────────────────────────────────────────────────────────────────────────────────────────┘
+   ```
+4. **Explicit Clearance Question & Turn Termination**: End the turn asking for explicit analyst confirmation (e.g. *"Would you like me to execute this hunt across your environment, or refine parameters?"*) and **STOP calling tools**.
+
+---
+
 ## 📐 Canonical Multi-Stage YARA-L Grammar & Syntax (CRITICAL)
 
 Multi-stage queries in Google SecOps use a specific DAG grammar parsed by the Search/Dashboard engine (`parser.MultiStageQuery`). **Do NOT confuse this with standard Detection Rule syntax.**
@@ -160,6 +182,12 @@ When presenting search results, the agent **MUST** format output using clean **C
 
 ```markdown
 ### ⚡ Statistical Outlier Report: Process Execution Surges
+
+> [!NOTE]
+> **⚡ Engine: Ad-Hoc Raw Telemetry Sensor (Non-UEBA)**
+> • **Baseline Horizon**: Inline calculation across the selected search window
+> • **Confidence Tier**: Ad-Hoc Raw Telemetry ($N$ events evaluated). Evaluates micro-timing / kinematic mechanics rather than 30-day historical norms.
+> • *For 30-day pre-computed behavioral context and peer comparisons, run via `secops-risk-metrics-multistage`.*
 
 * **Outliers Detected**: **1 entities** exceeded the configured anomaly threshold.
 * **Fleet Scaling / Multiple-Comparison Adjustment**: Fleet Size $N = 5000$ | Bonferroni Threshold $Z_{\text{adj}} \ge 4.13\sigma$
