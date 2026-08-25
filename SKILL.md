@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.0.1
+version: 2.1.0
 description: |
   Guides and executes multi-stage statistical anomaly detection and outlier hunting
   in Google Security Operations (SecOps). Uses inline non-parametric, time-series,
@@ -11,17 +11,29 @@ description: |
   Triage Report (with Unicode visual bars, Threat Translation Callout Cards, SOC Severity Badges,
   Common False Positives, SOC Playbooks, and 1-click drill-down queries) and multi-dimensional
   graph-ready specifications (Dual-Y Axis Timelines, 4D Bubble Plots, Heatmaps, Tolerance Bands).
-  Triggers: "find beaconing with jitter", "hunt for statistical outliers",
-  "multi-stage outlier search", "calculate MAD on DNS", "Tukey fence anomaly",
-  "impossible travel velocity", "rolling volume ratio", "pre-flight boundary probe",
-  "z-score process execution surge", "poisson burst clustering", "fano factor password spray",
-  "rare admin tool surge", "dual-y axis outlier timeline".
+  Triggers: "find beaconing with jitter", "inline C2 timing regularity", "calculate MAD on DNS",
+  "Tukey fence anomaly", "impossible travel velocity", "rolling volume ratio", "pre-flight boundary probe",
+  "poisson burst clustering", "fano factor password spray", "rare admin tool surge",
+  "dual-y axis outlier timeline", "inter-arrival timing CV".
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
 ---
 
 # SecOps Statistical Hunter (`secops-statistical-hunter`)
 
-This skill empowers an LLM agent and SOC analyst to execute **ad-hoc multi-stage statistical outlier hunting** in Google SecOps without requiring pre-computed machine-learning pipelines or UEBA batch metrics.
+This skill empowers an LLM agent and SOC analyst to execute **ad-hoc multi-stage statistical outlier hunting** in Google SecOps over raw UDM telemetry without requiring pre-computed machine-learning pipelines or UEBA batch metrics.
+
+> [!CAUTION]
+> ### 🛑 STRICT UEBA EXCLUSION (DO NOT USE FOR BEHAVIORAL BASELINE HUNTING)
+> This skill is **STRICTLY for ad-hoc inline math over raw UDM telemetry** across custom time slices.
+>
+> **NEVER USE THIS SKILL IF THE ANALYST ASKS FOR:**
+> 1. 30-Day behavioral baselines or historical normal behavior (`window: 30d`)
+> 2. Team, cohort, or peer-group comparisons
+> 3. 360° entity health checks or omnibus risk scoring
+> 4. Multi-day longitudinal CUSUM drift
+> 5. UEBA or Risk Analytics pre-computed metrics (`metrics.*`)
+>
+> 👉 **Route ALL baseline, peer, and UEBA requests to `secops-risk-metrics-multistage`.**
 
 ---
 
@@ -33,9 +45,9 @@ When interacting with a cybersecurity analyst who does not have an advanced back
 | :--- | :--- | :--- |
 | *"Find password sprays or brute force that pulse in intermittent waves to evade high-volume rate limits."* | **`POISSON_BURST_CLUSTERING`** (Fano Factor $F = \sigma^2 / \mu > 4.0$) | **Rainfall downpour vs. steady trickle**: Normal login mistakes trickle in steadily; automated attack waves arrive in synchronized, clumpy bursts. |
 | *"Detect sensitive administrative commands (`vssadmin`, `certutil`, `whoami`) running more than usual on quiet servers without divide-by-zero errors."* | **`POISSON_RARE_SURGE`** (Poisson $Z = \frac{k - \lambda}{\sqrt{\lambda}} > 3.5$) | **Mathematical rarity on quiet baselines**: Evaluates the improbability of seeing $N$ runs today given a near-zero historical arrival rate. |
-| *"Detect extreme surges in process launches or script executions compared to a host's normal behavior."* | **`ZSCORE_PROCESS_SURGE`** (Parametric $Z = \frac{x - \mu}{\sigma} > 3.0$) | **1-in-1,000,000 baseline anomaly**: Flags activity breaking 3 standard deviations above the host's 30-day baseline (top $0.13\%$ tail). |
 | *"Hunt for C2 beaconing where the implant uses randomized sleep delays to avoid fixed-interval alerts."* | **`C2_BEACONING_JITTER`** ($\text{CV} \le 0.20$ + Low Prevalence $\le 2$) | **Robotic timing regularity**: Automated implants exhibit low timing variance ($\text{CV} \le 0.20$), while human browsing is chaotic ($\text{CV} > 0.50$). |
 | *"Find abnormal outbound data transfers or DNS tunneling on heavily skewed network data."* | **`DATA_EXFILTRATION_SPIKE`** ($M_Z > 2.5$ via Median / MAD) | **Median-anchored surge**: Uses Median Absolute Deviation so a single massive upload doesn't distort baseline calculations. |
+| *"Detect impossible physical movement between consecutive logins across different geographies."* | **`IMPOSSIBLE_TRAVEL_SPEED`** ($\text{Speed} > 800\text{ km/h}$) | **Physical velocity boundary**: Calculates great-circle Haversine distance over timestamp delta. |
 
 ---
 

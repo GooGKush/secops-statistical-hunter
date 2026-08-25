@@ -55,14 +55,15 @@ secops-statistical-hunter/
 
 ---
 
-## Comparison with Sibling Skills
+## Release Notes
 
-| Feature / Domain | `secops-statistical-hunter` (This Skill) | `secops-risk-analytics` |
-| :--- | :--- | :--- |
-| **Primary Data Source** | `UDM_EVENTS` (Raw telemetry), `RULE_DETECTIONS` | `UEBA_EVENTS`, Entity Risk Graph |
-| **Execution Window** | **Arbitrary ad-hoc time slices** (e.g. 14 days, exact start/end) | **Fixed batch windows** (Pre-computed 24h/1h scheduled profiles) |
-| **Functions Used** | Inline dynamic math (`window.median`, `percentile`, `CV`, `Fano`, Poisson) | Curated machine-learning anomaly baselines (`metrics.*`) |
-| **Analyst Persona** | Active Threat Hunter building custom hypothesis queries | Alert Responder reviewing pre-scored user/asset risk posture |
+### v2.1.0 (Minor Point Revision)
+* **Strict UEBA Exclusion Guardrail**: Added prominent top-level routing guardrails (`🛑 STRICT UEBA EXCLUSION`) directing all 30-day pre-computed behavioral baselines, peer group comparisons, 360° health checks, and longitudinal CUSUM drift to `secops-risk-metrics-multistage`.
+* **Trigger Specialization & De-Duplication**: Refined skill triggers to explicitly anchor on raw telemetry ad-hoc inline statistical models (C2 beaconing jitter CV, Poisson burst clustering, Tukey fences, MAD on raw egress, Haversine impossible travel) to prevent skill collisions with UEBA.
+* **Separation of Concerns**: Clarified that `secops-statistical-hunter` is strictly for ad-hoc inline math over raw UDM telemetry across custom time slices and does not stand in for 30-day UEBA baselines.
+
+### v2.0.1
+* Clarified reporting constraints and chart axis isolation for non-CLI clients.
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
