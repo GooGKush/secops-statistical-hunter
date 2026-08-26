@@ -14,7 +14,7 @@ generates Strictly-Typed True Dual-Y Axis Timeline Specs (with orient: right and
 """
 
 __author__ = "Greg Kushmerek"
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 
 import argparse
 import json
@@ -1081,6 +1081,100 @@ def get_thresholds_for_tier(
   return SENSITIVITY_MAP[archetype_up][tier_up]
 
 
+def audit_query_execution(
+    query_text: str,
+    expected_architecture: str,
+    expected_model: Optional[str] = None
+) -> Dict[str, Any]:
+  """Audits the executed YARA-L query against the promised hunting architecture and model intent."""
+  stage_names = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", query_text)
+  stage_count = len(stage_names)
+
+  if stage_count == 0:
+    actual_arch = "SINGLE_STAGE_MACRO"
+  elif stage_count == 1:
+    actual_arch = "LOCAL_2STAGE"
+  elif stage_count == 2:
+    if "delta_z" in query_text.lower() or "fleet_z" in query_text.lower():
+      actual_arch = "DUAL_BASELINE_3STAGE"
+    else:
+      actual_arch = "3STAGE_DAG"
+  elif stage_count == 3:
+    if "threat_norm" in query_text.lower() or "threat_vector" in query_text.lower() or "composite" in query_text.lower():
+      actual_arch = "MULTI_SECTOR_FUSION_4STAGE"
+    elif "beta_prior" in query_text.lower() or "alpha_prior" in query_text.lower():
+      actual_arch = "BAYESIAN_GAMMA_4STAGE"
+    elif "posterior_fail_prob" in query_text.lower() or "alpha_post" in query_text.lower():
+      actual_arch = "BETA_BINOMIAL_4STAGE"
+    else:
+      actual_arch = "4STAGE_DAG"
+  else:
+    actual_arch = f"{stage_count + 1}STAGE_EXCEEDS_SUPPORTED_LIMIT"
+
+  exp_norm = expected_architecture.upper().replace("-", "_")
+  act_norm = actual_arch.upper().replace("-", "_")
+
+  is_arch_match = (exp_norm in act_norm or act_norm in exp_norm)
+  if "3STAGE" in exp_norm and "3STAGE" in act_norm:
+    is_arch_match = True
+  if "4STAGE" in exp_norm and "4STAGE" in act_norm:
+    is_arch_match = True
+
+  findings = []
+  if is_arch_match:
+    findings.append(f"✅ Architecture verified: Executed query has {stage_count} intermediate stage(s) + root ({stage_count + 1} total stages), matching promised '{expected_architecture}'.")
+  else:
+    findings.append(f"❌ ARCHITECTURE MISMATCH: Promised '{expected_architecture}', but executed query is '{actual_arch}' ({stage_count} intermediate stages).")
+
+  has_sample_floor = bool(re.search(r"\$(?:baseline_active_samples|active_hours|active_days|active_samples)\s*>=\s*\d+", query_text))
+  has_dispersion_floor = bool(re.search(r"\$(?:baseline_dispersion|personal_stddev|fleet_stddev|sd|dispersion)\s*>\s*0", query_text) or re.search(r"\$(?:baseline_dispersion|personal_stddev|sd)\s*>=\s*\d+", query_text))
+
+  safeguards = {
+      "sample_floor_present": has_sample_floor,
+      "dispersion_floor_present": has_dispersion_floor
+  }
+
+  if actual_arch != "SINGLE_STAGE_MACRO":
+    if not has_sample_floor:
+      findings.append("⚠️ Missing Small-Sample Protection Floor in condition: section.")
+    if not has_dispersion_floor:
+      findings.append("⚠️ Missing Non-Zero Dispersion Floor in condition: section.")
+
+  model_verified = True
+  if expected_model:
+    m_norm = expected_model.upper()
+    if "DELTA_Z" in m_norm and ("delta_z" not in query_text.lower() and "fleet_z" not in query_text.lower()):
+      model_verified = False
+      findings.append("❌ Model Mismatch: Expected Delta-Z calculations ($delta_z = $personal_z - $fleet_z), but variables were not found.")
+    elif "BAYESIAN" in m_norm and ("alpha" not in query_text.lower() and "beta" not in query_text.lower() and "posterior" not in query_text.lower()):
+      model_verified = False
+      findings.append("❌ Model Mismatch: Expected Bayesian conjugate updating, but alpha/beta parameters were not found.")
+    elif "FANO" in m_norm and ("fano" not in query_text.lower() and "variance" not in query_text.lower()):
+      model_verified = False
+      findings.append("❌ Model Mismatch: Expected Fano Factor dispersion, but variance/Fano variables were not found.")
+    elif "FUSION" in m_norm and ("threat_norm" not in query_text.lower() and "composite" not in query_text.lower() and "threat_vector" not in query_text.lower()):
+      model_verified = False
+      findings.append("❌ Model Mismatch: Expected Multi-Sector Threat Fusion norm, but vector norm variables were not found.")
+    elif model_verified:
+      findings.append(f"✅ Model math verified: Mathematical signatures for '{expected_model}' confirmed.")
+
+  status = "PASS" if is_arch_match and model_verified else "MISMATCH"
+  if actual_arch != "SINGLE_STAGE_MACRO" and not has_sample_floor and not has_dispersion_floor:
+    status = "GUARDRAIL_VIOLATION" if status == "PASS" else status
+
+  return {
+      "status": status,
+      "expected_architecture": expected_architecture,
+      "actual_architecture": actual_arch,
+      "intermediate_stages": stage_count,
+      "total_stages": stage_count + 1,
+      "stage_names": stage_names,
+      "model_verified": model_verified,
+      "safeguards": safeguards,
+      "findings": findings
+  }
+
+
 def main():
   parser = argparse.ArgumentParser(
       description="secops-statistical-hunter Query Validation & Boundary Utility"
@@ -1119,14 +1213,36 @@ def main():
       default=1,
       help="Fleet size (total number of endpoints/users) for multiple-comparison threshold adjustment",
   )
-
   parser.add_argument(
       "--window_hours",
       type=float,
       help="Time window duration in hours to calculate adaptive bucket granularity and proportional sample floor",
   )
+  parser.add_argument(
+      "--audit_intent",
+      help="Audit query against expected architecture (e.g. SINGLE_STAGE_MACRO, LOCAL_2STAGE, DUAL_BASELINE_3STAGE, MULTI_SECTOR_FUSION_4STAGE)",
+  )
+  parser.add_argument(
+      "--audit_model",
+      help="Audit query against expected statistical model (e.g. DELTA_Z, BAYESIAN_GAMMA, BETA_BINOMIAL, FUSION, FANO, Z_SCORE)",
+  )
 
   args = parser.parse_args()
+
+  if args.query_file and args.audit_intent:
+    with open(args.query_file, "r") as f:
+      q_text = f.read()
+    audit_res = audit_query_execution(q_text, args.audit_intent, args.audit_model)
+    print(f"=== Post-Query Execution Audit: {audit_res['status']} ===")
+    print(f"  Expected Architecture : {audit_res['expected_architecture']}")
+    print(f"  Actual Architecture   : {audit_res['actual_architecture']} ({audit_res['intermediate_stages']} intermediate + 1 root = {audit_res['total_stages']} stages)")
+    print(f"  Stages Detected       : {audit_res['stage_names']}")
+    print("  Findings:")
+    for fn in audit_res['findings']:
+      print(f"    - {fn}")
+    if audit_res['status'] != "PASS":
+      sys.exit(1)
+    sys.exit(0)
 
   if args.window_hours and args.archetype:
     params = get_adaptive_window_parameters(args.window_hours, args.archetype, args.tier)
@@ -1205,4 +1321,5 @@ def main():
 
 if __name__ == "__main__":
   main()
+
 

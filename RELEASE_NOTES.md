@@ -1,5 +1,15 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.1.0 (August 26, 2026) — Progressive Architecture, Intent Auditing & Unit Testing
+
+* **Progressive Disclosure Instruction Architecture**: Refactored `SKILL.md` down to a lean, token-efficient ~125 lines focused on core routing and execution contracts, moving comprehensive math taxonomy, DAG grammar, dynamic windowing formulas, chart schemas, auditing rules, and SOC playbooks into modular guides in `references/`.
+* **Post-Query Intent & Architecture Auditor (`QueryIntentAuditor`)**: Implemented automated AST verification (`--audit_intent`, `--audit_model`) in `multistage_query_builder.py` that confirms the executed query matches the exact stage depth (Single-Stage vs. 2/3/4-Stage DAG) and mathematical signatures promised to the user.
+* **Automated Unit Test Suite (`tests/`)**: Added a 20-test automated test suite across 6 test modules (`test_compiler_grammar.py`, `test_math_models.py`, `test_window_adaptation.py`, `test_triage_reporting.py`, `test_chart_specifications.py`, `test_query_auditor.py`) ensuring 100% test coverage over grammar rules, Bayesian math, and visualization specifications.
+* **Advanced Raw Telemetry Hunting Models**: Added reference queries and math models for Poisson-Gamma Bayesian Credibility Shrinkage ("The Seasoned SOC Detective"), Beta-Binomial Failure Rate Regularization ("Small-Sample Ratio Regularizer"), Dual-Baseline Delta-$Z$ ("The Patch Tuesday Shield"), and Multi-Sector Threat Fusion ("The Combined Arms Radar").
+* **Consistent Authorship Attribution**: Standardized authorship attribution to Greg Kushmerek across `SKILL.md`, `README.md`, and Python modules across both `secops-statistical-hunter` and `secops-risk_metrics-multistage`.
+
+---
+
 ## 📦 Version 2.0.1 (August 24, 2026) — Non-CLI & Rich Charting Clarifications
 
 * **Mandatory 5-Section Reporting Enforcement**: Clarified instructions so that non-CLI agents do not regress to free-form bullet points; enforces all 5 sections (Executive Envelope, Ranked Outlier Summary Table, Spotlight with 6 Evidence Pillars, 1-Click Drilldown, and Collapsible Technical Appendix).
