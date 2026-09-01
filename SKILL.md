@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.1.0
+version: 2.2.1
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   and outlier hunting in Google Security Operations (SecOps) over raw UDM telemetry across custom time slices.

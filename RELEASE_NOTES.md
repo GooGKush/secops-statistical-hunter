@@ -1,5 +1,20 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.2.1 (September 1, 2026) — Dual Multi-Stage Taxonomy & Architecture Disambiguation
+
+* **Dual Multi-Stage Architecture Boundary**:
+  * Documented explicit data plane boundaries between ad-hoc raw telemetry DAG queries (`UDM_EVENTS`) and pre-computed 30-day UEBA metric tables (`secops-risk-metrics-multistage`).
+  * Disambiguated shared mathematical models that execute via multi-stage DAGs:
+    * **Dual-Baseline Delta-$Z$**: Raw concurrent enterprise fleet shift suppression (*Patch Tuesday Shield*) vs. 30-day pre-computed department peer cohort comparisons.
+    * **Multi-Sector Threat Fusion**: Raw cross-silo orthogonal event counting (*Combined Arms Radar*) vs. multi-dimensional 30-day baseline deviation norms ($D = \sqrt{\sum Z_i^2}$).
+* **Exclusive Capability Clarifications**:
+  * Formalized that timing jitter ($\text{CV} \le 0.20$) and connection inter-arrival intervals ($\Delta t_i = t_i - t_{i-1}$) strictly require raw event timestamps and are physically impossible on daily pre-computed metric tables.
+  * Formalized that 30-day rolling behavioral baselines, department cohorts, and 360° health checks belong exclusively to `secops-risk-metrics-multistage`.
+* **Guardrail & Linter Updates**:
+  * Updated `EXCLUDED_PATTERNS` in `scripts/multistage_query_builder.py` and `references/scope-exclusions-guardrail.md` to reference `secops-risk-metrics-multistage` (replacing legacy `secops-risk-analytics`).
+
+---
+
 ## 📦 Version 2.2.0 (September 1, 2026) — AST Pre-Flight Guards & Post-Flight API Response Payload Auditing
 
 * **Advanced Compiler Syntax & Token Traps**:

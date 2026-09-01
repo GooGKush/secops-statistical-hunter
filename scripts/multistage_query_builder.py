@@ -26,9 +26,9 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 EXCLUDED_PATTERNS = [
-    (r"\bmetrics\.", "UEBA metric functions (metrics.*) are excluded from ad-hoc time range searches. Use secops-risk-analytics."),
-    (r"\brisk_score\b", "Entity Risk Score fields (risk_score) are excluded. Use secops-risk-analytics."),
-    (r"\bgraph\.risk_score", "Entity Risk Graph tables are excluded. Use secops-risk-analytics."),
+    (r"\bmetrics\.", "UEBA metric functions (metrics.*) are excluded from ad-hoc time range searches. Use secops-risk-metrics-multistage."),
+    (r"\brisk_score\b", "Entity Risk Score fields (risk_score) are excluded. Use secops-risk-metrics-multistage."),
+    (r"\bgraph\.risk_score", "Entity Risk Graph tables are excluded. Use secops-risk-metrics-multistage."),
     (r"UEBA_EVENTS", "UEBA_EVENTS source dataset is excluded. Use raw UDM_EVENTS or RULE_DETECTIONS."),
     (r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", "Multi-stage queries CANNOT be wrapped in rule blocks or deployed to the Rules Engine. They are Search/Dashboard-only."),
 ]
