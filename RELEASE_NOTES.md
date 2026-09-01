@@ -1,5 +1,21 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.2.0 (September 1, 2026) — AST Pre-Flight Guards & Post-Flight API Response Payload Auditing
+
+* **Advanced Compiler Syntax & Token Traps**:
+  * Added pre-flight detection for illegal exponent operator `^` (enforces `$var * $var` for squared Euclidean norms).
+  * Added detection for invalid Python/SQL string tuples `in ("A", "B")` (enforces disjunctions `(field = "A" or field = "B")` or regex).
+  * Added rejection of invalid `by 24h` duration tokens (enforces canonical `by 1d`).
+  * Added rejection of `$` prefixes in stage declarations (`stage $name {`).
+* **Multi-Vector Cramming Detection**: Implemented domain-aware telemetry silo analysis (`check_multivector_cramming`) to prevent mixing cross-domain event categories (Auth + Endpoint + Network + Cloud) in single unseparated stage blocks.
+* **Entity Context Graph (ECG) Limit Enforcement**: Added AST check (`check_ecg_limits`) enforcing max 1 Entity Context Graph alias per stage (`$e.graph...` limit = 1) to prevent F1 memory exhaustion.
+* **Post-Flight API Response Payload Auditing (`PostFlightExecutionAuditor`)**:
+  * Implemented `audit_api_response_payload()` and `PostFlightExecutionAuditor` to ensure queries execute mathematical aggregations inside Chronicle's F1 data plane, actively flagging un-aggregated raw event dumps (`RAW_LOG_DUMP_DETECTED`).
+  * Added `--audit_response <api_response.json>` CLI integration.
+* **Expanded Test Coverage**: Added comprehensive test suites in `tests/test_compiler_grammar.py` and `tests/test_query_auditor.py` (30 total tests, 100% pass rate).
+
+---
+
 ## 📦 Version 2.1.0 (August 26, 2026) — Progressive Architecture, Intent Auditing & Unit Testing
 
 * **Progressive Disclosure Instruction Architecture**: Refactored `SKILL.md` down to a lean, token-efficient ~125 lines focused on core routing and execution contracts, moving comprehensive math taxonomy, DAG grammar, dynamic windowing formulas, chart schemas, auditing rules, and SOC playbooks into modular guides in `references/`.

@@ -21,6 +21,8 @@ import json
 import math
 import re
 import sys
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 EXCLUDED_PATTERNS = [
@@ -38,6 +40,10 @@ SYNTAX_TRAPS = [
     (r"\bcount\s*\(\s*if\s*\(", "SYNTAX ERROR: 'count(if(...))' is invalid syntax. Use 'sum(if(condition, 1, 0))' for conditional event counting."),
     (r"^\s*options\s*:", "SYNTAX ERROR: 'options:' blocks are Rule-Engine only and rejected in Search/Dashboard queries. Searches terminate after 'condition:' or 'order:'."),
     (r"match:\s*[^;\n]+\bby\b[^;\n]+\b(hop|over)\b", "SYNTAX ERROR: Compound 'by X hop Y' or 'by X over Y' is invalid syntax in YARA-L. Use 'match: $var by <duration>' for tumbling buckets, 'match: $var over <duration>' for sliding windows, or 'match: $var' for unwindowed baseline stages."),
+    (r"\^", "SYNTAX ERROR: '^' is invalid in YARA-L outcome expressions. Use '$var * $var' for squared terms ($z_sq = $z * $z)."),
+    (r"\bin\s*\([\"']", "SYNTAX ERROR: 'in (\"A\", \"B\")' tuple syntax is invalid in YARA-L. Use '(field = \"A\" or field = \"B\")' or regex 're.regex(field, `A|B`)'."),
+    (r"match:\s*[^;\n]*\bby\s+24h\b", "SYNTAX ERROR: 'by 24h' is invalid in YARA-L. Use 'by 1d' for daily matching."),
+    (r"stage\s+\$[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR: Stage declarations must not have a '$' prefix (use 'stage stage_name {', not 'stage $stage_name {')."),
 ]
 
 SENSITIVITY_MAP = {
@@ -311,15 +317,73 @@ def check_scope_exclusions(query: str) -> List[str]:
   return violations
 
 
+EVENT_DOMAINS = {
+    "USER_LOGIN": "AUTH",
+    "USER_AUTHENTICATION": "AUTH",
+    "EMAIL_TRANSACTION": "AUTH",
+    "PROCESS_LAUNCH": "PROCESS",
+    "PROCESS_TERMINATION": "PROCESS",
+    "PROCESS_INJECTION": "PROCESS",
+    "NETWORK_CONNECTION": "NETWORK",
+    "NETWORK_HTTP": "NETWORK",
+    "NETWORK_DNS": "NETWORK",
+    "NETWORK_DHCP": "NETWORK",
+    "RESOURCE_CREATION": "CLOUD",
+    "RESOURCE_DELETION": "CLOUD",
+    "RESOURCE_READ": "CLOUD",
+    "RESOURCE_WRITTEN": "CLOUD",
+}
+
+
+def check_multivector_cramming(query: str) -> List[str]:
+  """Detects single-stage multi-vector event cramming across distinct telemetry silos."""
+  errors = []
+  stage_blocks = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", query, flags=re.DOTALL)
+  for stage_name, stage_body in stage_blocks:
+    event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))
+    silos = set(EVENT_DOMAINS.get(et, et) for et in event_types)
+    if len(silos) > 1:
+      errors.append(
+          f"MULTI-VECTOR CRAMMING in stage '{stage_name}': Stage mixes cross-domain telemetry silos {silos} ({event_types}). "
+          "In multi-sector hunting, each distinct telemetry domain must be isolated in its own named stage and fused in the Root stage."
+      )
+  if not stage_blocks:
+    event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", query))
+    silos = set(EVENT_DOMAINS.get(et, et) for et in event_types)
+    if len(silos) > 1 and "MULTI_SECTOR" in query.upper():
+      errors.append(
+          "MULTI-VECTOR CRAMMING: Multi-sector threat fusion requires separate 'stage' blocks for each telemetry domain."
+      )
+  return errors
+
+
+def check_ecg_limits(query: str) -> List[str]:
+  """Enforces maximum 1 Entity Context Graph lookup per stage to prevent F1 memory exhaustion."""
+  errors = []
+  stage_blocks = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", query, flags=re.DOTALL)
+  for stage_name, stage_body in stage_blocks:
+    graph_aliases = set(re.findall(r"\$([a-zA-Z0-9_]+)\.graph\.", stage_body))
+    if len(graph_aliases) > 1:
+      errors.append(
+          f"ECG LIMIT EXCEEDED in stage '{stage_name}': Found {len(graph_aliases)} Entity Context Graph aliases. "
+          "F1 limits require each graph lookup to reside in its own dedicated DAG stage."
+      )
+  return errors
+
+
 def validate_multistage_syntax(query: str) -> List[str]:
   """Performs structural validation on multi-stage YARA-L search queries."""
   errors = []
+  code_only = re.sub(r"//.*", "", query)
 
   for pattern, msg in SYNTAX_TRAPS:
-    if re.search(pattern, query, re.DOTALL | re.MULTILINE):
+    if re.search(pattern, code_only, re.DOTALL | re.MULTILINE):
       errors.append(msg)
 
-  stages = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{", query)
+  errors.extend(check_multivector_cramming(query))
+  errors.extend(check_ecg_limits(query))
+
+  stages = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{", code_only)
   is_multistage = bool(stages)
 
   if is_multistage:
@@ -330,7 +394,7 @@ def validate_multistage_syntax(query: str) -> List[str]:
       )
 
     # Verify that the final stage is unwrapped at the root level
-    stripped = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
+    stripped = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", code_only, flags=re.DOTALL)
     if not re.search(r"^\s*outcome\s*:", stripped, re.MULTILINE):
       errors.append("MISSING UNWRAPPED ROOT OUTCOME: The final stage must NOT be inside a named 'stage { ... }' block. It must be unwrapped at the root level.")
 
@@ -348,9 +412,9 @@ def validate_multistage_syntax(query: str) -> List[str]:
           )
   else:
     # Single-stage stats search validation
-    if not re.search(r"^\s*match\s*:", query, re.MULTILINE):
+    if not re.search(r"^\s*match\s*:", code_only, re.MULTILINE):
       errors.append("MISSING MATCH SECTION: Single-stage stats searches require a 'match:' section.")
-    if not re.search(r"^\s*outcome\s*:", query, re.MULTILINE):
+    if not re.search(r"^\s*outcome\s*:", code_only, re.MULTILINE):
       errors.append("MISSING OUTCOME SECTION: Single-stage stats searches require an 'outcome:' section.")
 
   # Validate all outcome blocks for Malachite AST rules, OutcomeLimit (20), and Intra-Stage Race Conditions
@@ -523,7 +587,17 @@ def parse_columnar_stats(stats_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
         except (ValueError, TypeError):
           vals.append(val_obj["doubleVal"])
       elif "stringVal" in val_obj:
-        vals.append(val_obj["stringVal"])
+        s_val = val_obj["stringVal"]
+        if s_val in ["NaN", "nan", "null", "None", ""]:
+          vals.append(None)
+        else:
+          try:
+            if "." in s_val:
+              vals.append(float(s_val))
+            else:
+              vals.append(int(s_val))
+          except (ValueError, TypeError):
+            vals.append(s_val)
       elif "timestampVal" in val_obj:
         vals.append(val_obj["timestampVal"])
       elif "boolVal" in val_obj:
@@ -852,13 +926,22 @@ def generate_chart_spec(
     threshold_value: float = 3.0
 ) -> Dict[str, Any]:
   """Generates Strictly-Typed True Dual-Y Axis Vega-Lite chart specs with right axis orientation and threshold rules."""
-  rows = parse_columnar_stats(stats_payload)
+  raw_rows = parse_columnar_stats(stats_payload)
+  # Filter out null / NaN entries or sanitize rows
+  rows = []
+  for r in raw_rows:
+    clean_r = {k: v for k, v in r.items() if v is not None and v != "NaN"}
+    if clean_r:
+      rows.append(clean_r)
   
   if plot_type == "DUAL_Y_TIMESERIES":
-    score_key = next((k for k in ["z_score", "poisson_z", "fleet_z", "fano_factor", "m_z_score", "surge_ratio"] if rows and k in rows[0]), "z_score")
-    score_title = "Z-Score (σ)" if score_key in ["z_score", "poisson_z", "fleet_z"] else "Anomaly Index"
-    vol_key = next((k for k in ["observation_count", "observed_count", "observed_today", "total_fails", "daily_mb"] if rows and k in rows[0]), "observation_count")
-    vol_title = "Observed Event Volume"
+    time_key = next((k for k in ["TIME_BUCKET", "date", "time", "timestamp", "window_start", "evaluation_date"] if rows and k in rows[0]), "TIME_BUCKET")
+    score_key = next((k for k in ["z_score", "score", "delta_z", "poisson_z", "fleet_z", "fano_factor", "m_z_score", "surge_ratio", "cv"] if rows and k in rows[0]), "z_score")
+    score_title = "Z-Score (σ)" if score_key in ["z_score", "poisson_z", "fleet_z", "delta_z"] else "Anomaly Score"
+    vol_key = next((k for k in ["observation_count", "observed_volume", "observed_count", "observed_today", "observed", "total_fails", "daily_mb", "event_count", "volume", "count"] if rows and k in rows[0]), "observation_count")
+    vol_title = "Observed Volume / Activity"
+    ent_key = next((k for k in ["host", "user", "entity", "principal_ip", "extension_id"] if rows and k in rows[0]), "entity")
+    rows = [r for r in rows if r.get(vol_key) is not None or r.get(score_key) is not None]
 
     spec = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
@@ -871,15 +954,15 @@ def generate_chart_spec(
             {
                 "mark": {"type": "bar", "color": "#76c0f8", "opacity": 0.65},
                 "encoding": {
-                    "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Time Window (UTC)"},
+                    "x": {"field": time_key, "type": "temporal", "title": "Time Window (UTC)"},
                     "y": {
                         "field": vol_key,
                         "type": "quantitative",
                         "axis": {"title": vol_title, "titleColor": "#1a73e8"}
                     },
                     "tooltip": [
-                        {"field": "host", "type": "nominal", "title": "Entity"},
-                        {"field": "TIME_BUCKET", "type": "temporal", "title": "Time"},
+                        {"field": ent_key, "type": "nominal", "title": "Entity"},
+                        {"field": time_key, "type": "temporal", "title": "Time"},
                         {"field": vol_key, "type": "quantitative", "title": vol_title}
                     ]
                 }
@@ -887,7 +970,7 @@ def generate_chart_spec(
             {
                 "mark": {"type": "line", "point": {"filled": True, "size": 65, "color": "#d93025"}, "color": "#d93025", "strokeWidth": 2.5},
                 "encoding": {
-                    "x": {"field": "TIME_BUCKET", "type": "temporal"},
+                    "x": {"field": time_key, "type": "temporal"},
                     "y": {
                         "field": score_key,
                         "type": "quantitative",
@@ -899,7 +982,7 @@ def generate_chart_spec(
                         }
                     },
                     "tooltip": [
-                        {"field": "host", "type": "nominal", "title": "Entity"},
+                        {"field": ent_key, "type": "nominal", "title": "Entity"},
                         {"field": score_key, "type": "quantitative", "title": score_title}
                     ]
                 }
@@ -917,6 +1000,12 @@ def generate_chart_spec(
         ]
     }
   elif plot_type == "4D_BUBBLE":
+    time_key = next((k for k in ["TIME_BUCKET", "date", "time", "timestamp", "window_start"] if rows and k in rows[0]), "TIME_BUCKET")
+    vol_key = next((k for k in ["observation_count", "observed_volume", "observed_count", "event_count", "daily_mb"] if rows and k in rows[0]), "observation_count")
+    score_key = next((k for k in ["z_score", "score", "delta_z", "poisson_z", "fano_factor"] if rows and k in rows[0]), "z_score")
+    card_key = next((k for k in ["distinct_binaries", "distinct_subdomains", "cardinality", "breadth"] if rows and k in rows[0]), "distinct_binaries")
+    ent_key = next((k for k in ["host", "user", "entity", "principal_ip"] if rows and k in rows[0]), "host")
+
     spec = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
         "title": title,
@@ -925,20 +1014,20 @@ def generate_chart_spec(
         "data": {"values": rows},
         "mark": "circle",
         "encoding": {
-            "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Timestamp / Window (UTC)"},
-            "y": {"field": "observation_count", "type": "quantitative", "title": "Observed Intensity / Volume"},
-            "size": {"field": "distinct_binaries", "type": "quantitative", "title": "Cardinality / Breadth", "scale": {"range": [50, 600]}},
+            "x": {"field": time_key, "type": "temporal", "title": "Timestamp / Window (UTC)"},
+            "y": {"field": vol_key, "type": "quantitative", "title": "Observed Intensity / Volume"},
+            "size": {"field": card_key, "type": "quantitative", "title": "Cardinality / Breadth", "scale": {"range": [50, 600]}},
             "color": {
-                "field": "z_score",
+                "field": score_key,
                 "type": "quantitative",
                 "title": "Anomaly Score (Z)",
                 "scale": {"scheme": "redyellowblue", "reverse": True}
             },
             "tooltip": [
-                {"field": "host", "type": "nominal"},
-                {"field": "TIME_BUCKET", "type": "temporal"},
-                {"field": "observation_count", "type": "quantitative"},
-                {"field": "z_score", "type": "quantitative"}
+                {"field": ent_key, "type": "nominal"},
+                {"field": time_key, "type": "temporal"},
+                {"field": vol_key, "type": "quantitative"},
+                {"field": score_key, "type": "quantitative"}
             ]
         }
     }
@@ -962,6 +1051,9 @@ def generate_chart_spec(
         }
     }
   else:
+    time_key = next((k for k in ["TIME_BUCKET", "date", "time", "timestamp"] if rows and k in rows[0]), "TIME_BUCKET")
+    vol_key = next((k for k in ["observation_count", "observed_volume", "observed_count"] if rows and k in rows[0]), "observation_count")
+    ent_key = next((k for k in ["host", "user", "entity"] if rows and k in rows[0]), "host")
     spec = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
         "title": title,
@@ -970,9 +1062,9 @@ def generate_chart_spec(
         "data": {"values": rows},
         "mark": {"type": "line", "point": True},
         "encoding": {
-            "x": {"field": "TIME_BUCKET", "type": "temporal", "title": "Timestamp (UTC)"},
-            "y": {"field": "observation_count", "type": "quantitative", "title": "Observed Metric"},
-            "color": {"field": "host", "type": "nominal"}
+            "x": {"field": time_key, "type": "temporal", "title": "Timestamp (UTC)"},
+            "y": {"field": vol_key, "type": "quantitative", "title": "Observed Metric"},
+            "color": {"field": ent_key, "type": "nominal"}
         }
     }
   return spec
@@ -984,7 +1076,8 @@ def generate_chartjs_spec(
     title: str = "Activity Distribution by Entity"
 ) -> Dict[str, Any]:
   """Generates strictly-typed, axis-isolated Chart.js JSON configs to prevent mixed categorical/numeric Y-axis corruption."""
-  rows = parse_columnar_stats(stats_payload)
+  raw_rows = parse_columnar_stats(stats_payload)
+  rows = [r for r in raw_rows if any(v is not None and v != "NaN" for v in r.values())]
   if not rows:
     return {"type": "bar", "data": {"labels": [], "datasets": []}}
   
@@ -1022,12 +1115,14 @@ def generate_chartjs_spec(
         }
     }
   elif plot_type == "DUAL_Y_TIMESERIES":
-    time_labels = [str(r.get("TIME_BUCKET", "N/A")) for r in rows]
-    vol_key = next((k for k in ["observation_count", "observed_count", "event_count"] if k in rows[0]), "observation_count")
-    score_key = next((k for k in ["z_score", "fleet_z", "poisson_z", "fano_factor"] if k in rows[0]), "z_score")
+    time_key = next((k for k in ["TIME_BUCKET", "date", "time", "timestamp", "window_start"] if k in rows[0]), "TIME_BUCKET")
+    vol_key = next((k for k in ["observation_count", "observed_volume", "observed_count", "event_count", "daily_mb"] if k in rows[0]), "observation_count")
+    score_key = next((k for k in ["z_score", "score", "delta_z", "fleet_z", "poisson_z", "fano_factor"] if k in rows[0]), "z_score")
     
-    vol_data = [float(r.get(vol_key, 0)) for r in rows]
-    score_data = [float(r.get(score_key, 0)) for r in rows]
+    valid_rows = [r for r in rows if r.get(vol_key) is not None or r.get(score_key) is not None]
+    time_labels = [str(r.get(time_key, "N/A")) for r in valid_rows]
+    vol_data = [float(r.get(vol_key, 0)) for r in valid_rows]
+    score_data = [float(r.get(score_key, 0)) for r in valid_rows]
     
     return {
         "type": "bar",
@@ -1143,18 +1238,28 @@ def audit_query_execution(
   model_verified = True
   if expected_model:
     m_norm = expected_model.upper()
-    if "DELTA_Z" in m_norm and ("delta_z" not in query_text.lower() and "fleet_z" not in query_text.lower()):
+    q_lower = query_text.lower()
+    if "DELTA_Z" in m_norm and ("delta_z" not in q_lower and "fleet_z" not in q_lower):
       model_verified = False
       findings.append("❌ Model Mismatch: Expected Delta-Z calculations ($delta_z = $personal_z - $fleet_z), but variables were not found.")
-    elif "BAYESIAN" in m_norm and ("alpha" not in query_text.lower() and "beta" not in query_text.lower() and "posterior" not in query_text.lower()):
+    elif "BAYESIAN_GAMMA" in m_norm and ("alpha" not in q_lower or "beta" not in q_lower or "prior" not in q_lower):
       model_verified = False
-      findings.append("❌ Model Mismatch: Expected Bayesian conjugate updating, but alpha/beta parameters were not found.")
-    elif "FANO" in m_norm and ("fano" not in query_text.lower() and "variance" not in query_text.lower()):
+      findings.append("❌ Model Mismatch: Expected Bayesian Gamma conjugate updating ($alpha_prior, $beta_prior, $posterior_rate), but parameters were not found.")
+    elif "BETA_BINOMIAL" in m_norm and ("posterior_fail_prob" not in q_lower and "alpha_post" not in q_lower and "alpha" not in q_lower):
       model_verified = False
-      findings.append("❌ Model Mismatch: Expected Fano Factor dispersion, but variance/Fano variables were not found.")
-    elif "FUSION" in m_norm and ("threat_norm" not in query_text.lower() and "composite" not in query_text.lower() and "threat_vector" not in query_text.lower()):
+      findings.append("❌ Model Mismatch: Expected Beta-Binomial failure rate regularization ($alpha_post, $beta_post, $posterior_fail_prob), but parameters were not found.")
+    elif "FANO" in m_norm and ("fano" not in q_lower and "variance" not in q_lower):
       model_verified = False
-      findings.append("❌ Model Mismatch: Expected Multi-Sector Threat Fusion norm, but vector norm variables were not found.")
+      findings.append("❌ Model Mismatch: Expected Poisson Dispersion / Fano Factor ($fano_factor = $var / $mu), but variance/Fano variables were not found.")
+    elif "FUSION" in m_norm and ("threat_norm" not in q_lower and "composite" not in q_lower and "threat_vector" not in q_lower and "_sq" not in q_lower):
+      model_verified = False
+      findings.append("❌ Model Mismatch: Expected Multi-Sector Threat Fusion orthogonal norm ($composite_threat_norm_sq = $z1_sq + $z2_sq), but vector norm variables were not found.")
+    elif ("MAD" in m_norm or "MODIFIED_Z" in m_norm) and ("0.6745" not in query_text and "mad" not in q_lower):
+      model_verified = False
+      findings.append("❌ Model Mismatch: Expected Modified Z-Score via Median Absolute Deviation (0.6745 scaling factor or MAD variable).")
+    elif "POISSON" in m_norm and ("lambda" not in q_lower and "poisson" not in q_lower and "hist_mean" not in q_lower):
+      model_verified = False
+      findings.append("❌ Model Mismatch: Expected Poisson calculation with historical lambda arrival rate.")
     elif model_verified:
       findings.append(f"✅ Model math verified: Mathematical signatures for '{expected_model}' confirmed.")
 
@@ -1173,6 +1278,88 @@ def audit_query_execution(
       "safeguards": safeguards,
       "findings": findings
   }
+
+
+def audit_api_response_payload(api_response: Dict[str, Any]) -> List[str]:
+  """Ensures the SIEM API returned aggregated stats and not raw un-aggregated event dumps."""
+  errors = []
+  if "events" in api_response and "stats" not in api_response and not api_response.get("results"):
+    raw_events = api_response.get("events", [])
+    if len(raw_events) > 0:
+      errors.append(
+          f"RAW_LOG_DUMP_DETECTED: API returned {len(raw_events)} raw UDM events instead of compiled "
+          "multi-stage columnar statistics. Multi-stage math must be executed on the SecOps engine, "
+          "not simulated client-side."
+      )
+  return errors
+
+
+class AuditStatus(str, Enum):
+  PASSED = "PASSED"
+  RETRY_REQUIRED = "RETRY_REQUIRED"
+  FAILED = "FAILED"
+  GUARDRAIL_VIOLATION = "GUARDRAIL_VIOLATION"
+
+
+@dataclass
+class PostFlightAuditResult:
+  status: str
+  is_valid: bool
+  errors: List[str]
+  findings: List[str]
+  remediation_action: Optional[str] = None
+  audit_summary: str = ""
+
+
+class PostFlightExecutionAuditor:
+  """Audits completed API executions, validates statistical AST concordance, and checks API response structure."""
+
+  @classmethod
+  def audit_execution(
+      cls,
+      executed_query: Optional[str],
+      api_response: Optional[Dict[str, Any]] = None,
+      expected_architecture: Optional[str] = None,
+      expected_model: Optional[str] = None,
+  ) -> PostFlightAuditResult:
+    errors = []
+    findings = []
+
+    if executed_query:
+      scope_errs = check_scope_exclusions(executed_query)
+      syntax_errs = validate_multistage_syntax(executed_query)
+      cram_errs = check_multivector_cramming(executed_query)
+      ecg_errs = check_ecg_limits(executed_query)
+
+      fatal_syntax = [e for e in syntax_errs if not e.startswith("MISSING METHODOLOGY HEADER")]
+      all_query_errors = scope_errs + fatal_syntax + cram_errs + ecg_errs
+      errors.extend(all_query_errors)
+
+      if expected_architecture:
+        arch_res = audit_query_execution(executed_query, expected_architecture, expected_model)
+        findings.extend(arch_res.get("findings", []))
+        if arch_res["status"] != "PASS":
+          errors.append(f"ARCHITECTURE_AUDIT_ERROR: {arch_res['status']}")
+
+    if api_response:
+      resp_errs = audit_api_response_payload(api_response)
+      errors.extend(resp_errs)
+
+    is_valid = len(errors) == 0
+    status = "PASSED" if is_valid else "FAILED"
+    remediation = None
+    if not is_valid:
+      remediation = "Refactor query to enforce canonical YARA-L DAG grammar, isolate multi-vector stages, and execute as columnar stats."
+
+    summary = "🟢 Audit Passed: Execution verified." if is_valid else f"❌ Audit Failed ({len(errors)} violation(s) detected)."
+    return PostFlightAuditResult(
+        status=status,
+        is_valid=is_valid,
+        errors=errors,
+        findings=findings,
+        remediation_action=remediation,
+        audit_summary=summary
+    )
 
 
 def main():
@@ -1226,8 +1413,39 @@ def main():
       "--audit_model",
       help="Audit query against expected statistical model (e.g. DELTA_Z, BAYESIAN_GAMMA, BETA_BINOMIAL, FUSION, FANO, Z_SCORE)",
   )
+  parser.add_argument(
+      "--audit_response",
+      help="Path to API response JSON to audit for raw log dumps and result integrity",
+  )
 
   args = parser.parse_args()
+
+  if args.audit_response:
+    with open(args.audit_response, "r") as f:
+      resp_data = json.load(f)
+    q_text = None
+    if args.query_file:
+      with open(args.query_file, "r") as f:
+        q_text = f.read()
+    audit_res = PostFlightExecutionAuditor.audit_execution(
+        executed_query=q_text,
+        api_response=resp_data,
+        expected_architecture=args.audit_intent,
+        expected_model=args.audit_model
+    )
+    print(f"=== Post-Flight API Response & Execution Audit: {audit_res.status} ===")
+    print(f"  Summary: {audit_res.audit_summary}")
+    if audit_res.errors:
+      print("  Errors:")
+      for err in audit_res.errors:
+        print(f"    - {err}")
+    if audit_res.findings:
+      print("  Findings:")
+      for fn in audit_res.findings:
+        print(f"    - {fn}")
+    if not audit_res.is_valid:
+      sys.exit(1)
+    sys.exit(0)
 
   if args.query_file and args.audit_intent:
     with open(args.query_file, "r") as f:

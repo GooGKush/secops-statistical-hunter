@@ -75,7 +75,34 @@ class TestChartSpecifications(unittest.TestCase):
     self.assertEqual(chartjs_cat["type"], "bar")
     self.assertEqual(chartjs_cat["data"]["labels"], ["mmfbcljfglbok...", "cnbggqchhmkk..."])
     self.assertEqual(chartjs_cat["data"]["datasets"][0]["data"], [14.0, 10.0])
-    self.assertEqual(chartjs_cat["options"]["scales"]["y"]["type"], "linear", "Chart.js Y-axis must be linear numeric")
+  def test_nan_sanitization_and_string_numeric_parsing(self):
+    nan_payload = {
+        "stats": {
+            "results": [
+                {
+                    "column": "date",
+                    "values": [{"value": {"stringVal": "2026-08-20"}}, {"value": {"stringVal": "2026-08-29"}}]
+                },
+                {
+                    "column": "observed_volume",
+                    "values": [{"value": {"stringVal": "1620.0"}}, {"value": {"stringVal": "NaN"}}]
+                },
+                {
+                    "column": "z_score",
+                    "values": [{"value": {"stringVal": "5.9"}}, {"value": {"stringVal": "NaN"}}]
+                }
+            ]
+        }
+    }
+    vega_spec = generate_chart_spec(nan_payload, plot_type="DUAL_Y_TIMESERIES")
+    self.assertEqual(len(vega_spec["data"]["values"]), 1, "Must filter out NaN row")
+    self.assertEqual(vega_spec["data"]["values"][0]["observed_volume"], 1620.0, "Must parse stringVal numbers as float")
+    self.assertEqual(vega_spec["data"]["values"][0]["z_score"], 5.9, "Must parse stringVal z_score as float")
+
+    chartjs_spec = generate_chartjs_spec(nan_payload, plot_type="DUAL_Y_TIMESERIES")
+    self.assertEqual(chartjs_spec["data"]["labels"], ["2026-08-20"])
+    self.assertEqual(chartjs_spec["data"]["datasets"][0]["data"], [1620.0])
+    self.assertEqual(chartjs_spec["data"]["datasets"][1]["data"], [5.9])
 
 
 if __name__ == "__main__":

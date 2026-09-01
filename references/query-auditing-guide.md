@@ -33,3 +33,23 @@ python3 scripts/multistage_query_builder.py \
 * `PASS`: Query AST topology, variable operations, and condition safeguards fully match.
 * `MISMATCH`: Query executed wrong stage depth or omitted required mathematical signatures.
 * `GUARDRAIL_VIOLATION`: Query lacks small-sample floor ($N \ge 12$) or non-zero dispersion gating ($\sigma > 0$).
+
+---
+
+## 3. Post-Flight API Response Payload Auditing
+
+To ensure that the SecOps backend executed the mathematical aggregation on the cluster and did not emit an un-aggregated raw log dump:
+
+```bash
+python3 scripts/multistage_query_builder.py \
+  --query_file hunt_query.yara \
+  --audit_response api_response.json \
+  --audit_intent MULTI_SECTOR_FUSION_4STAGE \
+  --audit_model FUSION
+```
+
+### Invariant Checks:
+1. **`RAW_LOG_DUMP_DETECTED`**: Emits violation if the API returned `"events"` instead of compiled `"stats"`. All multi-stage math must run inside Chronicle's F1 engine.
+2. **Multi-Vector Isolation**: Flags any attempt to cram cross-domain telemetry silos (Auth + Process + Network) into a single unseparated stage.
+3. **ECG Limit Invariant**: Enforces a maximum of 1 Entity Context Graph lookup per stage to prevent F1 memory exhaustion.
+4. **Token-Level Math Traps**: Rejects invalid YARA-L tokens such as `^` (exponent), `by 24h` (requires `by 1d`), `in ("A", "B")` (requires disjunctions), and `stage $name` (`$` prefix).

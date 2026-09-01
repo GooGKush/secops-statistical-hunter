@@ -75,6 +75,61 @@ class TestCompilerGrammar(unittest.TestCase):
     violations_risk = check_scope_exclusions(query_with_risk)
     self.assertTrue(len(violations_risk) > 0, "Should detect risk_score exclusion")
 
+  def test_reject_exponent_operator(self):
+    bad_query = "stage s { match: $h by 1h outcome: $z2 = $z ^ 2 }"
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("'^' is invalid" in e for e in errors), "Should reject '^' exponent operator")
+
+  def test_reject_tuple_in_syntax(self):
+    bad_query = "stage s { $e.metadata.event_type in (\"A\", \"B\") match: $h by 1h outcome: $c = count($e.metadata.id) }"
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("'in (\"A\", \"B\")'" in e for e in errors), "Should reject Python/SQL tuple syntax")
+
+  def test_reject_by_24h_window(self):
+    bad_query = "stage s { metadata.event_type = \"PROCESS_LAUNCH\" match: $h by 24h outcome: $c = count(metadata.id) }"
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("'by 24h' is invalid" in e for e in errors), "Should reject 'by 24h' in favor of 'by 1d'")
+
+  def test_reject_dollar_stage_prefix(self):
+    bad_query = "stage $bad_stage { metadata.event_type = \"PROCESS_LAUNCH\" match: $h by 1h outcome: $c = count(metadata.id) }"
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("must not have a '$' prefix" in e for e in errors), "Should reject '$' prefix in stage declarations")
+
+  def test_reject_multivector_cramming(self):
+    bad_query = """
+    stage crammed_stage {
+      $p.metadata.event_type = "PROCESS_LAUNCH"
+      $a.metadata.event_type = "USER_LOGIN"
+      match: $host by 1h
+      outcome:
+        $c = count($p.metadata.id)
+    }
+    $host = $crammed_stage.host
+    match: $host by 1h
+    outcome:
+      $out = max($crammed_stage.c)
+    """
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("MULTI-VECTOR CRAMMING" in e for e in errors), "Should detect multi-vector event cramming in single stage")
+
+  def test_reject_ecg_limit_exceeded(self):
+    bad_query = """
+    stage multi_ecg {
+      $dns.metadata.event_type = "NETWORK_DNS"
+      $g1.graph.entity.domain.prevalence.day_count = 10
+      $g2.graph.entity.ip.prevalence.day_count = 5
+      match: $host by 1h
+      outcome:
+        $c = count($dns.metadata.id)
+    }
+    $host = $multi_ecg.host
+    match: $host by 1h
+    outcome:
+      $out = max($multi_ecg.c)
+    """
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("ECG LIMIT EXCEEDED" in e for e in errors), "Should enforce max 1 ECG lookup per stage")
+
 
 if __name__ == "__main__":
   unittest.main()
