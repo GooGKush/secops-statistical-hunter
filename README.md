@@ -33,24 +33,43 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
 
 ```
 secops-statistical-hunter/
-├── SKILL.md                              # Main skill specification & decision matrix
-├── README.md                             # Overview & architecture reference
-├── llms.txt                              # AI agent summary file
-├── examples/                             # Working multi-stage YARA-L search templates
-│   ├── zscore_process_execution_surges.yara # Historical 3-Sigma Z-Score process surges per host
-│   ├── poisson_burst_clustering.yara     # Fano Factor (σ² / μ > 4.0) password spray cluster detector
-│   ├── poisson_rare_event_surge.yara     # Discrete Poisson score for sensitive administrative binaries
-│   ├── c2_beaconing_jitter_cv.yara       # Inter-arrival CV + low-prevalence filter
-│   ├── mad_outlier_detection.yara        # Median Absolute Deviation (MAD / Modified Z-Score)
-│   ├── iqr_tukey_fences_egress.yara      # Non-parametric IQR / Tukey Fences for egress bytes
-│   └── rolling_ratio_spike.yara          # 1-day vs 7-day vs 30-day moving ratio
-├── references/                           # Deep-dive engineering guides
-│   ├── cyber-practitioner-glossary.md    # Field manual translating statistics to SOC operations
-│   ├── statistical-models-taxonomy.md    # Mathematical curves, Poisson dispersion, & 4D plots
-│   ├── watchdog-polling-architecture.md  # LRO watchdog mechanics & F1 optimization
-│   └── scope-exclusions-guardrail.md     # Why UEBA metrics.* are excluded from ad-hoc searches
-└── scripts/
-    └── multistage_query_builder.py       # Python linter, 4-tier triage report formatter, & 4D chart generator
+├── SKILL.md                                 # Main skill specification, routing & execution contracts
+├── README.md                                # Overview & architecture reference
+├── RELEASE_NOTES.md                         # Detailed version changelog & feature notes
+├── LICENSE                                  # Apache 2.0 open-source license
+├── llms.txt                                 # Token-efficient AI agent summary file
+├── examples/                                # Working multi-stage YARA-L search templates (12)
+│   ├── bayesian_gamma_shrinkage.yara        # Poisson-Gamma Bayesian Credibility Shrinkage
+│   ├── beta_binomial_failure_regularization.yara # Beta-Binomial failure rate regularization
+│   ├── c2_beaconing_jitter_cv.yara          # Inter-arrival CV + low-prevalence filter
+│   ├── dual_baseline_delta_z.yara           # Dual-Baseline Delta-Z (Patch Tuesday Shield)
+│   ├── fleet_zscore_process_outliers.yara   # Fleet-wide peer Z-Score process surges
+│   ├── iqr_tukey_fences_egress.yara         # Non-parametric IQR / Tukey Fences for egress bytes
+│   ├── mad_outlier_detection.yara           # Median Absolute Deviation (MAD / Modified Z-Score)
+│   ├── multi_sector_threat_fusion.yara      # 4-Stage Multi-Sector Fusion (Auth + Endpoint + Net)
+│   ├── poisson_burst_clustering.yara        # Fano Factor (σ² / μ > 4.0) password spray cluster detector
+│   ├── poisson_rare_event_surge.yara        # Discrete Poisson score for sensitive administrative binaries
+│   ├── rolling_ratio_spike.yara             # 1-day vs 7-day vs 30-day moving ratio
+│   └── zscore_process_execution_surges.yara # Historical 3-Sigma Z-Score process surges per host
+├── references/                              # Deep-dive engineering guides (8)
+│   ├── chart-specifications-guide.md        # Vega-Lite and Chart.js dual-Y visualization schemas
+│   ├── cyber-practitioner-glossary.md       # Field manual translating statistics to SOC operations
+│   ├── dynamic-windowing-matrix.md          # Adaptive window bucketing & sample floor matrix
+│   ├── multi-stage-query-guide.md           # 4-Stage DAG grammar rules & compiler invariants
+│   ├── query-auditing-guide.md              # Pre-flight and post-flight payload intent auditing
+│   ├── scope-exclusions-guardrail.md        # Why UEBA metrics.* are excluded from ad-hoc searches
+│   ├── statistical-models-taxonomy.md       # Mathematical curves, Poisson dispersion, & 4D plots
+│   └── watchdog-polling-architecture.md     # LRO watchdog mechanics & F1 optimization
+├── scripts/
+│   └── multistage_query_builder.py          # Python linter, AST validator, & report/chart generator
+└── tests/                                   # Automated test suite (30 tests, 100% pass rate)
+    ├── __init__.py
+    ├── test_chart_specifications.py         # Dual-Y scale isolation and NaN sanitization tests
+    ├── test_compiler_grammar.py             # AST grammar, 20-var limit, and syntax trap tests
+    ├── test_math_models.py                  # Bayesian, Beta-Binomial, Fano, and norm unit tests
+    ├── test_query_auditor.py                # Post-flight intent and raw log dump detection tests
+    ├── test_triage_reporting.py             # CommonMark 5-section triage schema tests
+    └── test_window_adaptation.py            # Dynamic windowing and sample floor adaptation tests
 ```
 
 ---
