@@ -112,7 +112,7 @@ class TestQueryAuditor(unittest.TestCase):
 
   def test_post_flight_execution_auditor(self):
     valid_query = """
-    stage s1 { metadata.event_type = "PROCESS_LAUNCH" match: $host by 1h outcome: $c = count(metadata.id) }
+    stage s1 { metadata.event_type = "PROCESS_LAUNCH" principal.hostname = $host match: $host by 1h outcome: $c = count(metadata.id) }
     $host = $s1.host
     match: $host by 1h
     outcome:

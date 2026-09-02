@@ -56,10 +56,6 @@ $host = $host_summary.host
 $dummy = 1
 $dummy = $fleet_stats.dummy
 
-// Linear event-level Fleet Z-Score computation (eliminates intra-stage outcome race conditions)
-$diff = $host_summary.peak_hourly - $fleet_stats.fleet_mean
-$z = $diff / $fleet_stats.fleet_stddev
-
 match:
   $host
 outcome:
@@ -73,7 +69,7 @@ outcome:
   $sample_commands = array_distinct($host_summary.sample_cmds)
   
   // Aggregate Fleet Z-Score
-  $fleet_z = max($z)
+  $fleet_z = (max($host_summary.peak_hourly) - max($fleet_stats.fleet_mean)) / (max($fleet_stats.fleet_stddev) + 0.001)
 
 condition:
   // Small-Sample Protection: Require at least 15 active peer endpoints in comparison population

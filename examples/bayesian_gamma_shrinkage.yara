@@ -38,6 +38,8 @@ stage host_prior_stats {
     $hist_mean = avg($host_hourly_activity.hourly_count)
     $hist_stddev = stddev($host_hourly_activity.hourly_count)
     $active_hours = count($host_hourly_activity.window_start)
+    $beta_prior = avg($host_hourly_activity.hourly_count) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 0.001)
+    $alpha_prior = (avg($host_hourly_activity.hourly_count) * avg($host_hourly_activity.hourly_count)) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 0.001)
 }
 
 // Stage 3: Organizational Peer Prevalence Baseline
@@ -46,7 +48,6 @@ stage fleet_context {
 
   match:
     $host
-
   outcome:
     $fleet_hosts = count_distinct($host_hourly_activity.host)
 }
@@ -56,27 +57,6 @@ $host = $host_hourly_activity.host
 $host = $host_prior_stats.host
 $host = $fleet_context.host
 $ws = $host_hourly_activity.window_start
-
-$obs = $host_hourly_activity.hourly_count
-$mu = $host_prior_stats.hist_mean
-$sd = $host_prior_stats.hist_stddev
-
-// Gamma Prior Hyperparameters (Method of Moments: variance = sd * sd; beta = mu / var; alpha = mu * beta)
-$var = $sd * $sd
-$beta_prior = $mu / $var
-$alpha_prior = $mu * $beta_prior
-
-// Conjugate Posterior Updating (k = obs, t = 1 hour window)
-$alpha_post = $alpha_prior + $obs
-$beta_post = $beta_prior + 1.0
-
-// Posterior Expected Arrival Rate & Credibility Weights
-$posterior_mean = $alpha_post / $beta_post
-$prior_credibility_weight = $beta_prior / $beta_post
-$evidence_weight = 1.0 / $beta_post
-
-// Bayesian Belief Shift Ratio (Posterior Rate / Baseline Mean)
-$bayes_shift_ratio = $posterior_mean / $mu
 
 match:
   $host, $ws by 1h
@@ -91,10 +71,10 @@ outcome:
   $distinct_binaries = max($host_hourly_activity.distinct_procs)
 
   // Bayesian Posterior Metrics
-  $posterior_arrival_rate = max($posterior_mean)
-  $prior_weight_pct = max($prior_credibility_weight)
-  $evidence_weight_pct = max($evidence_weight)
-  $anomaly_score = max($bayes_shift_ratio)
+  $posterior_arrival_rate = (max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)
+  $prior_weight_pct = max($host_prior_stats.beta_prior) / (max($host_prior_stats.beta_prior) + 1.0)
+  $evidence_weight_pct = 1.0 / (max($host_prior_stats.beta_prior) + 1.0)
+  $anomaly_score = ((max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)) / (max($host_prior_stats.hist_mean) + 0.001)
 
 condition:
   // Small-Sample Protection Floor

@@ -64,37 +64,22 @@ $ws = $auth_sector.window_start
 $ws = $proc_sector.window_start
 $ws = $net_sector.window_start
 
-$a_obs = $auth_sector.auth_fails
-$p_obs = $proc_sector.proc_launches
-$n_obs = $net_sector.net_flows
-
-// Normalize against standard operational thresholds (e.g. sigma scaling)
-$z_auth = $a_obs / 5.0
-$z_proc = $p_obs / 10.0
-$z_net = $n_obs / 20.0
-
-// Euclidean Vector Threat Norm D^2 = Z_auth^2 + Z_proc^2 + Z_net^2
-$z_auth_sq = $z_auth * $z_auth
-$z_proc_sq = $z_proc * $z_proc
-$z_net_sq = $z_net * $z_net
-$composite_threat_norm_sq = $z_auth_sq + $z_proc_sq + $z_net_sq
-
 match:
   $host, $ws by 1h
 
 outcome:
   // Sector Breakdown
-  $auth_event_count = max($a_obs)
-  $proc_event_count = max($p_obs)
-  $net_event_count = max($n_obs)
+  $auth_event_count = max($auth_sector.auth_fails)
+  $proc_event_count = max($proc_sector.proc_launches)
+  $net_event_count = max($net_sector.net_flows)
 
-  $sector_z_auth = max($z_auth)
-  $sector_z_proc = max($z_proc)
-  $sector_z_net = max($z_net)
+  $sector_z_auth = max($auth_sector.auth_fails) / 5.0
+  $sector_z_proc = max($proc_sector.proc_launches) / 10.0
+  $sector_z_net = max($net_sector.net_flows) / 20.0
 
-  // Composite Distance Metric
-  $threat_vector_norm_sq = max($composite_threat_norm_sq)
+  // Composite Distance Metric D^2 = Z_auth^2 + Z_proc^2 + Z_net^2
+  $threat_vector_norm_sq = (max($auth_sector.auth_fails) / 5.0) * (max($auth_sector.auth_fails) / 5.0) + (max($proc_sector.proc_launches) / 10.0) * (max($proc_sector.proc_launches) / 10.0) + (max($net_sector.net_flows) / 20.0) * (max($net_sector.net_flows) / 20.0)
 
 condition:
-  ($a_obs > 0 or $p_obs > 0 or $n_obs > 0)
+  ($auth_event_count > 0 or $proc_event_count > 0 or $net_event_count > 0)
   and $threat_vector_norm_sq >= 9.0 // Composite Threat Distance D >= 3.0 sigma

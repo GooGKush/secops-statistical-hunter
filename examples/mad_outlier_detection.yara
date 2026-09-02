@@ -40,15 +40,11 @@ stage median_stats {
 stage mad_stats {
     $host = $daily_stats.host
     $host = $median_stats.host
-    
-    // Linear event-level absolute deviation calculation
-    $raw_dev = $daily_stats.distinct_subdomains - $median_stats.host_median
-    $dev = math.abs($raw_dev)
 
   match:
     $host
   outcome:
-    $mad = window.median($dev, true)
+    $mad = window.median(math.abs($daily_stats.distinct_subdomains - $median_stats.host_median), true)
     $host_median_val = max($median_stats.host_median)
     $active_days = count_distinct($daily_stats.window_start)
 }
@@ -58,14 +54,8 @@ $host = $daily_stats.host
 $host = $mad_stats.host
 $window_start = $daily_stats.window_start
 
-// Linear event-level Modified Z-score calculation (eliminates intra-stage outcome race conditions)
-$raw_diff = $daily_stats.distinct_subdomains - $mad_stats.host_median_val
-$abs_diff = math.abs($raw_diff)
-$scaled_diff = 0.6745 * $abs_diff
-$m_z = $scaled_diff / $mad_stats.mad
-
 match:
-  $host, $window_start by day
+  $host, $window_start by 1d
 outcome:
   // 6 Core Evidence Pillars
   $observation_count = max($daily_stats.distinct_subdomains)
@@ -75,8 +65,8 @@ outcome:
   $fleet_prevalence = 1
   $distinct_binaries = max($daily_stats.distinct_subdomains)
   
-  // Aggregate Modified Z-Score
-  $m_z_score = max($m_z)
+  // Aggregate Modified Z-Score (0.6745 * |x - median| / MAD)
+  $m_z_score = 0.6745 * math.abs(max($daily_stats.distinct_subdomains) - max($mad_stats.host_median_val)) / (max($mad_stats.mad) + 0.001)
 
 condition:
   // Small-Sample Protection: Require at least 7 active daily observation windows

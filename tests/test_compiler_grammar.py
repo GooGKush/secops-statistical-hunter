@@ -130,6 +130,91 @@ class TestCompilerGrammar(unittest.TestCase):
     errors = validate_multistage_syntax(bad_query)
     self.assertTrue(any("ECG LIMIT EXCEEDED" in e for e in errors), "Should enforce max 1 ECG lookup per stage")
 
+  def test_reject_event_section_arithmetic(self):
+    bad_stage_query = """
+    // Methodology: Z_SCORE
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      $diff = $a - $b
+      match: $host by 1h
+      outcome: $c = count(metadata.id)
+    }
+    $host = $s1.host
+    match: $host by 1h
+    outcome: $out = max($s1.c)
+    condition: $out > 0
+    """
+    errors = validate_multistage_syntax(bad_stage_query)
+    self.assertTrue(any("ARITHMETIC_IN_EVENT_SECTION" in e for e in errors), "Should reject arithmetic above match: in named stage")
+
+    bad_root_query = """
+    // Methodology: Z_SCORE
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      match: $host by 1h
+      outcome: $c = count(metadata.id)
+    }
+    $host = $s1.host
+    $diff = $s1.c - 10
+    match: $host by 1h
+    outcome: $out = max($s1.c)
+    condition: $out > 0
+    """
+    errors = validate_multistage_syntax(bad_root_query)
+    self.assertTrue(any("ARITHMETIC_IN_EVENT_SECTION" in e for e in errors), "Should reject arithmetic above match: in root stage")
+
+  def test_reject_unbound_match_placeholder(self):
+    bad_query = """
+    // Methodology: Z_SCORE
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      match: $host, $unbound_var by 1h
+      outcome: $c = count(metadata.id)
+    }
+    $host = $s1.host
+    match: $host by 1h
+    outcome: $out = max($s1.c)
+    condition: $out > 0
+    """
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("UNBOUND_MATCH_VARIABLE" in e for e in errors), "Should reject unbound match placeholder")
+
+  def test_allow_outcome_arithmetic(self):
+    valid_query = """
+    // Methodology: Z_SCORE
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      match: $host by 1h
+      outcome:
+        $obs = count(metadata.id)
+    }
+    stage s2 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      match: $host by 1h
+      outcome:
+        $avg = avg(metadata.id)
+        $std = stddev(metadata.id)
+    }
+    $host = $s1.host
+    $host = $s2.host
+    match: $host by 1h
+    outcome:
+      $diff = max($s1.obs) - max($s2.avg)
+      $z = (max($s1.obs) - max($s2.avg)) / max($s2.std)
+      $scaled = (max($s1.obs) * 1.5) + 2.0
+    condition:
+      $z > 3.0
+    """
+    errors = validate_multistage_syntax(valid_query)
+    fatal_errors = [e for e in errors if not e.startswith("MISSING METHODOLOGY HEADER")]
+    self.assertEqual(fatal_errors, [], f"Expected zero errors for valid outcome arithmetic: {fatal_errors}")
+
 
 if __name__ == "__main__":
   unittest.main()
+

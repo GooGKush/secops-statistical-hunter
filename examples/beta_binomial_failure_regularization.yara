@@ -57,23 +57,6 @@ $user = $entity_historical_rates.user
 $user = $fleet_stats.user
 $ws = $entity_hourly_trials.window_start
 
-$trials = $entity_hourly_trials.total_trials
-$fails = $entity_hourly_trials.failed_trials
-$successes = $trials - $fails
-
-// Population Prior Estimation (Default informative prior: alpha_0 = 1.0, beta_0 = 9.0 ~ 10% normal corporate failure rate)
-$alpha_prior = 1.0
-$beta_prior = 9.0
-
-// Conjugate Posterior Updating
-$alpha_post = $alpha_prior + $fails
-$beta_post = $beta_prior + $successes
-$total_post = $alpha_post + $beta_post
-
-// Regularized Posterior Failure Probability
-$posterior_fail_prob = $alpha_post / $total_post
-$raw_fail_rate = $fails / $trials
-
 match:
   $user, $ws by 1h
 
@@ -86,9 +69,9 @@ outcome:
   $fleet_prevalence = max($fleet_stats.fleet_users)
   $distinct_binaries = max($entity_hourly_trials.distinct_sources)
 
-  // Regularized Posterior Probability
-  $regularized_failure_prob = max($posterior_fail_prob)
-  $unregularized_raw_rate = max($raw_fail_rate)
+  // Regularized Posterior Probability (alpha_0 = 1.0, beta_0 = 9.0)
+  $regularized_failure_prob = (max($entity_hourly_trials.failed_trials) + 1.0) / (max($entity_hourly_trials.total_trials) + 10.0)
+  $unregularized_raw_rate = max($entity_hourly_trials.failed_trials) / (max($entity_hourly_trials.total_trials) + 0.001)
   $hourly_trials_count = max($entity_hourly_trials.total_trials)
 
 condition:

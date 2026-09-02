@@ -55,10 +55,6 @@ $host = $host_stats.host
 $host = $fleet_prevalence.host
 $window_start = $host_hourly.window_start
 
-// Linear event-level statistical transformation (prevents intra-stage outcome race conditions)
-$diff = $host_hourly.hourly_count - $host_stats.host_mean
-$z = $diff / $host_stats.host_stddev
-
 match:
   $host, $window_start by 1h
 outcome:
@@ -72,7 +68,7 @@ outcome:
   $sample_commands = array_distinct($host_hourly.sample_cmd)
   
   // Aggregate computed Z-Score
-  $z_score = max($z)
+  $z_score = (max($host_hourly.hourly_count) - max($host_stats.host_mean)) / (max($host_stats.host_stddev) + 0.001)
 
 condition:
   // Small-Sample Protection: Require at least 120 hourly active baseline samples for 30-day search

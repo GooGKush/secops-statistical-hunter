@@ -60,24 +60,6 @@ $host = $host_personal_baseline.host
 $ws = $host_hourly_extract.window_start
 $ws = $fleet_concurrent_baseline.ws
 
-$obs = $host_hourly_extract.hourly_count
-$p_mu = $host_personal_baseline.personal_avg
-$p_sd = $host_personal_baseline.personal_stddev
-
-$f_mu = $fleet_concurrent_baseline.fleet_hour_avg
-$f_sd = $fleet_concurrent_baseline.fleet_hour_stddev
-
-// 1. Personal Historical Z-Score
-$p_diff = $obs - $p_mu
-$personal_z = $p_diff / $p_sd
-
-// 2. Concurrent Fleet Z-Score
-$f_diff = $obs - $f_mu
-$fleet_z = $f_diff / $f_sd
-
-// 3. Delta-Z Targeted Isolation Score
-$delta_z = $personal_z - $fleet_z
-
 match:
   $host, $ws by 1h
 
@@ -91,9 +73,9 @@ outcome:
   $distinct_binaries = max($host_hourly_extract.distinct_procs)
 
   // Dual-Baseline Metrics
-  $personal_z_score = max($personal_z)
-  $fleet_concurrent_z = max($fleet_z)
-  $targeted_delta_z = max($delta_z)
+  $personal_z_score = (max($host_hourly_extract.hourly_count) - max($host_personal_baseline.personal_avg)) / (max($host_personal_baseline.personal_stddev) + 0.001)
+  $fleet_concurrent_z = (max($host_hourly_extract.hourly_count) - max($fleet_concurrent_baseline.fleet_hour_avg)) / (max($fleet_concurrent_baseline.fleet_hour_stddev) + 0.001)
+  $targeted_delta_z = ((max($host_hourly_extract.hourly_count) - max($host_personal_baseline.personal_avg)) / (max($host_personal_baseline.personal_stddev) + 0.001)) - ((max($host_hourly_extract.hourly_count) - max($fleet_concurrent_baseline.fleet_hour_avg)) / (max($fleet_concurrent_baseline.fleet_hour_stddev) + 0.001))
 
 condition:
   // Fleet Population Floor: At least 15 active hosts

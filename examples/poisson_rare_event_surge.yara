@@ -64,10 +64,6 @@ stage today_activity {
 $host = $tool_baseline.host
 $host = $today_activity.host
 
-// Linear event-level Poisson Z-score calculation (eliminates intra-stage outcome race conditions)
-$diff = $today_activity.today_runs - $tool_baseline.lambda_rate
-$z = $diff / $tool_baseline.poisson_sd
-
 match:
   $host
 outcome:
@@ -81,7 +77,7 @@ outcome:
   $sample_commands = array_distinct($today_activity.today_cmds)
   
   // Aggregate Poisson Z-Score
-  $poisson_z = max($z)
+  $poisson_z = (max($today_activity.today_runs) - max($tool_baseline.lambda_rate)) / (max($tool_baseline.poisson_sd) + 0.001)
 
 condition:
   // Small-Sample Protection: Require at least 7 active daily observation windows

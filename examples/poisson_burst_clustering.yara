@@ -54,10 +54,6 @@ $user = $hourly_failures.user
 $user = $dispersion_baseline.user
 $user = $fleet_prevalence.user
 
-// Linear event-level Fano Factor computation (eliminates intra-stage outcome race conditions)
-$var_rate = $dispersion_baseline.stddev_rate * $dispersion_baseline.stddev_rate
-$fano = $var_rate / $dispersion_baseline.mean_rate
-
 match:
   $user
 outcome:
@@ -70,8 +66,8 @@ outcome:
   $distinct_binaries = max($dispersion_baseline.total_failures)
   $sample_commands = array_distinct($hourly_failures.sample_ip)
   
-  // Aggregate Fano Factor
-  $fano_factor = max($fano)
+  // Aggregate Fano Factor (F = σ² / μ)
+  $fano_factor = (max($dispersion_baseline.stddev_rate) * max($dispersion_baseline.stddev_rate)) / (max($dispersion_baseline.mean_rate) + 0.001)
 
 condition:
   // Small-Sample Protection: Require at least 30 active hourly observation windows

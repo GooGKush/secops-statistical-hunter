@@ -371,6 +371,114 @@ def check_ecg_limits(query: str) -> List[str]:
   return errors
 
 
+def check_event_section_arithmetic(query: str) -> List[str]:
+  """Prohibits variable/constant binary arithmetic (+, -, *, /) above match:."""
+  errors = []
+  code_only = re.sub(r"//.*", "", query)
+
+  # Check named stages
+  stage_matches = re.finditer(r"stage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", code_only, flags=re.DOTALL)
+  for sm in stage_matches:
+    stage_name = sm.group(1)
+    stage_body = sm.group(2)
+    match_pos = re.search(r"\bmatch\s*:", stage_body)
+    outcome_pos = re.search(r"\boutcome\s*:", stage_body)
+    boundary = match_pos.start() if match_pos else (outcome_pos.start() if outcome_pos else len(stage_body))
+    event_body = stage_body[:boundary]
+    for line in event_body.splitlines():
+      line_clean = line.strip()
+      if not line_clean or "=" not in line_clean:
+        continue
+      if "==" in line_clean or "!=" in line_clean or "<=" in line_clean or ">=" in line_clean:
+        continue
+      lhs, rhs = line_clean.split("=", 1)
+      lhs = lhs.strip()
+      rhs = rhs.strip()
+      if not lhs.startswith("$"):
+        continue
+      rhs_clean = re.sub(r'"[^"\\]*(?:\\.[^"\\]*)*"', '""', rhs)
+      rhs_clean = re.sub(r"'[^'\\]*(?:\\.[^'\\]*)*'", "''", rhs_clean)
+      rhs_clean = re.sub(r'/[^/\\]*(?:\\.[^/\\]*)*/', '//', rhs_clean)
+      if re.search(r"(\$[a-zA-Z0-9_.]+|\d+(?:\.\d+)?)\s*[-+*/]\s*(\$[a-zA-Z0-9_.]+|\d+(?:\.\d+)?)", rhs_clean):
+        errors.append(
+            f"COMMON COMPILER GRAMMAR ERROR (ARITHMETIC_IN_EVENT_SECTION): Variable arithmetic '{line_clean}' "
+            f"in named stage '{stage_name}' is above 'match:'. Common Compiler requires event placeholders "
+            f"to bind directly to UDM fields, stage variables, or scalar functions. Binary arithmetic above 'match:' "
+            f"causes 'missing type info for placeholder'. Move arithmetic into the 'outcome:' section below 'match:'."
+        )
+
+  # Check root stage (unwrapped outside all stage { ... } blocks)
+  stripped_root = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", code_only, flags=re.DOTALL)
+  root_match_pos = re.search(r"^\s*match\s*:", stripped_root, flags=re.MULTILINE)
+  root_outcome_pos = re.search(r"^\s*outcome\s*:", stripped_root, flags=re.MULTILINE)
+  boundary = root_match_pos.start() if root_match_pos else (root_outcome_pos.start() if root_outcome_pos else len(stripped_root))
+  root_event_body = stripped_root[:boundary]
+  for line in root_event_body.splitlines():
+    line_clean = line.strip()
+    if not line_clean or "=" not in line_clean:
+      continue
+    if "==" in line_clean or "!=" in line_clean or "<=" in line_clean or ">=" in line_clean:
+      continue
+    lhs, rhs = line_clean.split("=", 1)
+    lhs = lhs.strip()
+    rhs = rhs.strip()
+    if not lhs.startswith("$"):
+      continue
+    rhs_clean = re.sub(r'"[^"\\]*(?:\\.[^"\\]*)*"', '""', rhs)
+    rhs_clean = re.sub(r"'[^'\\]*(?:\\.[^'\\]*)*'", "''", rhs_clean)
+    rhs_clean = re.sub(r'/[^/\\]*(?:\\.[^/\\]*)*/', '//', rhs_clean)
+    if re.search(r"(\$[a-zA-Z0-9_.]+|\d+(?:\.\d+)?)\s*[-+*/]\s*(\$[a-zA-Z0-9_.]+|\d+(?:\.\d+)?)", rhs_clean):
+      errors.append(
+          f"COMMON COMPILER GRAMMAR ERROR (ARITHMETIC_IN_EVENT_SECTION): Variable arithmetic '{line_clean}' "
+          f"in root stage is above 'match:'. Common Compiler requires event placeholders "
+          f"to bind directly to UDM fields, stage variables, or scalar functions. Binary arithmetic above 'match:' "
+          f"causes 'missing type info for placeholder'. Move arithmetic into the 'outcome:' section below 'match:'."
+      )
+
+  return errors
+
+
+def check_match_placeholders_bound(query: str) -> List[str]:
+  """Enforces that every placeholder in match: is explicitly assigned to an event/stage field in that stage's event block."""
+  errors = []
+  code_only = re.sub(r"//.*", "", query)
+
+  # Check named stages
+  stage_matches = re.finditer(r"stage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", code_only, flags=re.DOTALL)
+  for sm in stage_matches:
+    stage_name = sm.group(1)
+    stage_body = sm.group(2)
+    mm = re.search(r"\bmatch\s*:(.*?)(?=\b(?:outcome|condition|order)\s*:|\}|$)", stage_body, flags=re.DOTALL)
+    if mm:
+      match_text = mm.group(1)
+      match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", match_text)
+      event_body = stage_body[:mm.start()]
+      for mv in match_vars:
+        if not re.search(r"\$" + re.escape(mv) + r"\b\s*=", event_body) and not re.search(r"=\s*\$" + re.escape(mv) + r"\b", event_body):
+          errors.append(
+              f"COMMON COMPILER ERROR (UNBOUND_MATCH_VARIABLE): Placeholder '${mv}' in 'match:' of stage '{stage_name}' "
+              f"is not bound in that stage's event section. Common Compiler fails with 'missing type info for placeholder ${mv}'. "
+              f"Explicitly assign '${mv} = <field>' or '<field> = ${mv}' in that stage."
+          )
+
+  # Check root stage
+  stripped_root = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", code_only, flags=re.DOTALL)
+  root_mm = re.search(r"\bmatch\s*:(.*?)(?=\b(?:outcome|condition|order)\s*:|\Z)", stripped_root, flags=re.DOTALL)
+  if root_mm:
+    match_text = root_mm.group(1)
+    match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", match_text)
+    root_event_body = stripped_root[:root_mm.start()]
+    for mv in match_vars:
+      if not re.search(r"\$" + re.escape(mv) + r"\b\s*=", root_event_body) and not re.search(r"=\s*\$" + re.escape(mv) + r"\b", root_event_body):
+        errors.append(
+            f"COMMON COMPILER ERROR (UNBOUND_MATCH_VARIABLE): Placeholder '${mv}' in root 'match:' "
+            f"is not bound in the root event/stage section. Common Compiler fails with 'missing type info for placeholder ${mv}'. "
+            f"Explicitly assign '${mv} = <stage>.<field>' or bind it to an event field."
+        )
+
+  return errors
+
+
 def validate_multistage_syntax(query: str) -> List[str]:
   """Performs structural validation on multi-stage YARA-L search queries."""
   errors = []
@@ -382,6 +490,8 @@ def validate_multistage_syntax(query: str) -> List[str]:
 
   errors.extend(check_multivector_cramming(query))
   errors.extend(check_ecg_limits(query))
+  errors.extend(check_event_section_arithmetic(query))
+  errors.extend(check_match_placeholders_bound(query))
 
   stages = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{", code_only)
   is_multistage = bool(stages)
@@ -463,12 +573,6 @@ def validate_multistage_syntax(query: str) -> List[str]:
             f"Outcome math rejects inline if() for division protection. Enforce non-zero divisor in 'condition:' instead."
         )
 
-      # Check for parenthesized arithmetic in outcome assignments: e.g. ($a - $b) / $c, or func((...) / ...)
-      if re.search(r"\([^)]*[-+*/][^)]*\)", rhs):
-        errors.append(
-            f"MALACHITE AST ERROR: Parentheses in outcome arithmetic: '{line_clean}'. "
-            f"Malachite AST rejects compound/parenthesized arithmetic. Use linear variable assignments ($diff = $a - $b, $res = $diff / $c)."
-        )
 
     if outcome_assignments_count > 20:
       errors.append(

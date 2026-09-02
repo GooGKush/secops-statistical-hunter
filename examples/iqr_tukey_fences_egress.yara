@@ -38,6 +38,8 @@ stage iqr_fences {
   outcome:
     $q1 = window.percentile($daily_egress.daily_mb, 25)
     $q3 = window.percentile($daily_egress.daily_mb, 75)
+    $iqr = window.percentile($daily_egress.daily_mb, 75) - window.percentile($daily_egress.daily_mb, 25)
+    $upper_fence = window.percentile($daily_egress.daily_mb, 75) + 1.5 * (window.percentile($daily_egress.daily_mb, 75) - window.percentile($daily_egress.daily_mb, 25))
     $median_mb = window.median($daily_egress.daily_mb, true)
     $active_days = count_distinct($daily_egress.window_start)
 }
@@ -47,25 +49,19 @@ $host = $daily_egress.host
 $host = $iqr_fences.host
 $window_start = $daily_egress.window_start
 
-// Linear event-level Tukey Fence computation (eliminates intra-stage outcome race conditions)
-$iqr_val = $iqr_fences.q3 - $iqr_fences.q1
-$iqr_margin = 1.5 * $iqr_val
-$fence_val = $iqr_fences.q3 + $iqr_margin
-$surge = $daily_egress.daily_mb / $fence_val
-
 match:
-  $host, $window_start by day
+  $host, $window_start by 1d
 outcome:
   // 6 Core Evidence Pillars
   $observation_count = max($daily_egress.daily_mb)
   $baseline_active_samples = max($iqr_fences.active_days)
   $baseline_mean = max($iqr_fences.median_mb)
-  $baseline_dispersion = max($iqr_val)
+  $baseline_dispersion = max($iqr_fences.iqr)
   $fleet_prevalence = 1
   $distinct_binaries = max($daily_egress.daily_mb)
   
   // Aggregate Surge Ratio
-  $surge_ratio = max($surge)
+  $surge_ratio = max($daily_egress.daily_mb) / (max($iqr_fences.upper_fence) + 0.001)
 
 condition:
   // Small-Sample Protection: Require at least 7 active daily observation windows

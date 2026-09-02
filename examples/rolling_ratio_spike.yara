@@ -43,32 +43,21 @@ stage window_buckets {
     $day_id = $daily_auth_fails.day_id
     $user = $max_day_tracker.user
     $max_day = $max_day_tracker.max_day
-    
-    // Linear event-level day offset calculation
-    $offset = $max_day_tracker.max_day - $daily_auth_fails.day_id
 
   match:
     $user
   outcome:
-    // Today's count (offset = 0)
-    $sum_1d = sum(if($offset = 0, $daily_auth_fails.fail_count, 0))
-    // Last 7 days total (offset <= 6)
-    $sum_7d = sum(if($offset <= 6, $daily_auth_fails.fail_count, 0))
-    // Last 30 days total (offset <= 29)
-    $sum_30d = sum(if($offset <= 29, $daily_auth_fails.fail_count, 0))
+    // Today's count
+    $sum_1d = sum(if($daily_auth_fails.day_id = $max_day_tracker.max_day, $daily_auth_fails.fail_count, 0))
+    // Last 7 days total
+    $sum_7d = sum(if($daily_auth_fails.day_id >= $max_day_tracker.max_day - 6, $daily_auth_fails.fail_count, 0))
+    // Last 30 days total
+    $sum_30d = sum(if($daily_auth_fails.day_id >= $max_day_tracker.max_day - 29, $daily_auth_fails.fail_count, 0))
     $active_days = count_distinct($daily_auth_fails.day_id)
 }
 
 // Root Stage: Calculate moving averages, surge ratios, and emit 6 Evidence Pillars
 $user = $window_buckets.user
-
-// Linear event-level velocity ratio calculations (eliminates intra-stage outcome race conditions)
-$avg_7d = $window_buckets.sum_7d / 7.0
-$avg_30d = $window_buckets.sum_30d / 30.0
-$denom_7d = $avg_7d + 0.1
-$denom_30d = $avg_30d + 0.1
-$r_7 = $window_buckets.sum_1d / $denom_7d
-$r_30 = $window_buckets.sum_1d / $denom_30d
 
 match:
   $user
@@ -76,14 +65,14 @@ outcome:
   // 6 Core Evidence Pillars
   $observation_count = max($window_buckets.sum_1d)
   $baseline_active_samples = max($window_buckets.active_days)
-  $baseline_mean = max($avg_30d)
-  $baseline_dispersion = max($avg_7d)
+  $baseline_mean = max($window_buckets.sum_30d) / 30.0
+  $baseline_dispersion = max($window_buckets.sum_7d) / 7.0
   $fleet_prevalence = 1
   $distinct_binaries = max($window_buckets.sum_1d)
   
   // Aggregate Velocity Ratios
-  $ratio_1v7 = max($r_7)
-  $ratio_1v30 = max($r_30)
+  $ratio_1v7 = max($window_buckets.sum_1d) / ((max($window_buckets.sum_7d) / 7.0) + 0.1)
+  $ratio_1v30 = max($window_buckets.sum_1d) / ((max($window_buckets.sum_30d) / 30.0) + 0.1)
 
 condition:
   // Small-Sample Protection: Require at least 14 active observation days

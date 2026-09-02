@@ -28,23 +28,19 @@ stage host_intervals {
     $first_seen = min($ts)
     $last_seen = max($ts)
     $conn_count = count(metadata.id)
+    $avg_gap = if(count(metadata.id) > 1, (max($ts) - min($ts)) / (count(metadata.id) - 1.0), 0.0)
 }
 
-// Stage 2: Calculate hourly gap interval and aggregate historical timing stats across the window
+// Stage 2: Aggregate historical timing stats across the window
 stage timing_stats {
     $src_ip = $host_intervals.src_ip
     $dst_ip = $host_intervals.dst_ip
-    
-    // Linear event-level gap interval computation across stage 1 outputs
-    $time_span = $host_intervals.last_seen - $host_intervals.first_seen
-    $intervals = $host_intervals.conn_count - 1
-    $avg_gap = $time_span / $intervals
 
   match:
     $src_ip, $dst_ip
   outcome:
-    $mean_gap = avg($avg_gap)
-    $stddev_gap = stddev($avg_gap)
+    $mean_gap = avg($host_intervals.avg_gap)
+    $stddev_gap = stddev($host_intervals.avg_gap)
     $total_conns = sum($host_intervals.conn_count)
     $active_hours = count($host_intervals.window_start)
 }
@@ -65,9 +61,6 @@ $src_ip = $timing_stats.src_ip
 $dst_ip = $timing_stats.dst_ip
 $dst_ip = $fleet_prevalence.dst_ip
 
-// Linear event-level CV calculation (eliminates intra-stage outcome race conditions)
-$cv_ratio = $timing_stats.stddev_gap / $timing_stats.mean_gap
-
 match:
   $src_ip, $dst_ip
 outcome:
@@ -79,8 +72,8 @@ outcome:
   $fleet_prevalence = max($fleet_prevalence.prevalence)
   $distinct_binaries = max($timing_stats.total_conns)
   
-  // Aggregate Coefficient of Variation
-  $cv = max($cv_ratio)
+  // Aggregate Coefficient of Variation (CV = σ / μ)
+  $cv = max($timing_stats.stddev_gap) / (max($timing_stats.mean_gap) + 0.001)
 
 condition:
   // Small-Sample Protection: Require at least 6 active hourly beaconing buckets
