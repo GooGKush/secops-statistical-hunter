@@ -14,11 +14,13 @@ generates Strictly-Typed True Dual-Y Axis Timeline Specs (with orient: right and
 """
 
 __author__ = "Greg Kushmerek"
-__version__ = "2.1.0"
+__version__ = "2.3.0"
 
 import argparse
 import json
 import math
+import os
+from pathlib import Path
 import re
 import sys
 from dataclasses import dataclass
@@ -34,16 +36,19 @@ EXCLUDED_PATTERNS = [
 ]
 
 SYNTAX_TRAPS = [
-    (r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\bevents\s*:", "SYNTAX ERROR: Multi-stage named stages do NOT use an 'events:' header. Place event filters directly inside the stage block."),
-    (r"\$\w+\s+in\s+\$?[a-zA-Z0-9_]+", "SYNTAX ERROR: Do NOT use '$var in stage_name'. Access stage outputs directly via '$stage_name.variable_name' or '$var = $stage_name.variable_name'."),
+    (r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\bevents\s*:", "SYNTAX ERROR (INVALID_EVENTS_SECTION_IN_STAGE): Multi-stage named stages do NOT use an 'events:' header. Place event filters directly inside the stage block."),
+    (r"\$\w+\s+in\s+\$?[a-zA-Z0-9_]+", "SYNTAX ERROR (INVALID_STAGE_IN_SYNTAX): Do NOT use '$var in stage_name'. Access stage outputs directly via '$stage_name.variable_name' or '$var = $stage_name.variable_name'."),
+    (r"\b[a-zA-Z0-9_]+\.\$[a-zA-Z0-9_]+", "SYNTAX ERROR (INVALID_STAGE_VARIABLE_SYNTAX): Multi-stage variable references must use '$stage.var', not 'stage.$var' (placing '$' after the dot causes an ANTLR syntax crash)."),
     (r"\bmath\.(max|min)\b", "SYNTAX ERROR: 'math.max' and 'math.min' do NOT exist in YARA-L. Use aggregate max()/min(), condition floors, or if(cond, val1, val2)."),
     (r"\bcount\s*\(\s*if\s*\(", "SYNTAX ERROR: 'count(if(...))' is invalid syntax. Use 'sum(if(condition, 1, 0))' for conditional event counting."),
+    (r"\bsqrt\s*\(", "SYNTAX ERROR (INVALID_SQRT_FUNCTION): 'sqrt(...)' is invalid in YARA-L outcome expressions. Compute squared norm ($norm_sq = $z1_sq + $z2_sq) and order by '$norm_sq desc'."),
     (r"^\s*options\s*:", "SYNTAX ERROR: 'options:' blocks are Rule-Engine only and rejected in Search/Dashboard queries. Searches terminate after 'condition:' or 'order:'."),
     (r"match:\s*[^;\n]+\bby\b[^;\n]+\b(hop|over)\b", "SYNTAX ERROR: Compound 'by X hop Y' or 'by X over Y' is invalid syntax in YARA-L. Use 'match: $var by <duration>' for tumbling buckets, 'match: $var over <duration>' for sliding windows, or 'match: $var' for unwindowed baseline stages."),
-    (r"\^", "SYNTAX ERROR: '^' is invalid in YARA-L outcome expressions. Use '$var * $var' for squared terms ($z_sq = $z * $z)."),
-    (r"\bin\s*\([\"']", "SYNTAX ERROR: 'in (\"A\", \"B\")' tuple syntax is invalid in YARA-L. Use '(field = \"A\" or field = \"B\")' or regex 're.regex(field, `A|B`)'."),
-    (r"match:\s*[^;\n]*\bby\s+24h\b", "SYNTAX ERROR: 'by 24h' is invalid in YARA-L. Use 'by 1d' for daily matching."),
-    (r"stage\s+\$[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR: Stage declarations must not have a '$' prefix (use 'stage stage_name {', not 'stage $stage_name {')."),
+    (r"\^", "SYNTAX ERROR (INVALID_EXPONENT_OPERATOR): '^' is invalid in YARA-L outcome expressions. Use '$var * $var' for squared terms ($z_sq = $z * $z)."),
+    (r"\bin\s*\([\"']", "SYNTAX ERROR (INVALID_IN_SYNTAX): 'in (\"A\", \"B\")' tuple syntax is invalid in YARA-L. Use '(field = \"A\" or field = \"B\")' or regex 're.regex(field, `A|B`)'."),
+    (r"match:\s*[^;\n]*\bby\s+24h\b", "SYNTAX ERROR (INVALID_WINDOW_SYNTAX): 'by 24h' is invalid in YARA-L. Use 'by 1d' for daily matching."),
+    (r"stage\s+\$[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR (STAGE_NAME_PREFIX_ERROR): Stage declarations must not have a '$' prefix (use 'stage stage_name {', not 'stage $stage_name {')."),
+    (r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR (INVALID_DETECTION_RULE_SYNTAX): Multi-stage queries are Search/Dashboard-only ('stage ... { ... }' + root stage). Do NOT wrap in 'rule ... { ... }'."),
 ]
 
 SENSITIVITY_MAP = {
@@ -802,6 +807,85 @@ def generate_visual_bar(score: float, max_score: float = 6.0, bar_length: int = 
   return bar.ljust(bar_length, " ")
 
 
+def calculate_cri(score: float, baseline_threshold: float = 3.0) -> int:
+  """Calibrated Risk Index (CRI) logistic sigmoid function [0-100].
+
+  Maps statistical deviations onto an intuitive [0-100] SOC operational index:
+    - Normal / Sub-baseline (Z <= 0): CRI = 0
+    - Baseline Threshold (e.g. Z = 3.0σ): CRI = 50 (Medium Outlier boundary)
+    - Significant Outlier (e.g. Z = 4.0σ): CRI = 65
+    - High Threat (e.g. Z = 6.0σ): CRI = 86
+    - Saturated Cap (e.g. Z >= 15.0σ): CRI = 100
+  """
+  if score <= 0:
+    return 0
+  try:
+    val = -0.6 * (score - baseline_threshold)
+    if val > 50:
+      return 0
+    elif val < -50:
+      return 100
+    return round(100.0 / (1.0 + math.exp(val)))
+  except OverflowError:
+    return 100 if score > baseline_threshold else 0
+
+
+def get_cri_badge(cri: int) -> Tuple[str, str]:
+  """Returns formatted CRI badge and severity label based on operational tier."""
+  if cri <= 25:
+    return f"🟢 `[CRI: {cri}]`", "Nominal"
+  elif cri <= 45:
+    return f"🟡 `[CRI: {cri}]`", "Low Drift"
+  elif cri <= 69:
+    return f"🟠 `[CRI: {cri}]`", "Medium Outlier"
+  elif cri <= 89:
+    return f"🔴 `[CRI: {cri}]`", "High Threat"
+  else:
+    return f"🚨 `[CRI: {cri}]`", "Critical Outlier"
+
+
+class DataReductionEngine:
+  """Truncates large SecOps search payloads to statistical summaries and top N outliers."""
+
+  @staticmethod
+  def reduce(raw_results: List[Dict[str, Any]], top_n: int = 5) -> Dict[str, Any]:
+    if not raw_results:
+      return {
+          "total_entities_evaluated": 0,
+          "outlier_count": 0,
+          "primary_score_metric": "none",
+          "top_outliers": [],
+      }
+
+    sample = raw_results[0]
+    score_key = "z_score"
+    for candidate in [
+        "z_score", "targeted_delta_z", "delta_z", "fleet_z", "m_z_score", "poisson_z",
+        "poisson_z_sq", "fano_factor", "surge_ratio", "cv", "personal_z"
+    ]:
+      if candidate in sample:
+        score_key = candidate
+        break
+
+    def get_score(record: Dict[str, Any]) -> float:
+      try:
+        val = float(record.get(score_key, 0))
+        if score_key == "cv":
+          return -val
+        return abs(val)
+      except (ValueError, TypeError):
+        return 0.0
+
+    sorted_records = sorted(raw_results, key=get_score, reverse=True)
+
+    return {
+        "total_entities_evaluated": len(raw_results),
+        "outlier_count": len(sorted_records),
+        "primary_score_metric": score_key,
+        "top_outliers": sorted_records[:top_n],
+    }
+
+
 def format_triage_report(
     title: str,
     stats_payload: Dict[str, Any],
@@ -849,8 +933,8 @@ def format_triage_report(
   out.append("")
   out.append("#### 📊 Ranked Outlier Summary (Top Anomalies by Severity)")
   out.append("")
-  out.append("| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Visual Magnitude |")
-  out.append("| :------------------- | :----------- | :---------------- | :------------------------- | :-------------- | :-------------- | :--------------- |")
+  out.append("| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Calibrated Risk Index | Visual Magnitude |")
+  out.append("| :------------------- | :----------- | :---------------- | :------------------------- | :-------------- | :-------------- | :-------------------- | :--------------- |")
 
   max_score = float(top_rows[0].get(chosen_key, 6.0)) if chosen_key and top_rows[0].get(chosen_key) else 6.0
   for row in top_rows:
@@ -873,8 +957,22 @@ def format_triage_report(
     badge = get_soc_severity_badge(chosen_key, score_val)
     score_str = f"+{score_val:.2f}σ" if chosen_key in ["z_score", "poisson_z", "fleet_z"] else f"{score_val:.2f}"
     vbar = f"`{generate_visual_bar(score_val, max_score)}`"
+
+    # CRI calculation
+    if chosen_key == "cv":
+      equiv_score = max(0.0, (0.50 - score_val) / 0.10) if score_val > 0 else 0.0
+      cri_val = calculate_cri(equiv_score, 3.0)
+    elif chosen_key == "fano_factor":
+      equiv_score = (score_val / 4.0) * 3.0
+      cri_val = calculate_cri(equiv_score, 3.0)
+    elif chosen_key in ["poisson_z_sq", "threat_vector_norm_sq"]:
+      equiv_score = math.sqrt(score_val) if score_val > 0 else 0.0
+      cri_val = calculate_cri(equiv_score, 3.0)
+    else:
+      cri_val = calculate_cri(score_val, 3.0)
+    cri_badge_str, _ = get_cri_badge(cri_val)
     
-    out.append(f"| `{ent}` | {tb[:16]} | **{obs}** | {base_str} | {conf_badge} | {badge} (`{score_str}`) | {vbar} |")
+    out.append(f"| `{ent}` | {tb[:16]} | **{obs}** | {base_str} | {conf_badge} | {badge} (`{score_str}`) | {cri_badge_str} | {vbar} |")
 
   top_ent = top_rows[0]
   top_score_val = float(top_ent.get(chosen_key, 0.0)) if chosen_key else 0.0
@@ -882,6 +980,19 @@ def format_triage_report(
   top_badge = get_soc_severity_badge(chosen_key, top_score_val)
   top_conf_badge, top_conf_desc = evaluate_confidence_tier(top_ent)
   ent_name = str(top_ent.get(entity_col, "unknown"))
+
+  if chosen_key == "cv":
+    equiv_score = max(0.0, (0.50 - top_score_val) / 0.10) if top_score_val > 0 else 0.0
+    top_cri_val = calculate_cri(equiv_score, 3.0)
+  elif chosen_key == "fano_factor":
+    equiv_score = (top_score_val / 4.0) * 3.0
+    top_cri_val = calculate_cri(equiv_score, 3.0)
+  elif chosen_key in ["poisson_z_sq", "threat_vector_norm_sq"]:
+    equiv_score = math.sqrt(top_score_val) if top_score_val > 0 else 0.0
+    top_cri_val = calculate_cri(equiv_score, 3.0)
+  else:
+    top_cri_val = calculate_cri(top_score_val, 3.0)
+  top_cri_badge, top_cri_tier = get_cri_badge(top_cri_val)
 
   obs_val = top_ent.get("observation_count", top_ent.get("observed_count", top_ent.get("observed_today", top_ent.get("total_fails", top_ent.get("daily_mb", "N/A")))))
   active_samples = top_ent.get("baseline_active_samples", top_ent.get("active_samples", top_ent.get("active_days", "N/A")))
@@ -893,7 +1004,7 @@ def format_triage_report(
   out.append("")
   out.append("---")
   out.append("")
-  out.append(f"#### 🔍 Top Outlier Spotlight: `{ent_name}` — {top_badge} (`{top_score_str}`)")
+  out.append(f"#### 🔍 Top Outlier Spotlight: `{ent_name}` — {top_badge} (`{top_score_str}`) | {top_cri_badge}")
   out.append("")
   out.append(f"* **Data Confidence Level**: {top_conf_badge} — {top_conf_desc}")
   out.append("")
@@ -913,6 +1024,8 @@ def format_triage_report(
 
   out.append("##### 🗣️ What Happened & Why It Matters (In Plain English)")
   out.append(f"> **The Finding**: During this window, `{ent_name}` performed **{obs_val} events**, representing {narrative_surge} (normal average is **{base_mean}**).")
+  out.append(f"> ")
+  out.append(f"> **Calibrated Risk Index**: Assessed at {top_cri_badge} (**{top_cri_tier}** on the standardized [0–100] SOC threat scale).")
   out.append(f"> ")
   out.append(f"> **Why It Matters**: This sudden burst produced an anomaly rating of **{top_score_str}**, indicating behavior so statistically rare that it almost certainly represents **automated software execution, script loops, or active threat tooling** rather than normal human employee activity.")
   out.append(f"> ")
@@ -1003,7 +1116,10 @@ def format_triage_report(
   elif chosen_key == "m_z_score":
     out.append("* **Model**: Modified $Z$-Score via Median Absolute Deviation (MAD)")
     out.append("  $$M_Z = \\frac{0.6745 \\cdot (x - \\tilde{x})}{\\text{MAD}} = " + f"{top_score_str}" + "$$")
-    out.append(f"* **Median ($\\\\tilde{{x}}$)**: `{base_mean}` | **MAD**: `{base_disp}` (robust against skew and extreme outliers).")
+  out.append("")
+  out.append("##### 🎚️ Calibrated Risk Index (CRI) Sigmoid Normalization")
+  out.append("  $$\\text{CRI} = \\text{round}\\left(\\frac{100}{1 + \\exp(-0.6 \\cdot (Z - 3.0))}\\right) = \\mathbf{" + str(top_cri_val) + "}$$")
+  out.append(f"* **Operational Status**: {top_cri_badge} ({top_cri_tier}). Anchors the 3-Sigma alert boundary ($Z = 3.0\\sigma$) at exactly $\\text{{CRI}} = 50$.")
 
   if fleet_size > 1:
     adj_z = calculate_fleet_adjusted_threshold(3.0, fleet_size)
@@ -1412,6 +1528,7 @@ class PostFlightAuditResult:
   errors: List[str]
   findings: List[str]
   remediation_action: Optional[str] = None
+  recommended_query: Optional[str] = None
   audit_summary: str = ""
 
 
@@ -1449,21 +1566,189 @@ class PostFlightExecutionAuditor:
       resp_errs = audit_api_response_payload(api_response)
       errors.extend(resp_errs)
 
+    raw_dump_detected = any("RAW_LOG_DUMP_DETECTED" in e for e in errors)
     is_valid = len(errors) == 0
-    status = "PASSED" if is_valid else "FAILED"
+
+    if is_valid:
+      status = AuditStatus.PASSED.value
+      summary = "🟢 Audit Passed: Execution verified."
+    elif raw_dump_detected:
+      status = AuditStatus.RETRY_REQUIRED.value
+      summary = "⚠️ Audit Failed: Raw log dump detected. YARA-L query must compile columnar stats, not dump raw events."
+    else:
+      status = AuditStatus.FAILED.value
+      summary = f"❌ Audit Failed ({len(errors)} violation(s) detected)."
+
     remediation = None
+    recommended = None
     if not is_valid:
       remediation = "Refactor query to enforce canonical YARA-L DAG grammar, isolate multi-vector stages, and execute as columnar stats."
+      target_arch = expected_model or expected_architecture or "ZSCORE_PROCESS_SURGE"
+      try:
+        router = MultiStageTemplateRouter()
+        recommended = router.build_query(target_arch)
+      except Exception:
+        pass
 
-    summary = "🟢 Audit Passed: Execution verified." if is_valid else f"❌ Audit Failed ({len(errors)} violation(s) detected)."
     return PostFlightAuditResult(
         status=status,
         is_valid=is_valid,
         errors=errors,
         findings=findings,
         remediation_action=remediation,
+        recommended_query=recommended,
         audit_summary=summary
     )
+
+
+class MultiStageTemplateRouter:
+  """Routes and builds canonical multi-stage YARA-L queries (.yl2) from golden pipeline templates."""
+
+  ARCHETYPE_TEMPLATE_MAP = {
+      "ZSCORE_PROCESS_SURGE": "zscore_process_surge_2stage.yl2",
+      "Z_SCORE": "zscore_process_surge_2stage.yl2",
+      "ZSCORE": "zscore_process_surge_2stage.yl2",
+      "PROCESS_SURGE": "zscore_process_surge_2stage.yl2",
+      "POISSON_BURST_CLUSTERING": "poisson_burst_clustering_2stage.yl2",
+      "FANO": "poisson_burst_clustering_2stage.yl2",
+      "FANO_FACTOR": "poisson_burst_clustering_2stage.yl2",
+      "BURST_CLUSTERING": "poisson_burst_clustering_2stage.yl2",
+      "POISSON_RARE_SURGE": "poisson_rare_surge_2stage.yl2",
+      "POISSON": "poisson_rare_surge_2stage.yl2",
+      "POISSON_RARITY": "poisson_rare_surge_2stage.yl2",
+      "RARE_SURGE": "poisson_rare_surge_2stage.yl2",
+      "C2_BEACONING_JITTER": "c2_beaconing_jitter_2stage.yl2",
+      "CV": "c2_beaconing_jitter_2stage.yl2",
+      "BEACONING": "c2_beaconing_jitter_2stage.yl2",
+      "JITTER": "c2_beaconing_jitter_2stage.yl2",
+      "DATA_EXFILTRATION_SPIKE": "mad_exfiltration_2stage.yl2",
+      "MAD_EXFILTRATION": "mad_exfiltration_2stage.yl2",
+      "MAD": "mad_exfiltration_2stage.yl2",
+      "MODIFIED_Z": "mad_exfiltration_2stage.yl2",
+      "DUAL_BASELINE_DELTA_Z": "dual_baseline_delta_z_3stage.yl2",
+      "DELTA_Z": "dual_baseline_delta_z_3stage.yl2",
+      "DUAL_BASELINE": "dual_baseline_delta_z_3stage.yl2",
+      "BAYESIAN_GAMMA_SHRINKAGE": "bayesian_gamma_shrinkage_4stage.yl2",
+      "BAYESIAN_GAMMA": "bayesian_gamma_shrinkage_4stage.yl2",
+      "GAMMA_SHRINKAGE": "bayesian_gamma_shrinkage_4stage.yl2",
+      "BETA_BINOMIAL_FAILURE": "beta_binomial_failure_4stage.yl2",
+      "BETA_BINOMIAL": "beta_binomial_failure_4stage.yl2",
+      "CREDENTIAL_STUFFING": "beta_binomial_failure_4stage.yl2",
+      "MULTI_SECTOR_THREAT_FUSION": "multi_sector_threat_fusion_4stage.yl2",
+      "FUSION": "multi_sector_threat_fusion_4stage.yl2",
+      "THREAT_FUSION": "multi_sector_threat_fusion_4stage.yl2",
+      "MULTI_SECTOR": "multi_sector_threat_fusion_4stage.yl2",
+  }
+
+  def __init__(self, template_dir: Optional[Path] = None):
+    if template_dir is None:
+      self.template_dir = Path(__file__).resolve().parent.parent / "templates" / "pipelines"
+    else:
+      self.template_dir = Path(template_dir)
+
+  def get_template_filename(self, archetype_or_model: str) -> str:
+    key = archetype_or_model.upper().replace("-", "_").strip()
+    if key in self.ARCHETYPE_TEMPLATE_MAP:
+      return self.ARCHETYPE_TEMPLATE_MAP[key]
+    for k, v in self.ARCHETYPE_TEMPLATE_MAP.items():
+      if k in key or key in k:
+        return v
+    raise ValueError(f"Unknown archetype or model: {archetype_or_model}. Available: {list(self.ARCHETYPE_TEMPLATE_MAP.keys())}")
+
+  def build_query(
+      self,
+      archetype: str,
+      tier: str = "BALANCED",
+      entity_type: str = "host",
+      event_type: Optional[str] = None,
+      window_hours: Optional[float] = None,
+  ) -> str:
+    tier_up = tier.upper()
+    template_file = self.get_template_filename(archetype)
+    template_path = self.template_dir / template_file
+    if not template_path.exists():
+      raise FileNotFoundError(f"Missing pipeline template: {template_path}")
+    raw_template = template_path.read_text()
+
+    # Map archetype to base key in SENSITIVITY_MAP
+    canonical_key = "ZSCORE_PROCESS_SURGE"
+    for k in SENSITIVITY_MAP.keys():
+      if k in archetype.upper() or archetype.upper() in k:
+        canonical_key = k
+        break
+    thresh = SENSITIVITY_MAP.get(canonical_key, {}).get(tier_up, {})
+
+    # Adaptive window calculation
+    bucket_size = "1h"
+    if window_hours:
+      adapt = get_adaptive_window_parameters(window_hours, canonical_key, tier_up)
+      bucket_size = adapt["recommended_bucket"]
+      min_samples = adapt["proportional_sample_floor"]
+    else:
+      min_samples = (
+          thresh.get("min_active_samples")
+          or thresh.get("min_baseline_days")
+          or thresh.get("min_active_hours")
+          or 30
+      )
+
+    # Entity field resolution
+    entity_field_map = {
+        "host": "principal.hostname",
+        "user": "target.user.userid",
+        "ip": "principal.asset.ip",
+    }
+    entity_field = entity_field_map.get(entity_type.lower(), "principal.hostname")
+
+    # Default event type resolution
+    if not event_type:
+      if "POISSON_BURST" in template_file or "beta_binomial" in template_file:
+        event_type = "USER_LOGIN"
+      elif "c2_beaconing" in template_file:
+        event_type = "NETWORK_CONNECTION"
+      elif "mad_exfiltration" in template_file:
+        event_type = "NETWORK_DNS"
+      else:
+        event_type = "PROCESS_LAUNCH"
+
+    # Substitutions
+    rendered = raw_template
+    rendered = rendered.replace("{{tier}}", tier_up)
+    rendered = rendered.replace("{{event_type}}", event_type)
+    rendered = rendered.replace("{{entity_field}}", entity_field)
+    rendered = rendered.replace("{{bucket_size}}", bucket_size)
+
+    # Threshold substitutions
+    for k, v in thresh.items():
+      rendered = rendered.replace(f"{{{{{k}}}}}", str(v))
+
+    # Generic threshold fallbacks
+    rendered = rendered.replace("{{min_active_samples}}", str(min_samples))
+    rendered = rendered.replace("{{min_baseline_days}}", str(max(3, int(min_samples / 4))))
+    rendered = rendered.replace("{{min_active_hours}}", str(min_samples))
+    rendered = rendered.replace("{{min_count}}", str(thresh.get("min_count", 25)))
+    rendered = rendered.replace("{{min_sd}}", str(thresh.get("min_sd", 5.0)))
+    rendered = rendered.replace("{{z_score}}", str(thresh.get("z_score", 2.0)))
+    rendered = rendered.replace("{{fano_factor}}", str(thresh.get("fano_factor", 4.0)))
+    rendered = rendered.replace("{{min_fails}}", str(thresh.get("min_fails", 15)))
+    rendered = rendered.replace("{{min_mu}}", str(thresh.get("min_mu", 1.0)))
+    poisson_z_val = thresh.get("poisson_z", 3.5)
+    rendered = rendered.replace("{{poisson_z}}", str(poisson_z_val))
+    rendered = rendered.replace("{{poisson_z_sq}}", str(round(poisson_z_val * poisson_z_val, 2)))
+    rendered = rendered.replace("{{min_observed}}", str(thresh.get("min_observed", 3)))
+    rendered = rendered.replace("{{max_lambda}}", str(thresh.get("max_lambda", 2.0)))
+    rendered = rendered.replace("{{cv}}", str(thresh.get("cv", 0.20)))
+    rendered = rendered.replace("{{min_conns}}", str(thresh.get("min_conns", 25)))
+    rendered = rendered.replace("{{prevalence}}", str(thresh.get("prevalence", 2)))
+    rendered = rendered.replace("{{m_z}}", str(thresh.get("m_z", 2.5)))
+    rendered = rendered.replace("{{min_mb}}", str(thresh.get("min_mb", 100.0)))
+    rendered = rendered.replace("{{min_mad}}", str(thresh.get("min_mad", 10.0)))
+    rendered = rendered.replace("{{fleet_z}}", str(thresh.get("fleet_z", 2.5)))
+    rendered = rendered.replace("{{min_host_count}}", str(thresh.get("min_host_count", 25)))
+    rendered = rendered.replace("{{min_fleet_sd}}", str(thresh.get("min_fleet_sd", 5.0)))
+    rendered = rendered.replace("{{min_active_hosts}}", str(thresh.get("min_active_hosts", 15)))
+
+    return rendered
 
 
 def main():
@@ -1521,8 +1806,41 @@ def main():
       "--audit_response",
       help="Path to API response JSON to audit for raw log dumps and result integrity",
   )
+  parser.add_argument(
+      "--build_query",
+      action="store_true",
+      help="Build canonical multi-stage YARA-L query from pipeline templates based on --archetype and --tier",
+  )
+  parser.add_argument(
+      "--entity_type",
+      default="host",
+      help="Entity type for query builder (host, user, ip)",
+  )
+  parser.add_argument(
+      "--event_type",
+      help="Override UDM event_type for query builder (e.g. PROCESS_LAUNCH, USER_LOGIN, NETWORK_CONNECTION)",
+  )
 
   args = parser.parse_args()
+
+  if args.build_query:
+    if not args.archetype:
+      print("Error: --build_query requires --archetype (e.g. ZSCORE_PROCESS_SURGE, POISSON_BURST_CLUSTERING, DUAL_BASELINE_DELTA_Z, MULTI_SECTOR_THREAT_FUSION)", file=sys.stderr)
+      sys.exit(1)
+    router = MultiStageTemplateRouter()
+    try:
+      q = router.build_query(
+          archetype=args.archetype,
+          tier=args.tier,
+          entity_type=args.entity_type,
+          event_type=args.event_type,
+          window_hours=args.window_hours,
+      )
+      print(q)
+      sys.exit(0)
+    except Exception as e:
+      print(f"Error building query: {e}", file=sys.stderr)
+      sys.exit(1)
 
   if args.audit_response:
     with open(args.audit_response, "r") as f:

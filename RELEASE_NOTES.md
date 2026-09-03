@@ -1,5 +1,34 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.3.0 (September 3, 2026) — Risk Metrics Cross-Pollination, Common Compiler Conformance & Calibrated Risk Index (CRI)
+
+* **Common Compiler AST Invariants & Syntax Traps**:
+  * Added syntax trap `INVALID_STAGE_VARIABLE_SYNTAX` enforcing `$stage.var` instead of `stage.$var` to prevent compiler crashes.
+  * Added syntax trap `INVALID_SQRT_FUNCTION` rejecting non-existent `sqrt()` / `math.sqrt()` in outcome expressions, enforcing squared distance/deviance norms ($D^2$, $Z_{\text{poisson}}^2$) and ordering by `$score_sq desc`.
+  * Added syntax trap `INVALID_DETECTION_RULE_SYNTAX` preventing wrapping multi-stage search queries in streaming detection rule wrappers (`rule ... { ... }`).
+  * Enforced event-section arithmetic prohibition (binary variable operations prohibited above `match:`).
+* **Calibrated Risk Index (CRI [0–100]) Standard**:
+  * Implemented logistic sigmoid normalization $\text{CRI} = \text{round}(100 / (1 + \exp(-0.6 \cdot (Z - 3.0))))$ in `multistage_query_builder.py` (`calculate_cri`, `get_cri_badge`), anchoring $Z = 3.0\sigma$ at CRI = 50.
+  * Updated 5-Section triage reporting to render CRI scores across Ranked Outlier Summary, Top Outlier Spotlight, and Mathematical Appendix.
+  * Documented architectural rationale and calibration curve in `references/calibrated-risk-index-guide.md`.
+* **Data Reduction Engine (`DataReductionEngine`)**:
+  * Added context window protection engine that truncates large search result payloads into structured summaries and top $N$ anomalies, preventing LLM token exhaustion.
+* **API Response Payload Auditing & Auto-Remediation (`PostFlightExecutionAuditor`)**:
+  * Enhanced post-flight auditing to validate response structures, detecting unaggregated event dumps (`RAW_LOG_DUMP_DETECTED`) and setting `status = AuditStatus.RETRY_REQUIRED`.
+  * Integrated auto-recommended query synthesis via template routing.
+* **Golden Pipeline Templates & Multi-Stage Router (`MultiStageTemplateRouter`)**:
+  * Packaged 9 canonical pipeline templates into `templates/pipelines/*.yl2` covering all major statistical hunting models.
+  * Added `--build_query` CLI integration in `scripts/multistage_query_builder.py` to compile parameterized multi-stage queries from templates.
+* **Clean Hand-Off (CH) & Synthetic UDM Event Ingestion**:
+  * Formulated the Clean Hand-Off protocol in `references/clean-handoff-udm-schema.md` establishing Path A (default synthetic UDM event ingestion via `import_logs` for catch-all rule promotion) and Path B (active case comment attachment via `create_case_comment` only when an explicit `case_id` is specified).
+  * Enforced strict prohibition against arbitrary case hijacking.
+* **Non-Negotiable Execution & Integrity Contracts**:
+  * Codified the Hard Stop on API Error, Native Execution Guarantee (zero Python simulation scripting), Literal Query Display Mandate, and Strict Nomenclature Mandate (Query vs. Rule).
+* **Expanded Automated Test Suite**:
+  * Added `tests/test_cri_and_math.py` and `tests/test_guardrail_contracts.py`. Full test suite now features 51 passing unit tests (100% pass rate).
+
+---
+
 ## 📦 Version 2.2.1 (September 1, 2026) — Dual Multi-Stage Taxonomy & Architecture Disambiguation
 
 * **Dual Multi-Stage Architecture Boundary**:

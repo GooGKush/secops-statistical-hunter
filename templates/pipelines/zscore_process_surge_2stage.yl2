@@ -1,0 +1,80 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect endpoints exhibiting extreme statistical surges in process launch volume (Z-Score > {{z_score}}).
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Parametric Historical Z-Score per Host (Z = (x - μ) / σ) & Fleet Prevalence
+// Mathematical Rationale:
+//   - Why this model: Compares each host hourly process execution volume against its own historical
+//     baseline mean and standard deviation. Hourly surges exceeding 3 standard deviations (Z > 3.0, top ~0.13%)
+//     reveal anomalous activity such as automated malware loops, batch lateral movement, or ransomware staging.
+//   - Small-Sample & Multiple-Comparison Protection: Enforces an active baseline sample floor (>= {{min_active_samples}} hourly samples),
+//     an activity floor of >= {{min_count}} executions, and a minimum standard deviation floor (σ >= {{min_sd}})
+//     to prevent zero-variance divisions, idle baseline noise, and small-sample false anomalies.
+// Sensitivity Boundary: {{tier}} (Z-Score > {{z_score}}, Min Hourly Executions >= {{min_count}}, Min Stddev >= {{min_sd}}, Min Active Samples >= {{min_active_samples}})
+// ============================================================================
+
+// Stage 1: Hourly process execution counts, distinct binaries, and sample commands per host
+stage host_hourly {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by {{bucket_size}}
+  outcome:
+    $hourly_count = count(metadata.id)
+    $distinct_procs = count_distinct(target.process.file.full_path)
+    $sample_cmd = array_distinct(target.process.command_line)
+}
+
+// Stage 2: Historical mean, standard deviation, and active sample density per host
+stage host_stats {
+    $entity = $host_hourly.entity
+
+  match:
+    $entity
+  outcome:
+    $host_mean = avg($host_hourly.hourly_count)
+    $host_stddev = stddev($host_hourly.hourly_count)
+    $active_samples = count($host_hourly.window_start)
+}
+
+// Stage 3: Enterprise-wide fleet prevalence of process activity
+stage fleet_prevalence {
+    $entity = $host_hourly.entity
+
+  match:
+    $entity
+  outcome:
+    $fleet_hosts = count_distinct($host_hourly.entity)
+}
+
+// Root Stage: Join all stages, calculate Z-score in outcome section, and emit standardized 6 Evidence Pillars
+$entity = $host_hourly.entity
+$entity = $host_stats.entity
+$entity = $fleet_prevalence.entity
+$window_start = $host_hourly.window_start
+
+match:
+  $entity, $window_start by {{bucket_size}}
+outcome:
+  // 6 Core Evidence Pillars
+  $observation_count = max($host_hourly.hourly_count)
+  $baseline_active_samples = max($host_stats.active_samples)
+  $baseline_mean = max($host_stats.host_mean)
+  $baseline_dispersion = max($host_stats.host_stddev)
+  $fleet_prevalence = max($fleet_prevalence.fleet_hosts)
+  $distinct_binaries = max($host_hourly.distinct_procs)
+  $sample_commands = array_distinct($host_hourly.sample_cmd)
+  
+  // Aggregate computed Z-Score
+  $z_score = (max($host_hourly.hourly_count) - max($host_stats.host_mean)) / (max($host_stats.host_stddev) + 0.001)
+
+condition:
+  $baseline_active_samples >= {{min_active_samples}}
+  and $observation_count >= {{min_count}}
+  and $baseline_dispersion >= {{min_sd}}
+  and $z_score > {{z_score}}
+
+order:
+  $z_score desc

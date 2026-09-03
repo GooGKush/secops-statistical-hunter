@@ -1,0 +1,78 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect abnormal data transfer surges and DNS Tunneling via robust Median Absolute Deviation (MAD).
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Modified Z-Score (M_Z) via Median Absolute Deviation (MAD)
+// Mathematical Rationale:
+//   - Why this model: Security telemetry distributions (like daily DNS lookups or network bytes) are heavily right-skewed and zero-inflated.
+//     Standard standard-deviation (Z-Score) breaks down because massive exfiltration spikes distort the mean and variance.
+//     MAD is robust up to 50% outliers, ensuring an accurate baseline median for each host.
+//   - Noise protection: Enforces a daily volume floor of >= {{min_mb}} units, a baseline sample density floor (>= {{min_baseline_days}} active days),
+//     and a minimum MAD threshold > {{min_mad}} to prevent zero-deviation division explosions on idle hosts.
+// Sensitivity Boundary: {{tier}} (M_Z > {{m_z}}, Daily Volume >= {{min_mb}}, MAD > {{min_mad}}, Active Days >= {{min_baseline_days}})
+// ============================================================================
+
+// Stage 1: Daily distinct query / volume count per host
+stage daily_stats {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+  outcome:
+    $daily_volume = count(metadata.id)
+    $sample_data = array_distinct(target.process.file.full_path)
+}
+
+// Stage 2: Compute overall historical median distinct volume per host
+stage median_stats {
+    $entity = $daily_stats.entity
+
+  match:
+    $entity
+  outcome:
+    $host_median = window.median($daily_stats.daily_volume, true)
+}
+
+// Stage 3: Compute Median Absolute Deviation (MAD) across all daily deviations
+stage mad_stats {
+    $entity = $daily_stats.entity
+    $entity = $median_stats.entity
+
+  match:
+    $entity
+  outcome:
+    $mad = window.median(math.abs($daily_stats.daily_volume - $median_stats.host_median), true)
+    $host_median_val = max($median_stats.host_median)
+    $active_days = count_distinct($daily_stats.window_start)
+}
+
+// Root Stage: Calculate Modified Z-Score (0.6745 * deviation / MAD) and emit 6 Evidence Pillars
+$entity = $daily_stats.entity
+$entity = $mad_stats.entity
+$window_start = $daily_stats.window_start
+
+match:
+  $entity, $window_start by 1d
+outcome:
+  // 6 Core Evidence Pillars
+  $observation_count = max($daily_stats.daily_volume)
+  $baseline_active_samples = max($mad_stats.active_days)
+  $baseline_mean = max($mad_stats.host_median_val)
+  $baseline_dispersion = max($mad_stats.mad)
+  $fleet_prevalence = 1
+  $distinct_binaries = max($daily_stats.daily_volume)
+  $sample_commands = array_distinct($daily_stats.sample_data)
+  
+  // Aggregate Modified Z-Score
+  $m_z_score = 0.6745 * (max($daily_stats.daily_volume) - max($mad_stats.host_median_val)) / (max($mad_stats.mad) + 0.001)
+
+condition:
+  $baseline_active_samples >= {{min_baseline_days}}
+  and $observation_count >= {{min_mb}}
+  and $baseline_dispersion >= {{min_mad}}
+  and $m_z_score > {{m_z}}
+
+order:
+  $m_z_score desc

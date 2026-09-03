@@ -64,12 +64,14 @@ class TestTriageReporting(unittest.TestCase):
 
     # Section 2: Ranked Outlier Summary Table
     self.assertIn("#### 📊 Ranked Outlier Summary", report)
-    self.assertIn("| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Visual Magnitude |", report)
+    self.assertIn("| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Calibrated Risk Index | Visual Magnitude |", report)
     self.assertIn("`host-alpha-prod`", report)
     self.assertIn("🚨 **[CRITICAL OUTLIER]**", report)
+    self.assertIn("[CRI: 100]", report)
 
     # Section 3: Top Outlier Spotlight with 6 Evidence Pillars
     self.assertIn("#### 🔍 Top Outlier Spotlight: `host-alpha-prod`", report)
+    self.assertIn("Calibrated Risk Index", report)
     self.assertIn("##### 🗣️ What Happened & Why It Matters (In Plain English)", report)
     self.assertIn("##### 🏛️ Forensic Evidence Breakdown", report)
     self.assertIn("**1. Activity Spike**", report)

@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.2.1
+version: 2.3.0
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   and outlier hunting in Google Security Operations (SecOps) over raw UDM telemetry across custom time slices.
@@ -9,7 +9,8 @@ description: |
   Coefficient of Variation (CV), Poisson-Gamma Bayesian Shrinkage, Beta-Binomial Ratio Regularization,
   Dual-Baseline Delta-Z (Patch Tuesday Shield), and Multi-Sector Threat Fusion.
   Enforces strict 5-Section CommonMark Triage Reporting (with 6 standardized forensic evidence pillars,
-  Unicode visual bars, and 1-click drilldowns), strict visual axis-type isolation, and post-query intent auditing.
+  Calibrated Risk Index [0-100] normalization, Unicode visual bars, and 1-click drilldowns),
+  strict visual axis-type isolation, and post-query intent auditing.
   Triggers: "hunt for beaconing with jitter", "inline C2 timing regularity", "calculate MAD on DNS",
   "Tukey fence anomaly", "impossible travel velocity", "rolling volume ratio", "pre-flight boundary probe",
   "poisson burst clustering", "fano factor password spray", "rare admin tool surge",
@@ -52,7 +53,6 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 | *"Detect coordinated low-and-slow kill chains across Auth, Endpoint, and Network silos."* | **`MULTI_SECTOR_FUSION`** ($D = \sqrt{\sum Z_i^2} \ge 3.0\sigma$) | **The Combined Arms Radar**: Computes orthogonal Euclidean distance across domains, catching multi-vector attacks where point detectors miss. |
 | *"Find service accounts accessing source code or data repositories (GitHub, GitLab, internal shares) from unexpected host origins or out of normal scope."* | **`POISSON_ORIGIN_RARITY`** (Poisson $Z > 3.5$) | **The Train on a New Track**: Service accounts operate like trains on fixed rails (fixed CI runners, deterministic IPs). Accessing a repository from an unseen host has a near-zero historical arrival rate ($\lambda \to 0$), triggering an acute statistical rarity alert over raw `USER_RESOURCE_ACCESS`. |
 
-
 ---
 
 ## 🚦 MANDATORY STEP 1: PRE-FLIGHT CLEARANCE & HARD TURN BOUNDARY
@@ -77,15 +77,15 @@ When formatting hunting results for ANY client (CLI, Chat UI, or Web UI), the ag
 
 ---
 #### 📊 Ranked Outlier Summary
-| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Visual Magnitude |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `host-alpha` | 2026-08-24T08:00 | **850** | 250 ± 35 | 🟢 **HIGH CONFIDENCE** | 🚨 **[CRITICAL OUTLIER]** (`+17.14σ`) | `██████████` |
+| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Calibrated Risk Index | Visual Magnitude |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `host-alpha` | 2026-08-24T08:00 | **850** | 250 ± 35 | 🟢 **HIGH CONFIDENCE** | 🚨 **[CRITICAL OUTLIER]** (`+17.14σ`) | 🚨 `[CRI: 100]` | `██████████` |
 
 ---
-#### 🔍 Top Outlier Spotlight: `host-alpha` — 🚨 **[CRITICAL OUTLIER]** (`+17.14σ`)
+#### 🔍 Top Outlier Spotlight: `host-alpha` — 🚨 **[CRITICAL OUTLIER]** (`+17.14σ`) | 🚨 `[CRI: 100]`
 * **Data Confidence Level**: 🟢 **HIGH CONFIDENCE** — Strong sample density ($N \ge 30$).
 ##### 🗣️ What Happened & Why It Matters (In Plain English)
-[Plain-English executive explanation]
+[Plain-English executive explanation including CRI operational tier]
 ##### 🏛️ Forensic Evidence Breakdown (6 Mandatory Evidence Pillars)
 | Evidence Pillar | Observed Value | What this Means for Your Investigation |
 | :--- | :--- | :--- |
@@ -110,6 +110,8 @@ principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 
 ##### 📐 Mathematical Model & Formulaic Derivations
 * **Model**: $Z = \frac{x - \mu}{\sigma} = \frac{850 - 250.0}{35.0} = +17.14\sigma$
+##### 🎚️ Calibrated Risk Index (CRI) Sigmoid Normalization
+$$\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right) = \mathbf{100}$$
 ##### 🌐 Multiple-Comparison Fleet Correction ($Z_{\text{adj}} \approx \sqrt{2 \ln N}$)
 ##### 🛡️ Statistical Validity & Safeguard Verification
 </details>
@@ -139,9 +141,34 @@ python3 scripts/multistage_query_builder.py \
 
 ---
 
+## 🛡️ Non-Negotiable Execution & Integrity Contracts
+
+### 1. Native Execution & Truth in Reporting
+* **Zero Generative Simulation & Strict Data Grounding Contract**: Numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be extracted from `secops-gus:udm_search`. If `{}` or empty, report `0 observed events`, `Z = 0.00σ`, `🟢 Nominal Baseline`. Fabricating numbers is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
+* **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error to the analyst. Writing local scratch Python scripts to simulate baselines or query results is **STRICTLY PROHIBITED**.
+* **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Statistical anomaly detection MUST run natively inside Google SecOps Chronicle SIEM via `secops-gus:udm_search`. Simulating baselines locally in Python is a **CRITICAL COMPLIANCE VIOLATION**.
+* **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 of the triage report MUST contain the exact literal multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`.
+* **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: If `udm_search` returns `"events"` without `"stats"`, or unaggregated raw logs, abort 5-Section triage formatting immediately. Disguising raw log dumps as baselines is **STRICTLY PROHIBITED**. Present the auto-corrected query (via `MultiStageTemplateRouter`) or trigger consultative pivot and ask for clearance to re-run.
+* **Strict Nomenclature Mandate (Query vs. Rule)**: Ad-hoc hunt logic is a Query (`stage ... { ... }` + Root stage), never a Rule. Outputting streaming detection rule syntax (`rule ... { ... }`) or calling a search query a 'Rule' is a **CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION**.
+
+### 2. Calibrated Risk Index (CRI [0–100]) Standard
+* **CRI Normalization**: The Calibrated Risk Index maps raw statistical deviations ($Z$-scores, $\text{MAD } Z$, Poisson deviance, $\text{CV}$) onto a standardized [0–100] S-Curve:
+  $$\text{CRI}(Z) = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$$
+* **Anchoring Invariant**: Strictly anchors the 3-Sigma alertable boundary ($Z = 3.0\sigma$) at exactly $\text{CRI} = 50$.
+* **Zero In-Query CRI Calculation**: CRI is calculated exclusively in post-processing presentation scripts (`scripts/multistage_query_builder.py`), NEVER inside YARA-L database queries.
+
+### 3. Clean Hand-Off (CH) Protocol (Synthetic UDM Event Ingestion vs. Active Case Wall)
+* **Path A (Mandatory Default — Synthetic Event Ingestion)**: When an analyst requests escalation (*"Escalate to SecOps"*, *"Log in Chronicle"*), generate a synthetic UDM event (`product_name: "SecOps Statistical Hunter"`) encapsulating the 6 Evidence Pillars and ingest via `import_logs` for catch-all rule case promotion.
+* **Path B (Carved-Out Active Case Exception)**: ONLY when the analyst is actively reviewing a specific case and explicitly instructs the agent to attach findings to that case (e.g. *"Attach to Case 11075"*), call `create_case_comment(case_id="...", comment=...)`.
+* **Anti-Case-Comment Pollution Prohibition**: Calling `create_case_comment` or `list_cases` to attach hunt summaries to arbitrary open cases without an explicit `case_id` is **STRICTLY PROHIBITED**.
+
+---
+
 ## 📚 Specialized Deep-Dive Reference Guides
 
 * **Mathematical Models & Formulations**: See [references/statistical-models-taxonomy.md](references/statistical-models-taxonomy.md)
+* **Calibrated Risk Index (CRI) Guide**: See [references/calibrated-risk-index-guide.md](references/calibrated-risk-index-guide.md)
+* **Clean Hand-Off & Synthetic Ingestion**: See [references/clean-handoff-udm-schema.md](references/clean-handoff-udm-schema.md)
 * **Multi-Stage Query Grammar & Compiler Invariants**: See [references/multi-stage-query-guide.md](references/multi-stage-query-guide.md)
 * **Dynamic Time-Window Adaptation Matrix**: See [references/dynamic-windowing-matrix.md](references/dynamic-windowing-matrix.md)
 * **Chart Specs (Vega-Lite & Chart.js)**: See [references/chart-specifications-guide.md](references/chart-specifications-guide.md)

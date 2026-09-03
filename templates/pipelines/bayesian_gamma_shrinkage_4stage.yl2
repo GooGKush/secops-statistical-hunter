@@ -1,0 +1,87 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Hunt for high-confidence host activity surges using Poisson-Gamma Bayesian Credibility Shrinkage
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Poisson-Gamma Bayesian Conjugate Updating & Credibility Weighting
+// Operational Analogy: "The Seasoned SOC Detective"
+// Mathematical Rationale:
+//   Traditional Z-scores can produce false alarms on noisy, erratic endpoints.
+//   Bayesian shrinkage uses the Method of Moments to estimate Gamma prior hyperparameters
+//   (alpha_0, beta_0) from the host historical baseline, weighting prior stability against
+//   current-day evidence. Small bursts on rock-solid predictable hosts trigger true anomaly shifts,
+//   while erratic hosts require massive evidence.
+// Sensitivity Boundary: {{tier}} (Bayesian Belief Shift Ratio >= 3.0, Min Events >= 20, Active Units >= 24)
+// ============================================================================
+
+// Stage 1: Extraction & Binning (Hourly activity volume per host)
+stage host_hourly_activity {
+  $e.metadata.event_type = "{{event_type}}"
+  $host = $e.{{entity_field}}
+  $host != ""
+
+  match:
+    $host by {{bucket_size}}
+
+  outcome:
+    $hourly_count = count($e.metadata.id)
+    $distinct_procs = count_distinct($e.target.process.file.full_path)
+}
+
+// Stage 2: Historical Parameter Estimation (Method of Moments Gamma Prior)
+stage host_prior_stats {
+  $host = $host_hourly_activity.host
+
+  match:
+    $host
+
+  outcome:
+    $hist_mean = avg($host_hourly_activity.hourly_count)
+    $hist_stddev = stddev($host_hourly_activity.hourly_count)
+    $active_hours = count($host_hourly_activity.window_start)
+    $beta_prior = avg($host_hourly_activity.hourly_count) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 0.001)
+    $alpha_prior = (avg($host_hourly_activity.hourly_count) * avg($host_hourly_activity.hourly_count)) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 0.001)
+}
+
+// Stage 3: Organizational Peer Prevalence Baseline
+stage fleet_context {
+  $host = $host_hourly_activity.host
+
+  match:
+    $host
+
+  outcome:
+    $fleet_hosts = count_distinct($host_hourly_activity.host)
+}
+
+// Root Stage: Bayesian Conjugate Updating & Credibility Scoring
+$host = $host_hourly_activity.host
+$host = $host_prior_stats.host
+$host = $fleet_context.host
+$ws = $host_hourly_activity.window_start
+
+match:
+  $host, $ws by {{bucket_size}}
+
+outcome:
+  // 6 Standardized Evidence Pillars
+  $observation_count = max($host_hourly_activity.hourly_count)
+  $baseline_active_samples = max($host_prior_stats.active_hours)
+  $baseline_mean = max($host_prior_stats.hist_mean)
+  $baseline_dispersion = max($host_prior_stats.hist_stddev)
+  $fleet_prevalence = max($fleet_context.fleet_hosts)
+  $distinct_binaries = max($host_hourly_activity.distinct_procs)
+
+  // Bayesian Posterior Metrics
+  $posterior_arrival_rate = (max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)
+  $prior_weight_pct = max($host_prior_stats.beta_prior) / (max($host_prior_stats.beta_prior) + 1.0)
+  $evidence_weight_pct = 1.0 / (max($host_prior_stats.beta_prior) + 1.0)
+  $anomaly_score = ((max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)) / (max($host_prior_stats.hist_mean) + 0.001)
+
+condition:
+  $baseline_active_samples >= 24
+  and $observation_count >= 20
+  and $baseline_dispersion >= 3.0
+  and $anomaly_score >= 3.0
+
+order:
+  $anomaly_score desc

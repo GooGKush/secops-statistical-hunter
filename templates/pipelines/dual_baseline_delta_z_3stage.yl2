@@ -1,0 +1,88 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Hunt for targeted host volume surges isolated from company-wide shifts (Delta-Z)
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: 3-Stage Dual-Baseline Population Normalization (Delta-Z = Z_Personal - Z_Fleet)
+// Operational Analogy: "The Patch Tuesday Immunity Shield"
+// Mathematical Rationale:
+//   If a corporate-wide software deployment (e.g. Patch Tuesday or agent rollout) occurs,
+//   all endpoints experience massive concurrent surges. Standard Z-scores flag the entire fleet.
+//   Dual-Baseline Delta-Z subtracts the concurrent fleet shift from the personal surge:
+//   when the entire fleet spikes, Delta-Z remains near zero; when a single host spikes while
+//   the fleet remains calm, Delta-Z explodes, isolating targeted attacks with zero false alarms.
+// Sensitivity Boundary: {{tier}} (Delta-Z >= {{fleet_z}}σ, Min Events >= {{min_host_count}}, Min Fleet Hosts >= {{min_active_hosts}})
+// ============================================================================
+
+// Stage 1: Individual Host Activity Volume in tumbling hourly windows
+stage host_hourly_extract {
+  $e.metadata.event_type = "{{event_type}}"
+  $host = $e.{{entity_field}}
+  $host != ""
+
+  match:
+    $host by {{bucket_size}}
+
+  outcome:
+    $hourly_count = count($e.metadata.id)
+    $distinct_procs = count_distinct($e.target.process.file.full_path)
+}
+
+// Stage 2: Individual Host Personal Historical Baseline (Temporal Baseline)
+stage host_personal_baseline {
+  $host = $host_hourly_extract.host
+
+  match:
+    $host
+
+  outcome:
+    $personal_avg = avg($host_hourly_extract.hourly_count)
+    $personal_stddev = stddev($host_hourly_extract.hourly_count)
+    $active_hours = count($host_hourly_extract.window_start)
+}
+
+// Stage 3: Concurrent Fleet-Wide Macro Baseline across all active endpoints in the same hour
+stage fleet_concurrent_baseline {
+  $host = $host_hourly_extract.host
+  $ws = $host_hourly_extract.window_start
+
+  match:
+    $ws by {{bucket_size}}
+
+  outcome:
+    $fleet_hour_avg = avg($host_hourly_extract.hourly_count)
+    $fleet_hour_stddev = stddev($host_hourly_extract.hourly_count)
+    $active_fleet_hosts = count_distinct($host_hourly_extract.host)
+}
+
+// Root Stage: Dual-Baseline Delta-Z Evaluation
+$host = $host_hourly_extract.host
+$host = $host_personal_baseline.host
+$ws = $host_hourly_extract.window_start
+$ws = $fleet_concurrent_baseline.ws
+
+match:
+  $host, $ws by {{bucket_size}}
+
+outcome:
+  // 6 Standardized Evidence Pillars
+  $observation_count = max($host_hourly_extract.hourly_count)
+  $baseline_active_samples = max($host_personal_baseline.active_hours)
+  $baseline_mean = max($host_personal_baseline.personal_avg)
+  $baseline_dispersion = max($host_personal_baseline.personal_stddev)
+  $fleet_prevalence = max($fleet_concurrent_baseline.active_fleet_hosts)
+  $distinct_binaries = max($host_hourly_extract.distinct_procs)
+
+  // Dual-Baseline Metrics
+  $personal_z_score = (max($host_hourly_extract.hourly_count) - max($host_personal_baseline.personal_avg)) / (max($host_personal_baseline.personal_stddev) + 0.001)
+  $fleet_concurrent_z = (max($host_hourly_extract.hourly_count) - max($fleet_concurrent_baseline.fleet_hour_avg)) / (max($fleet_concurrent_baseline.fleet_hour_stddev) + 0.001)
+  $targeted_delta_z = ((max($host_hourly_extract.hourly_count) - max($host_personal_baseline.personal_avg)) / (max($host_personal_baseline.personal_stddev) + 0.001)) - ((max($host_hourly_extract.hourly_count) - max($fleet_concurrent_baseline.fleet_hour_avg)) / (max($fleet_concurrent_baseline.fleet_hour_stddev) + 0.001))
+
+condition:
+  $fleet_prevalence >= {{min_active_hosts}}
+  and $baseline_active_samples >= 24
+  and $observation_count >= {{min_host_count}}
+  and $baseline_dispersion >= {{min_fleet_sd}}
+  and $targeted_delta_z >= {{fleet_z}}
+
+order:
+  $targeted_delta_z desc
