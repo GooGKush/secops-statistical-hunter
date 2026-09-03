@@ -14,7 +14,9 @@ description: |
   "Tukey fence anomaly", "impossible travel velocity", "rolling volume ratio", "pre-flight boundary probe",
   "poisson burst clustering", "fano factor password spray", "rare admin tool surge",
   "bayesian gamma prior updating", "beta-binomial failure rate shrinkage", "dual-baseline delta-z",
-  "patch tuesday immunity", "multi-sector threat fusion", "4-stage killchain hunter".
+  "patch tuesday immunity", "multi-sector threat fusion", "4-stage killchain hunter",
+  "service account out of normal behavioral scope", "unexpected host origin or abnormal access patterns",
+  "unusual data repository access", "service account origin rarity", "source code repository anomaly".
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
 ---
 
@@ -30,6 +32,7 @@ This skill empowers an LLM agent and SOC analyst to execute **ad-hoc multi-stage
 > 2. Team, cohort, or peer-group comparisons from Risk Analytics
 > 3. 360° entity health checks or omnibus risk scoring (`graph.risk_score`)
 > 4. UEBA or Risk Analytics pre-computed metrics (`metrics.*`)
+> 5. Cloud-native data repository baselines (GCS, BigQuery, S3) with pre-computed origin IP baselines (`metrics.resource_read_*`, `principal.ip`).
 > 👉 **Route ALL baseline, peer, and UEBA requests to `secops-risk-metrics-multistage`.**
 
 ---
@@ -47,6 +50,8 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 | *"Hunt for password spray / error ratios without false alarms from single-trial mistakes (1 fail / 1 try)."* | **`BETA_BINOMIAL_REGULARIZATION`** ($P_{\text{fail}} \ge 0.70$) | **Small-Sample Ratio Regularizer**: Beta-Binomial conjugate updating regularizes single-trial mistakes toward population error baselines. |
 | *"Isolate targeted endpoint spikes from company-wide software deployments or Patch Tuesday."* | **`DUAL_BASELINE_DELTA_Z`** ($\Delta Z \ge 3.0\sigma$) | **The Patch Tuesday Immunity Shield**: Subtracts concurrent fleet shift from personal surge ($\Delta Z = Z_p - Z_f$), ignoring company-wide updates. |
 | *"Detect coordinated low-and-slow kill chains across Auth, Endpoint, and Network silos."* | **`MULTI_SECTOR_FUSION`** ($D = \sqrt{\sum Z_i^2} \ge 3.0\sigma$) | **The Combined Arms Radar**: Computes orthogonal Euclidean distance across domains, catching multi-vector attacks where point detectors miss. |
+| *"Find service accounts accessing source code or data repositories (GitHub, GitLab, internal shares) from unexpected host origins or out of normal scope."* | **`POISSON_ORIGIN_RARITY`** (Poisson $Z > 3.5$) | **The Train on a New Track**: Service accounts operate like trains on fixed rails (fixed CI runners, deterministic IPs). Accessing a repository from an unseen host has a near-zero historical arrival rate ($\lambda \to 0$), triggering an acute statistical rarity alert over raw `USER_RESOURCE_ACCESS`. |
+
 
 ---
 

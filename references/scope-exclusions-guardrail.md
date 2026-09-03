@@ -49,6 +49,9 @@ Both skills execute ad-hoc Multi-Stage YARA-L DAG queries (`stage ... { }` + unw
    * **Exclusive to `secops-statistical-hunter`**: Pre-computed UEBA tables aggregate daily event sums and cannot compute packet/connection inter-arrival intervals ($\Delta t_i = t_i - t_{i-1}$). Timing jitter and robotic beaconing MUST be evaluated over raw UDM telemetry.
 4. **30-Day Baselines, Peer Cohorts & 360° Health Checks**:
    * **Exclusive to `secops-risk-metrics-multistage`**: Requires pre-computed behavioral baselines. Route all requests targeting `metrics.*` or 30-day UEBA envelopes to `secops-risk-metrics-multistage`.
+5. **Service Account Repository Access & Origin Scope Anomalies**:
+   * **In `secops-risk-metrics-multistage`**: When monitoring cloud data stores (GCS buckets, BigQuery datasets, AWS S3 buckets) backed by `GCP_CLOUDAUDIT`, `AWS_CLOUDTRAIL`, or `AZURE_ACTIVITY`. Uses 30-day pre-computed baselines (`metrics.resource_read_*`, `metrics.resource_written_*`) filtering directly by `principal.user.userid` and caller IP `principal.ip`.
+   * **In `secops-statistical-hunter` (This Skill)**: When monitoring source code repositories (GitHub, GitLab, Bitbucket) or custom file servers whose telemetry logs as `metadata.event_type = "USER_RESOURCE_ACCESS"`. Evaluates empirical origin rarity ($k \ge 1$ from unobserved origin $\lambda \to 0$) or volume MAD over raw UDM telemetry.
 
 ---
 

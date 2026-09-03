@@ -215,6 +215,22 @@ class TestCompilerGrammar(unittest.TestCase):
     self.assertEqual(fatal_errors, [], f"Expected zero errors for valid outcome arithmetic: {fatal_errors}")
 
 
+  def test_service_account_repository_origin_intent_and_triggers(self):
+    """SKILL.md and scope exclusions must document service account origin rarity and operational triggers."""
+    skill_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    skill_path = os.path.join(skill_dir, "SKILL.md")
+    scope_path = os.path.join(skill_dir, "references", "scope-exclusions-guardrail.md")
+    with open(skill_path, "r", encoding="utf-8") as f:
+      s_content = f.read()
+    with open(scope_path, "r", encoding="utf-8") as f:
+      sc_content = f.read()
+
+    self.assertIn("service account out of normal behavioral scope", s_content)
+    self.assertIn("POISSON_ORIGIN_RARITY", s_content)
+    self.assertIn("The Train on a New Track", s_content)
+    self.assertIn("Service Account Repository Access & Origin Scope Anomalies", sc_content)
+
+
 if __name__ == "__main__":
   unittest.main()
 
