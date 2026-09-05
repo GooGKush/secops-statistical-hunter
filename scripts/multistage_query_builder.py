@@ -1647,6 +1647,10 @@ class MultiStageTemplateRouter:
       "FUSION": "multi_sector_threat_fusion_4stage.yl2",
       "THREAT_FUSION": "multi_sector_threat_fusion_4stage.yl2",
       "MULTI_SECTOR": "multi_sector_threat_fusion_4stage.yl2",
+      "RAW_TELEMETRY_ENRICHMENT": "mad_exfiltration_2stage.yl2",
+      "TELEMETRY_ENRICHMENT": "mad_exfiltration_2stage.yl2",
+      "DUAL_PLANE_CORRELATION": "mad_exfiltration_2stage.yl2",
+      "DUAL_PLANE_HYBRID": "mad_exfiltration_2stage.yl2",
   }
 
   def __init__(self, template_dir: Optional[Path] = None):
@@ -1782,6 +1786,10 @@ class HandoffEndpoint:
       "PROCESS_SURGE": "ZSCORE_PROCESS_SURGE",
       "DATA_EXFILTRATION_SPIKE": "DATA_EXFILTRATION_SPIKE",
       "DUAL_BASELINE_DELTA_Z": "DUAL_BASELINE_DELTA_Z",
+      "RAW_TELEMETRY_ENRICHMENT": "DATA_EXFILTRATION_SPIKE",
+      "TELEMETRY_ENRICHMENT": "DATA_EXFILTRATION_SPIKE",
+      "DUAL_PLANE_CORRELATION": "DATA_EXFILTRATION_SPIKE",
+      "DUAL_PLANE_HYBRID": "DATA_EXFILTRATION_SPIKE",
   }
 
   @classmethod

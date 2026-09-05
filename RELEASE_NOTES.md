@@ -1,5 +1,21 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.3.3 (September 5, 2026) — Dual-Plane Hybrid Enrichment Routing & Section 7 Framework Sync
+
+* **Dual-Plane & Telemetry Enrichment Intent Routing**:
+  * Added routing support in `HandoffEndpoint.INTENT_ROUTING_MAP` and `MultiStageTemplateRouter.ARCHETYPE_TEMPLATE_MAP` for:
+    * `RAW_TELEMETRY_ENRICHMENT` ──► `DATA_EXFILTRATION_SPIKE` (`mad_exfiltration_2stage.yl2`)
+    * `TELEMETRY_ENRICHMENT` ──► `DATA_EXFILTRATION_SPIKE` (`mad_exfiltration_2stage.yl2`)
+    * `DUAL_PLANE_CORRELATION` ──► `DATA_EXFILTRATION_SPIKE` (`mad_exfiltration_2stage.yl2`)
+    * `DUAL_PLANE_HYBRID` ──► `DATA_EXFILTRATION_SPIKE` (`mad_exfiltration_2stage.yl2`)
+  * Enables seamless two-phase federated handoff from `secops-risk-metrics-multistage` (Phase 1 macro baseline sieve ──► Phase 2 micro telemetry enrichment on candidate entities).
+* **Bilateral Framework Synchronization**:
+  * Synchronized Section 7 (*Dual-Plane Macro Baseline + Micro Telemetry Enrichment*) into `references/statistical-hunting-cooperative-framework.md`, documenting Pattern A (Intra-Query Golden Template) and Pattern B (Two-Phase Federated Funnel).
+* **Automated Test Suite Expansion**:
+  * Added unit tests in `tests/test_handoff_endpoint.py` verifying `RAW_TELEMETRY_ENRICHMENT` and `DUAL_PLANE_CORRELATION` handoff ingestion, returning `HANDOFF_ACK_ACCEPTED` and `STEP_OUT_CONFIRMED` (66/66 tests passing).
+
+---
+
 ## 📦 Version 2.3.2 (September 5, 2026) — Federated Ingestion Endpoint, Intent Routing & Handoff Protocol
 
 * **Federated Threat Hunt Ingestion Endpoint (`--ingest_handoff`)**:

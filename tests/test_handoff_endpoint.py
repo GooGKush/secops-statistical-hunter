@@ -76,6 +76,61 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertEqual(res["status"], "HANDOFF_ACK_REJECTED")
     self.assertTrue(any("Unknown archetype" in err for err in res["errors"]))
 
+  def test_ingest_valid_handoff_raw_telemetry_enrichment(self):
+    """RAW_TELEMETRY_ENRICHMENT intent must route to DATA_EXFILTRATION_SPIKE with STEP_OUT_CONFIRMED."""
+    payload = {
+        "protocol": "secops-threat-hunt-handoff-v1",
+        "request_id": "req-enrich-unit-01",
+        "source_skill": "secops-risk-metrics-multistage",
+        "target_skill": "secops-statistical-hunter",
+        "intent": "RAW_TELEMETRY_ENRICHMENT",
+        "target_entity": {
+            "type": "HOSTNAME",
+            "value": "site-rev-proxy.lan"
+        },
+        "search_window": {
+            "lookback": "24h"
+        },
+        "statistical_model": {
+            "name": "RAW_TELEMETRY_ENRICHMENT",
+            "sensitivity": "BALANCED",
+            "parameters": {}
+        },
+        "justification": "Candidate host isolated by 30d macro baseline requires micro telemetry payload/UA analysis."
+    }
+    res = HandoffEndpoint.ingest(payload)
+    self.assertEqual(res["status"], "HANDOFF_ACK_ACCEPTED")
+    self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
+    self.assertEqual(res["model_routed"], "DATA_EXFILTRATION_SPIKE")
+    self.assertIn("stage", res["compiled_query"])
+
+  def test_ingest_valid_handoff_dual_plane_correlation(self):
+    """DUAL_PLANE_CORRELATION intent must route to DATA_EXFILTRATION_SPIKE with STEP_OUT_CONFIRMED."""
+    payload = {
+        "protocol": "secops-threat-hunt-handoff-v1",
+        "request_id": "req-dualplane-unit-01",
+        "source_skill": "secops-risk-metrics-multistage",
+        "target_skill": "secops-statistical-hunter",
+        "intent": "DUAL_PLANE_CORRELATION",
+        "target_entity": {
+            "type": "HOSTNAME",
+            "value": "srv-prod-01"
+        },
+        "search_window": {
+            "lookback": "24h"
+        },
+        "statistical_model": {
+            "name": "DUAL_PLANE_CORRELATION",
+            "sensitivity": "HIGH",
+            "parameters": {}
+        },
+        "justification": "Correlate macro byte surge with raw HTTP user-agent entropy."
+    }
+    res = HandoffEndpoint.ingest(payload)
+    self.assertEqual(res["status"], "HANDOFF_ACK_ACCEPTED")
+    self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
+    self.assertEqual(res["model_routed"], "DATA_EXFILTRATION_SPIKE")
+
 
 if __name__ == "__main__":
   unittest.main()
