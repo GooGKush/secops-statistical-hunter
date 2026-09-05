@@ -28,7 +28,7 @@ stage host_intervals {
     $first_seen = min($ts)
     $last_seen = max($ts)
     $conn_count = count(metadata.id)
-    $avg_gap = if(count(metadata.id) > 1, (max($ts) - min($ts)) / (count(metadata.id) - 1.0), 0.0)
+    $avg_gap = (max($ts) - min($ts)) / (count(metadata.id) - 0.999)
 }
 
 // Stage 2: Aggregate historical timing stats across the window

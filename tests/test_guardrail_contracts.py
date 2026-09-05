@@ -86,6 +86,19 @@ class TestGuardrailContracts(unittest.TestCase):
         "SKILL.md must define Path B active case comment exception."
     )
 
+  def test_zero_code_handoff_invariant_present(self):
+    """SKILL.md must enforce the Zero-Code Handoff Invariant prohibiting code emission during skill steering."""
+    self.assertIn(
+        "Zero-Code Handoff Invariant",
+        self.skill_content,
+        "SKILL.md must define the Zero-Code Handoff Invariant."
+    )
+    self.assertIn(
+        "Tool-Precondition Code Block Embargo",
+        self.skill_content,
+        "SKILL.md must link zero-code handoffs to the Tool-Precondition Code Block Embargo."
+    )
+
   def test_strict_nomenclature_mandate_present(self):
     """SKILL.md must enforce Query vs. Rule nomenclature mandate."""
     self.assertIn(
@@ -161,6 +174,37 @@ class TestGuardrailContracts(unittest.TestCase):
       syntax_errors = validate_multistage_syntax(rendered_query)
       fatal_errors = [e for e in syntax_errors if not e.startswith("MISSING METHODOLOGY HEADER")]
       self.assertEqual(fatal_errors, [], f"Syntax errors in {filename}: {fatal_errors}")
+
+  def test_dual_grounding_commandments_contract(self):
+    """SKILL.md must strictly define the Dual Grounding Commandments."""
+    self.assertIn("THE DUAL GROUNDING INVARIANTS (THE NON-NEGOTIABLE INTEGRITY CORE)", self.skill_content)
+    self.assertIn("Invariant 1: Zero Data Simulation (NEVER Fabricate Data)", self.skill_content)
+    self.assertIn("Invariant 2: Zero Schema/Syntax Fantasy (NEVER Hallucinate UDM Fields or YARA-L Grammar)", self.skill_content)
+    self.assertIn("Truth Over Completion", self.skill_content)
+
+  def test_three_state_active_hunt_lifecycle_contract(self):
+    """SKILL.md must define the closed 3-state active hunt lifecycle."""
+    self.assertIn("THE 3-STATE ACTIVE HUNT LIFECYCLE", self.skill_content)
+    self.assertIn("State 1: Pre-Flight Clearance & Specification", self.skill_content)
+    self.assertIn("State 2: Deterministic Multi-Stage Execution & 5-Section Triage Report", self.skill_content)
+    self.assertIn("State 3: Iteration, Entity Shifts & Federated Bridge", self.skill_content)
+
+  def test_active_hunt_session_lock_contract(self):
+    """SKILL.md must define the Active Hunt Session Lock preventing cross-skill drift."""
+    self.assertIn("Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT)", self.skill_content)
+    self.assertIn("RETAIN SESSION AFFINITY", self.skill_content)
+    self.assertIn("re-enter State 1 for the new entity", self.skill_content)
+
+  def test_cooperative_framework_contract(self):
+    """SKILL.md must reference the bilateral cooperative framework and the file must exist."""
+    self.assertIn("statistical-hunting-cooperative-framework.md", self.skill_content)
+    framework_path = os.path.join(self.repo_dir, "references", "statistical-hunting-cooperative-framework.md")
+    self.assertTrue(os.path.exists(framework_path), "Cooperative framework file must exist in references/")
+
+  def test_pillar5_debaiting_contract(self):
+    """SKILL.md and output schemas must de-bait Pillar 5 / Section 4 to prevent automated tool execution."""
+    self.assertIn("#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)", self.skill_content)
+    self.assertNotIn("Immediate Drill-Down Investigation Query", self.skill_content)
 
 
 if __name__ == "__main__":

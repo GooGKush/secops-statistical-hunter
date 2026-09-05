@@ -230,6 +230,35 @@ class TestCompilerGrammar(unittest.TestCase):
     self.assertIn("The Train on a New Track", s_content)
     self.assertIn("Service Account Repository Access & Origin Scope Anomalies", sc_content)
 
+  def test_reject_bare_scalar_if_in_stage_outcome(self):
+    """AST validator must reject bare scalar if() conditionals in intermediate stage outcomes."""
+    bad_query = """
+    stage s1 {
+      metadata.event_type = "NETWORK_CONNECTION"
+      principal.asset.ip = $src_ip
+      match: $src_ip by 1h
+      outcome:
+        $avg_gap = if(count(metadata.id) > 1, 10.0, 0.0)
+    }
+    $src_ip = $s1.src_ip
+    match: $src_ip
+    outcome:
+      $val = max($s1.avg_gap)
+    condition:
+      $val > 0
+    """
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("Bare scalar if() in intermediate stage outcome" in e for e in errors),
+                    f"Expected bare scalar if rejection, got: {errors}")
+
+  def test_c2_beaconing_jitter_template_passes_cleanly(self):
+    """The rendered C2 beaconing jitter pipeline must pass syntax validation with zero fatal errors."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    query = router.build_query("C2_BEACONING_JITTER")
+    errors = validate_multistage_syntax(query)
+    self.assertEqual(errors, [], f"Rendered C2 beaconing jitter pipeline had errors: {errors}")
+
 
 if __name__ == "__main__":
   unittest.main()

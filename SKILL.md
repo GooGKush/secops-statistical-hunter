@@ -34,7 +34,7 @@ This skill empowers an LLM agent and SOC analyst to execute **ad-hoc multi-stage
 > 3. 360° entity health checks or omnibus risk scoring (`graph.risk_score`)
 > 4. UEBA or Risk Analytics pre-computed metrics (`metrics.*`)
 > 5. Cloud-native data repository baselines (GCS, BigQuery, S3) with pre-computed origin IP baselines (`metrics.resource_read_*`, `principal.ip`).
-> 👉 **Route ALL baseline, peer, and UEBA requests to `secops-risk-metrics-multistage`.**
+> 👉 **Route ALL baseline, peer, and UEBA requests to `secops-risk-metrics-multistage` (enforcing Zero-Code Handoff Invariant).**
 
 ---
 
@@ -55,17 +55,20 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 
 ---
 
-## 🚦 MANDATORY STEP 1: PRE-FLIGHT CLEARANCE & HARD TURN BOUNDARY
+## 🔄 THE 3-STATE ACTIVE HUNT LIFECYCLE
+
+### 🚦 State 1: Pre-Flight Clearance & Specification (Zero Execution on Turn 1) (MANDATORY STEP 1: PRE-FLIGHT CLEARANCE)
 
 Whenever the analyst initiates a threat hunt or selects an archetype, **THE AGENT MUST NEVER CALL SEARCH TOOLS ON THAT TURN**.
 1. **ZERO Tool Calls**: Execute 0 tool calls to `udm_search`.
 2. **Plain-English Operational Analogy**: Explain the detection mechanics in 1-2 down-to-earth sentences.
 3. **Structured Pre-Flight Hunting Specification Card**: Present hunting objective, telemetry scope, search horizon, model, and threshold.
-4. **Explicit Clearance Question & Turn Termination**: Ask for analyst approval to proceed, and **STOP calling tools**.
+4. **Mandatory Upfront Query Preview Protocol**: Execute 1-shot pre-preview compiler probe with ISO 8601 timestamps: `secops-gus:udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Display query in markdown ONLY if probe compiles cleanly (200 OK). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED.
+5. **Explicit Clearance Question & Turn Termination**: Ask for analyst approval to proceed, and **STOP calling tools immediately and yield the turn**.
 
 ---
 
-## 📋 MANDATORY OUTPUT CONTRACT: 5-SECTION TRIAGE REPORTING SCHEMA
+### 📊 State 2: Deterministic Multi-Stage Execution & 5-Section Triage Report (After Clearance)
 
 When formatting hunting results for ANY client (CLI, Chat UI, or Web UI), the agent **MUST ALWAYS OUTPUT ALL 5 SECTIONS** in exact order:
 
@@ -99,7 +102,8 @@ When formatting hunting results for ANY client (CLI, Chat UI, or Web UI), the ag
 [Potential Attack Scenarios | Legitimate Business Explanations | Step-by-Step SOC Action Plan]
 
 ---
-#### 🎯 Immediate Drill-Down Investigation Query
+#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)
+*(Passive UDM filter for manual copy-paste into Chronicle SIEM search bar. NOT for automated tool execution; multi-turn follow-ups must remain within the statistical hunting framework.)*
 ```yara
 principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 ```
@@ -116,6 +120,16 @@ $$\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\righ
 ##### 🛡️ Statistical Validity & Safeguard Verification
 </details>
 ```
+
+---
+
+
+
+### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock)
+
+* **Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT)**: When analyst asks to *"run same for user X"*, *"what about admin?"*, or shifts entities, RETAIN SESSION AFFINITY and re-enter State 1 for the new entity (operational analogy ──► compiler probe ──► spec card ──► clearance question). NEVER fall through to unconstrained search skills (`secops-siem-search`) or execute Pillar 5 string.
+* **Federated Bridge to Macro Analysis**: When analyst requests 30-day pre-computed baselines, peer cohort comparisons, longitudinal CUSUM drift, or 360° health checks, emit Skill Handoff Card steering to `secops-risk-metrics-multistage` (enforcing Zero-Code Handoff Invariant).
+* **Bilateral Cooperative Framework**: Consult `references/statistical-hunting-cooperative-framework.md` for macro vs. micro division of labor and mutual delegation protocols.
 
 ---
 
@@ -143,6 +157,11 @@ python3 scripts/multistage_query_builder.py \
 
 ## 🛡️ Non-Negotiable Execution & Integrity Contracts
 
+### 0. THE DUAL GROUNDING INVARIANTS (THE NON-NEGOTIABLE INTEGRITY CORE)
+* **Invariant 1: Zero Data Simulation (NEVER Fabricate Data)**: All numbers, baselines, event counts, and entity names MUST come from executed Chronicle SIEM API responses (`secops-gus:udm_search`). If `{}` or empty, report `0 observed events`, `Z = 0.00σ`, `🟢 Nominal Baseline`. Truth Over Completion — reporting 0 matches is a 100% successful hunt. Fabricating data is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
+* **Invariant 2: Zero Schema/Syntax Fantasy (NEVER Hallucinate UDM Fields or YARA-L Grammar)**: All queries MUST use valid UDM schemas and compilable YARA-L grammar (e.g. ISO 8601 timestamps, no bare scalar if in stage outcomes, valid outcome arithmetic). Inventing fake UDM fields or uncompilable syntax is **STRICTLY PROHIBITED**. Emitting ```yara without an immediate preceding successful compiler probe is strictly forbidden.
+
+
 ### 1. Native Execution & Truth in Reporting
 * **Zero Generative Simulation & Strict Data Grounding Contract**: Numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be extracted from `secops-gus:udm_search`. If `{}` or empty, report `0 observed events`, `Z = 0.00σ`, `🟢 Nominal Baseline`. Fabricating numbers is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
 * **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error to the analyst. Writing local scratch Python scripts to simulate baselines or query results is **STRICTLY PROHIBITED**.
@@ -161,6 +180,7 @@ python3 scripts/multistage_query_builder.py \
 * **Path A (Mandatory Default — Synthetic Event Ingestion)**: When an analyst requests escalation (*"Escalate to SecOps"*, *"Log in Chronicle"*), generate a synthetic UDM event (`product_name: "SecOps Statistical Hunter"`) encapsulating the 6 Evidence Pillars and ingest via `import_logs` for catch-all rule case promotion.
 * **Path B (Carved-Out Active Case Exception)**: ONLY when the analyst is actively reviewing a specific case and explicitly instructs the agent to attach findings to that case (e.g. *"Attach to Case 11075"*), call `create_case_comment(case_id="...", comment=...)`.
 * **Anti-Case-Comment Pollution Prohibition**: Calling `create_case_comment` or `list_cases` to attach hunt summaries to arbitrary open cases without an explicit `case_id` is **STRICTLY PROHIBITED**.
+* **Zero-Code Handoff Invariant (Cross-Skill Steering Protocol)**: Under NO circumstances may an agent emit candidate ````yara query blocks inside or alongside a Skill Handoff Card or when steering between skills (e.g. to `secops-risk-metrics-multistage`). Handoff cards are strictly conceptual/architectural; code emission belongs exclusively to the destination skill once invoked. Emitting unvalidated code during handoff violates the Tool-Precondition Code Block Embargo.
 
 ---
 
@@ -174,6 +194,7 @@ python3 scripts/multistage_query_builder.py \
 * **Chart Specs (Vega-Lite & Chart.js)**: See [references/chart-specifications-guide.md](references/chart-specifications-guide.md)
 * **Query Auditing & Intent Verification**: See [references/query-auditing-guide.md](references/query-auditing-guide.md)
 * **Cyber Glossary & SOC Playbooks**: See [references/cyber-practitioner-glossary.md](references/cyber-practitioner-glossary.md)
+* **Bilateral Cooperative Framework**: See [references/statistical-hunting-cooperative-framework.md](references/statistical-hunting-cooperative-framework.md)
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

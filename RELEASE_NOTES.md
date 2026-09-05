@@ -1,5 +1,27 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.3.1 (September 5, 2026) — Bilateral Cooperative Threat Hunting, Dual Grounding Invariants & Intermediate AST Grammar Hardening
+
+* **Bilateral Cooperative Threat Hunting Architecture**:
+  * Added `references/statistical-hunting-cooperative-framework.md` codifying the bilateral operating model between `secops-statistical-hunter` (Micro-Analysis: ad-hoc inline math, sub-second beaconing jitter, Poisson rarity, and Tukey fences on raw log streams) and `secops-risk-metrics-multistage` (Macro-Analysis: 30-day pre-computed behavioral baselines, peer group analytics, and CUSUM drift).
+  * Formalized the **Zero-Code Handoff Invariant**: consultative handoff cards to peer skills must remain conceptual and architectural without emitting uncompiled code blocks.
+* **The Dual Grounding Invariants (The Non-Negotiable Integrity Core)**:
+  * **Zero Data Simulation ("Truth Over Completion")**: Prohibits fabricating statistics, calculating baselines in local Python scripts, or generating mock results on empty/error API responses.
+  * **Zero Schema/Syntax Fantasy**: Prohibits hallucinating non-existent UDM fields or functions. All queries presented must be verified via a 10-minute compile probe prior to clearance.
+* **The Closed 3-State Active Hunt Lifecycle**:
+  * Structured workflows into a positive state machine: State 1 (Pre-Flight Clearance & Specification), State 2 (Deterministic Execution & 5-Section Triage Report), and State 3 (Iteration, Entity Shifts & Federated Bridge).
+* **Active Hunt Session Lock & Boundary (Zero Cross-Skill Drift)**:
+  * Enforced persistent session affinity across multi-turn follow-up queries, re-entering State 1 for new entities while strictly preventing fall-through to generic search skills or raw event dumps.
+* **Intermediate Stage AST Grammar Hardening**:
+  * Enhanced `multistage_query_builder.py` (`validate_multistage_syntax`) to reject bare scalar `if(...)` conditional branches inside intermediate stage outcome blocks.
+  * Updated `templates/pipelines/c2_beaconing_jitter_2stage.yl2` to regularize interval calculation with linear division floor (`(max($ts) - min($ts)) / (count(metadata.id) - 0.999)`).
+* **Lexical De-Baiting of Section 4**:
+  * Renamed Section 4 from *"Immediate Drill-Down Investigation Query"* to *"Chronicle UI Manual Pivot (Triage Reference Only)"* and designated it as passive reference text, eliminating model bait for unintended automated tool executions.
+* **Expanded Automated Test Suite**:
+  * Added tests in `tests/test_compiler_grammar.py` (`test_reject_bare_scalar_if_in_stage_outcome`, `test_c2_beaconing_jitter_template_passes_cleanly`) and `tests/test_guardrail_contracts.py` verifying all cooperative contracts.
+
+---
+
 ## 📦 Version 2.3.0 (September 3, 2026) — Risk Metrics Cross-Pollination, Common Compiler Conformance & Calibrated Risk Index (CRI)
 
 * **Common Compiler AST Invariants & Syntax Traps**:

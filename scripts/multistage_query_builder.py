@@ -538,14 +538,14 @@ def validate_multistage_syntax(query: str) -> List[str]:
   for sb in stage_blocks:
     om = re.search(r"outcome\s*:(.*?)(?=\n\s*(?:condition|order)|\Z)", sb, flags=re.DOTALL | re.MULTILINE)
     if om:
-      outcome_blocks.append(om.group(1))
+      outcome_blocks.append((True, om.group(1)))
 
   stripped_root = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
   root_om = re.search(r"outcome\s*:(.*?)(?=\n\s*(?:condition|order)|\Z)", stripped_root, flags=re.DOTALL | re.MULTILINE)
   if root_om:
-    outcome_blocks.append(root_om.group(1))
+    outcome_blocks.append((False, root_om.group(1)))
 
-  for b_idx, block in enumerate(outcome_blocks):
+  for b_idx, (is_stage, block) in enumerate(outcome_blocks):
     defined_vars = []
     lines = block.splitlines()
     outcome_assignments_count = 0
@@ -558,6 +558,7 @@ def validate_multistage_syntax(query: str) -> List[str]:
       outcome_assignments_count += 1
       lhs, rhs = line_clean.split("=", 1)
       var_name = lhs.strip().lstrip("$")
+      rhs_clean = rhs.strip()
       
       # Check for intra-stage dependency / race condition:
       # If rhs references any variable previously defined in THIS outcome block
@@ -570,6 +571,13 @@ def validate_multistage_syntax(query: str) -> List[str]:
           )
 
       defined_vars.append(var_name)
+
+      # Check for bare scalar if in intermediate stage outcome
+      if is_stage and re.match(r"^if\s*\(", rhs_clean):
+        errors.append(
+            f"MALACHITE AST ERROR: Bare scalar if() in intermediate stage outcome: '{line_clean}'. "
+            f"Intermediate stages reject scalar if(); use linear arithmetic (e.g. '/ ($denom + 0.001)') or compute conditions in the root stage."
+        )
 
       # Check for inline/bare if in arithmetic: e.g. / if(...) or * if(...)
       if re.search(r"[-+*/]\s*if\s*\(|if\s*\([^)]*\)\s*[-+*/]", rhs):
@@ -1067,7 +1075,8 @@ def format_triage_report(
   out.append("")
   out.append("---")
   out.append("")
-  out.append("#### 🎯 Immediate Drill-Down Investigation Query")
+  out.append("#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)")
+  out.append("*(Passive UDM filter for manual copy-paste into Chronicle SIEM search bar. NOT for automated tool execution; multi-turn follow-ups must remain within the statistical hunting framework.)*")
   out.append("")
   out.append("```yara")
   drilldown_str = f'principal.hostname = "{ent_name}" AND metadata.event_type = "{event_type}"'

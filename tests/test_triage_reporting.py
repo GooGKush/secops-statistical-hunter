@@ -84,8 +84,8 @@ class TestTriageReporting(unittest.TestCase):
     self.assertIn("🟢 Legitimate Business Explanations", report)
     self.assertIn("🎯 Step-by-Step SOC Action Plan (No Math Required)", report)
 
-    # Section 4: 1-Click Drill-Down Query
-    self.assertIn("#### 🎯 Immediate Drill-Down Investigation Query", report)
+    # Section 4: Chronicle UI Manual Pivot (Triage Reference Only)
+    self.assertIn("#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)", report)
     self.assertIn("principal.hostname = \"host-alpha-prod\"", report)
 
     # Section 5: Collapsible Technical Appendix
