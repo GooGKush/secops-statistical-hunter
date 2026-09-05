@@ -1651,6 +1651,17 @@ class MultiStageTemplateRouter:
       "TELEMETRY_ENRICHMENT": "mad_exfiltration_2stage.yl2",
       "DUAL_PLANE_CORRELATION": "mad_exfiltration_2stage.yl2",
       "DUAL_PLANE_HYBRID": "mad_exfiltration_2stage.yl2",
+      "DIVERSITY_DEFICIT": "mad_exfiltration_2stage.yl2",
+      "ENTROPY_PROXY": "mad_exfiltration_2stage.yl2",
+      "ELEPHANT_FLOW_CONCENTRATION": "mad_exfiltration_2stage.yl2",
+      "CONCENTRATION_INDEX": "mad_exfiltration_2stage.yl2",
+      "ORTHOGONAL_THREAT_SPACE": "dual_baseline_delta_z_3stage.yl2",
+      "EUCLIDEAN_THREAT_DISTANCE": "dual_baseline_delta_z_3stage.yl2",
+      "BAYESIAN_JOINT_ODDS": "dual_baseline_delta_z_3stage.yl2",
+      "TWO_PART_HURDLE": "poisson_rare_surge_2stage.yl2",
+      "DORMANT_ACCOUNT": "poisson_rare_surge_2stage.yl2",
+      "FLEET_PREVALENCE_NORMALIZATION": "poisson_rare_surge_2stage.yl2",
+      "PATCH_TUESDAY_SHIELD": "poisson_rare_surge_2stage.yl2",
   }
 
   def __init__(self, template_dir: Optional[Path] = None):
@@ -1790,6 +1801,17 @@ class HandoffEndpoint:
       "TELEMETRY_ENRICHMENT": "DATA_EXFILTRATION_SPIKE",
       "DUAL_PLANE_CORRELATION": "DATA_EXFILTRATION_SPIKE",
       "DUAL_PLANE_HYBRID": "DATA_EXFILTRATION_SPIKE",
+      "DIVERSITY_DEFICIT": "DATA_EXFILTRATION_SPIKE",
+      "ENTROPY_PROXY": "DATA_EXFILTRATION_SPIKE",
+      "ELEPHANT_FLOW_CONCENTRATION": "DATA_EXFILTRATION_SPIKE",
+      "CONCENTRATION_INDEX": "DATA_EXFILTRATION_SPIKE",
+      "ORTHOGONAL_THREAT_SPACE": "DUAL_BASELINE_DELTA_Z",
+      "EUCLIDEAN_THREAT_DISTANCE": "DUAL_BASELINE_DELTA_Z",
+      "BAYESIAN_JOINT_ODDS": "DUAL_BASELINE_DELTA_Z",
+      "TWO_PART_HURDLE": "POISSON_RARE_SURGE",
+      "DORMANT_ACCOUNT": "POISSON_RARE_SURGE",
+      "FLEET_PREVALENCE_NORMALIZATION": "FLEET_PEER_ZSCORE",
+      "PATCH_TUESDAY_SHIELD": "FLEET_PEER_ZSCORE",
   }
 
   @classmethod
