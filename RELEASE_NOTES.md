@@ -1,5 +1,27 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.3.2 (September 5, 2026) — Federated Ingestion Endpoint, Intent Routing & Handoff Protocol
+
+* **Federated Threat Hunt Ingestion Endpoint (`--ingest_handoff`)**:
+  * Implemented `HandoffEndpoint` in `scripts/multistage_query_builder.py` accepting JSON envelope payloads conforming to `secops-threat-hunt-handoff-v1`.
+  * Validates protocol, target skill, search window, and entity parameters.
+* **Dynamic Intent Routing Engine**:
+  * Added `INTENT_ROUTING_MAP` supporting intent-to-template compilation:
+    * `SCHEDULED_EXFILTRATION_TIMING` / `C2_BEACONING_JITTER` ──► `templates/pipelines/c2_beaconing_jitter_2stage.yl2`
+    * `POISSON_BURST_CLUSTERING` ──► `templates/pipelines/poisson_burst_clustering_2stage.yl2`
+    * `POISSON_RARE_SURGE` ──► `templates/pipelines/poisson_rare_surge_2stage.yl2`
+    * `DATA_EXFILTRATION_SPIKE` ──► `templates/pipelines/mad_exfiltration_2stage.yl2`
+    * `DUAL_BASELINE_DELTA_Z` ──► `templates/pipelines/dual_baseline_delta_z_3stage.yl2`
+    * `ZSCORE_PROCESS_SURGE` ──► `templates/pipelines/zscore_process_surge_2stage.yl2`
+* **Mutual ACK Contract & Step-Out Directive**:
+  * Returns standardized acknowledgment: `HANDOFF_ACK_ACCEPTED`, `STEP_OUT_CONFIRMED`, compiled YARA-L 2.0 query, and formal `step_out_directive`.
+* **Cooperative Framework Documentation**:
+  * Documented Section 6 (*The Federated Handoff Protocol*) in `references/statistical-hunting-cooperative-framework.md`.
+* **Automated Test Suite**:
+  * Added `tests/test_handoff_endpoint.py` covering valid ingestion, intent routing, schema rejection, and step-out directive contracts (64/64 tests passing).
+
+---
+
 ## 📦 Version 2.3.1 (September 5, 2026) — Bilateral Cooperative Threat Hunting, Dual Grounding Invariants & Intermediate AST Grammar Hardening
 
 * **Bilateral Cooperative Threat Hunting Architecture**:

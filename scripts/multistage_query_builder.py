@@ -1760,6 +1760,162 @@ class MultiStageTemplateRouter:
     return rendered
 
 
+class HandoffEndpoint:
+  """Ingestion endpoint for federated handoff payloads from peer skills (e.g. secops-risk-metrics-multistage)."""
+
+  SUPPORTED_PROTOCOL = "secops-threat-hunt-handoff-v1"
+
+  INTENT_ROUTING_MAP = {
+      "SCHEDULED_EXFILTRATION_TIMING": "C2_BEACONING_JITTER",
+      "SCHEDULED_EXFILTRATION": "C2_BEACONING_JITTER",
+      "EXFILTRATION_TIMING": "C2_BEACONING_JITTER",
+      "EXFIL_TIMING": "C2_BEACONING_JITTER",
+      "C2_BEACONING_JITTER": "C2_BEACONING_JITTER",
+      "BEACONING_JITTER": "C2_BEACONING_JITTER",
+      "TIMING_JITTER": "C2_BEACONING_JITTER",
+      "SUB_SECOND_JITTER": "C2_BEACONING_JITTER",
+      "POISSON_BURST_CLUSTERING": "POISSON_BURST_CLUSTERING",
+      "BURST_CLUSTERING": "POISSON_BURST_CLUSTERING",
+      "POISSON_RARE_SURGE": "POISSON_RARE_SURGE",
+      "RARE_SURGE": "POISSON_RARE_SURGE",
+      "ZSCORE_PROCESS_SURGE": "ZSCORE_PROCESS_SURGE",
+      "PROCESS_SURGE": "ZSCORE_PROCESS_SURGE",
+      "DATA_EXFILTRATION_SPIKE": "DATA_EXFILTRATION_SPIKE",
+      "DUAL_BASELINE_DELTA_Z": "DUAL_BASELINE_DELTA_Z",
+  }
+
+  @classmethod
+  def ingest(cls, payload_input: Any) -> Dict[str, Any]:
+    """Processes an incoming handoff payload and returns an ACK or NACK envelope."""
+    payload = payload_input
+    if isinstance(payload_input, str):
+      trimmed = payload_input.strip()
+      if os.path.exists(trimmed):
+        with open(trimmed, "r", encoding="utf-8") as f:
+          payload = json.load(f)
+      else:
+        if trimmed.startswith("```"):
+          trimmed = re.sub(r"^```(?:json[a-zA-Z0-9_-]*)?\n?", "", trimmed)
+          trimmed = re.sub(r"\n?```$", "", trimmed)
+        try:
+          payload = json.loads(trimmed)
+        except Exception as e:
+          return {
+              "status": "HANDOFF_ACK_REJECTED",
+              "action": "RETRY_REQUIRED",
+              "errors": [f"Failed to parse JSON payload: {e}"],
+          }
+
+    if not isinstance(payload, dict):
+      return {
+          "status": "HANDOFF_ACK_REJECTED",
+          "action": "RETRY_REQUIRED",
+          "errors": ["Payload must be a valid JSON dictionary."],
+      }
+
+    req_id = payload.get("request_id", "req-unknown")
+
+    protocol = payload.get("protocol") or payload.get("$schema")
+    if protocol and protocol != cls.SUPPORTED_PROTOCOL:
+      return {
+          "status": "HANDOFF_ACK_REJECTED",
+          "request_id": req_id,
+          "action": "RETRY_REQUIRED",
+          "errors": [f"Unsupported protocol: {protocol}. Supported: {cls.SUPPORTED_PROTOCOL}"],
+      }
+
+    target_skill = payload.get("target_skill", "")
+    if target_skill and target_skill != "secops-statistical-hunter":
+      return {
+          "status": "HANDOFF_ACK_REJECTED",
+          "request_id": req_id,
+          "action": "RETRY_REQUIRED",
+          "errors": [f"Target skill mismatch: expected 'secops-statistical-hunter', got '{target_skill}'"],
+      }
+
+    raw_intent = payload.get("intent", "")
+    model_info = payload.get("statistical_model", {})
+    if not raw_intent and isinstance(model_info, dict):
+      raw_intent = model_info.get("name", "")
+
+    intent_key = raw_intent.upper().replace("-", "_").strip()
+    mapped_archetype = cls.INTENT_ROUTING_MAP.get(intent_key, intent_key)
+
+    router = MultiStageTemplateRouter()
+    try:
+      _ = router.get_template_filename(mapped_archetype)
+    except ValueError as e:
+      return {
+          "status": "HANDOFF_ACK_REJECTED",
+          "request_id": req_id,
+          "action": "RETRY_REQUIRED",
+          "errors": [str(e)],
+      }
+
+    target_entity = payload.get("target_entity", {})
+    entity_val = target_entity.get("value", "") if isinstance(target_entity, dict) else str(target_entity)
+    entity_type = (target_entity.get("type", "host") if isinstance(target_entity, dict) else "host").lower()
+
+    search_window = payload.get("search_window", {})
+    lookback = search_window.get("lookback", "24h") if isinstance(search_window, dict) else str(search_window)
+
+    window_hours = 24.0
+    if "d" in lookback:
+      try:
+        window_hours = float(lookback.replace("d", "")) * 24.0
+      except ValueError:
+        window_hours = 24.0
+    elif "h" in lookback:
+      try:
+        window_hours = float(lookback.replace("h", ""))
+      except ValueError:
+        window_hours = 24.0
+
+    tier = "BALANCED"
+    if isinstance(model_info, dict):
+      tier = model_info.get("sensitivity", "BALANCED").upper()
+
+    try:
+      compiled_query = router.build_query(
+          archetype=mapped_archetype,
+          tier=tier,
+          entity_type=entity_type,
+          window_hours=window_hours,
+      )
+    except Exception as e:
+      return {
+          "status": "HANDOFF_ACK_REJECTED",
+          "request_id": req_id,
+          "action": "RETRY_REQUIRED",
+          "errors": [f"Failed compiling template for archetype '{mapped_archetype}': {e}"],
+      }
+
+    preflight_spec = {
+        "intent": raw_intent or mapped_archetype,
+        "model_routed": mapped_archetype,
+        "target_entity": {"type": entity_type.upper(), "value": entity_val},
+        "search_window": {"lookback": lookback, "hours": window_hours},
+        "sensitivity_tier": tier,
+        "formula": "CV = sigma / mu <= 0.20" if mapped_archetype == "C2_BEACONING_JITTER" else "Z = (Observed - mu) / sigma",
+    }
+
+    return {
+        "status": "HANDOFF_ACK_ACCEPTED",
+        "request_id": req_id,
+        "source_skill": payload.get("source_skill", "secops-risk-metrics-multistage"),
+        "target_skill": "secops-statistical-hunter",
+        "action": "STEP_OUT_CONFIRMED",
+        "model_routed": mapped_archetype,
+        "compiled_query": compiled_query,
+        "preflight_spec": preflight_spec,
+        "step_out_directive": (
+            "SOURCE_SKILL_STEP_OUT_CONFIRMED: Handoff payload accepted. "
+            "The calling skill must yield the turn immediately and step out. "
+            "secops-statistical-hunter now owns the execution lifecycle."
+        ),
+    }
+
+
 def main():
   parser = argparse.ArgumentParser(
       description="secops-statistical-hunter Query Validation & Boundary Utility"
@@ -1826,11 +1982,23 @@ def main():
       help="Entity type for query builder (host, user, ip)",
   )
   parser.add_argument(
+      "--ingest_handoff",
+      help="Path to JSON file or raw JSON string containing a secops-threat-hunt-handoff-v1 payload",
+  )
+  parser.add_argument(
       "--event_type",
       help="Override UDM event_type for query builder (e.g. PROCESS_LAUNCH, USER_LOGIN, NETWORK_CONNECTION)",
   )
 
   args = parser.parse_args()
+
+  if args.ingest_handoff:
+    ack_result = HandoffEndpoint.ingest(args.ingest_handoff)
+    print(json.dumps(ack_result, indent=2))
+    if ack_result.get("status") == "HANDOFF_ACK_ACCEPTED":
+      sys.exit(0)
+    else:
+      sys.exit(1)
 
   if args.build_query:
     if not args.archetype:
