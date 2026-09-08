@@ -78,6 +78,41 @@ class TestMathModels(unittest.TestCase):
     self.assertEqual(fano_burst, 10.0)
     self.assertGreater(fano_burst, 4.0, "Fano factor should flag burst clustering threshold")
 
+  def test_dynamic_threshold_condition_band(self):
+    """Router must inject sensitivity band ($score >= min and $score < max) into root condition."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    q = router.build_query("ZSCORE_PROCESS_SURGE", min_threshold=2.0, max_threshold=3.0)
+    self.assertIn("condition:", q)
+    self.assertIn("$z_score >= 2.0 and $z_score < 3.0", q)
+
+  def test_dynamic_condition_expression_override(self):
+    """Router must inject custom compound condition expression into root condition."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    custom_expr = "$z_score >= 3.5 and $observation_count >= 50"
+    q = router.build_query("ZSCORE_PROCESS_SURGE", condition_expression=custom_expr)
+    self.assertIn("condition:", q)
+    self.assertIn(custom_expr, q)
+
+  def test_6_hybrid_mathematical_archetypes_compile_cleanly(self):
+    """All 6 hybrid mathematical models must route and compile into valid YARA-L."""
+    from multistage_query_builder import MultiStageTemplateRouter, check_scope_exclusions, validate_multistage_syntax
+    router = MultiStageTemplateRouter()
+    hybrid_models = [
+        "DIVERSITY_DEFICIT",
+        "ELEPHANT_FLOW_CONCENTRATION",
+        "ORTHOGONAL_THREAT_SPACE",
+        "BAYESIAN_JOINT_ODDS",
+        "TWO_PART_HURDLE",
+        "FLEET_PREVALENCE_NORMALIZATION",
+    ]
+    for model in hybrid_models:
+      query = router.build_query(model, tier="BALANCED")
+      self.assertEqual(check_scope_exclusions(query), [], f"Scope exclusion failed for {model}")
+      errs = [e for e in validate_multistage_syntax(query) if not e.startswith("MISSING METHODOLOGY HEADER")]
+      self.assertEqual(errs, [], f"Syntax validation failed for {model}: {errs}")
+
 
 if __name__ == "__main__":
   unittest.main()

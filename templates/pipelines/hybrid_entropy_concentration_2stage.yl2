@@ -1,0 +1,84 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect scripted data exfiltration and elephant flows via Information-Theoretic Diversity Deficit and Concentration Index.
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Information-Theoretic Diversity Deficit & Concentration Ratio (HHI / Gini Proxy)
+// Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
+// Models Supported:
+//   1. Information-Theoretic Diversity Deficit (Entropy Proxy)
+//   2. Concentration Index & "Elephant Flow" Isolation (HHI / Gini Proxy)
+// Description:
+//   Stage 1 extracts historical raw telemetry baselines across tumbling/sliding
+//   windows. Stage 2 extracts current window micro-forensic cardinality.
+//   The unwrapped Root stage evaluates diversity deficit (k / (N + 1)) and
+//   elephant flow concentration (peak / (sum + 1)) over raw UDM telemetry.
+// ============================================================================
+
+// Stage 1: Historical Baseline of Raw Activity & Dispersion
+stage stage1_raw_baseline {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by {{bucket_size}}
+
+  outcome:
+    $hourly_count = count(metadata.id)
+    $window_start = min(metadata.event_timestamp.seconds)
+}
+
+// Stage 2: Current Window Micro-Forensics & Destination Cardinality
+stage stage2_current_window {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by {{bucket_size}}
+
+  outcome:
+    $current_count = count(metadata.id)
+    $distinct_destinations = count_distinct(target.ip)
+    $peak_bytes = max(network.sent_bytes)
+    $sum_bytes = sum(network.sent_bytes)
+}
+
+// Stage 3 (Root Stage): Common Compiler Fusion for Diversity Deficit & Concentration
+$entity = $stage1_raw_baseline.entity
+$entity = $stage2_current_window.entity
+
+match:
+  $entity by {{bucket_size}}
+
+outcome:
+  $baseline_active_samples = count($stage1_raw_baseline.window_start)
+  $baseline_mean = avg($stage1_raw_baseline.hourly_count)
+  $baseline_dispersion = stddev($stage1_raw_baseline.hourly_count)
+
+  $observation_count = max($stage2_current_window.current_count)
+  $vocab_cardinality = max($stage2_current_window.distinct_destinations)
+  $peak_transfer = max($stage2_current_window.peak_bytes)
+  $sum_transfers = max($stage2_current_window.sum_bytes)
+
+  // Linear Z-Score over raw baseline
+  $z_score = (max($stage2_current_window.current_count) - avg($stage1_raw_baseline.hourly_count)) / (stddev($stage1_raw_baseline.hourly_count) + 1.0)
+
+  // Information-Theoretic Diversity Ratio: k / (N + 1.0)
+  $diversity_ratio = max($stage2_current_window.distinct_destinations) / (max($stage2_current_window.current_count) + 1.0)
+
+  // Linear Concentration Ratio: Peak / (Sum + 1.0) (Elephant Flow Proxy)
+  $concentration_ratio = max($stage2_current_window.peak_bytes) / (max($stage2_current_window.sum_bytes) + 1.0)
+
+  // Combined Threat Score: High volume anomaly weighted by concentration
+  $threat_score = ((max($stage2_current_window.current_count) - avg($stage1_raw_baseline.hourly_count)) / (stddev($stage1_raw_baseline.hourly_count) + 1.0)) * (1.0 + (max($stage2_current_window.peak_bytes) / (max($stage2_current_window.sum_bytes) + 1.0)))
+
+condition:
+  $baseline_active_samples >= {{min_active_samples}}
+  and $observation_count >= {{min_count}}
+  and $baseline_dispersion >= {{min_sd}}
+  and ($diversity_ratio <= 0.20 or $concentration_ratio >= 0.70)
+  and $threat_score >= {{z_score}}
+
+order:
+  $threat_score desc

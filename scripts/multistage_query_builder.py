@@ -49,6 +49,8 @@ SYNTAX_TRAPS = [
     (r"match:\s*[^;\n]*\bby\s+24h\b", "SYNTAX ERROR (INVALID_WINDOW_SYNTAX): 'by 24h' is invalid in YARA-L. Use 'by 1d' for daily matching."),
     (r"stage\s+\$[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR (STAGE_NAME_PREFIX_ERROR): Stage declarations must not have a '$' prefix (use 'stage stage_name {', not 'stage $stage_name {')."),
     (r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR (INVALID_DETECTION_RULE_SYNTAX): Multi-stage queries are Search/Dashboard-only ('stage ... { ... }' + root stage). Do NOT wrap in 'rule ... { ... }'."),
+    (r"(?:stage\s+[a-zA-Z0-9_]+\s*\{.*?\}\s*)+\s*events\s*:", "SYNTAX ERROR (INVALID_EVENTS_SECTION_IN_ROOT): Root stage of a multi-stage query must not contain an 'events:' header block. Stage bindings must be declared directly before match:."),
+    (r"match:\s*[^;\n]*\$[a-zA-Z0-9_]+\.[a-zA-Z0-9_.]+", "SYNTAX ERROR (INVALID_MATCH_DOT_NOTATION): Match blocks accept ONLY simple bound variable identifiers (e.g. '$host by 1d'), not member dot-notation. Bind variables in event predicates before match:."),
 ]
 
 SENSITIVITY_MAP = {
@@ -1408,9 +1410,11 @@ def get_thresholds_for_tier(
 def audit_query_execution(
     query_text: str,
     expected_architecture: str,
-    expected_model: Optional[str] = None
+    expected_model: Optional[str] = None,
+    explained_to_user: Optional[str] = None,
+    expected_stage_count: Optional[int] = None,
 ) -> Dict[str, Any]:
-  """Audits the executed YARA-L query against the promised hunting architecture and model intent."""
+  """Audits the executed YARA-L query against the promised hunting architecture, model intent, and narrative explained to the analyst."""
   stage_names = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", query_text)
   stage_count = len(stage_names)
 
@@ -1443,12 +1447,41 @@ def audit_query_execution(
     is_arch_match = True
   if "4STAGE" in exp_norm and "4STAGE" in act_norm:
     is_arch_match = True
+  if "2STAGE" in exp_norm and ("2STAGE" in act_norm or act_norm == "LOCAL_2STAGE"):
+    is_arch_match = True
 
   findings = []
   if is_arch_match:
     findings.append(f"✅ Architecture verified: Executed query has {stage_count} intermediate stage(s) + root ({stage_count + 1} total stages), matching promised '{expected_architecture}'.")
   else:
     findings.append(f"❌ ARCHITECTURE MISMATCH: Promised '{expected_architecture}', but executed query is '{actual_arch}' ({stage_count} intermediate stages).")
+
+  # Concordance check against narrative explained to analyst
+  stage_degradation = False
+  if explained_to_user:
+    exp_lower = explained_to_user.lower()
+    promised_multistage = any(term in exp_lower for term in [
+        "multi-stage", "multistage", "2-stage", "3-stage", "4-stage",
+        "two-stage", "three-stage", "four-stage", "delta-z", "fano",
+        "fusion", "bayesian", "beta-binomial", "mad", "diversity deficit",
+        "elephant flow", "hurdle", "prevalence normalization"
+    ])
+    promised_single_stage = any(term in exp_lower for term in [
+        "single-stage", "1-stage", "single stage", "one-stage"
+    ])
+    if promised_multistage and stage_count == 0:
+      stage_degradation = True
+      findings.append("❌ STAGE DEGRADATION ERROR: Multi-stage pipeline was explained to the analyst, but executed query degraded to a single-stage search (0 named stages). Multi-stage pipeline execution was required.")
+    elif promised_single_stage and stage_count > 0:
+      findings.append(f"⚠️ CONCORDANCE WARNING: Single-stage search was explained to the analyst, but executed query contains {stage_count} named intermediate stage(s).")
+    else:
+      findings.append(f"✅ User explanation concordance verified: Executed query stages match narrative explained to analyst.")
+
+  if expected_stage_count is not None:
+    total_stages = stage_count + 1 if stage_count > 0 else 1
+    if total_stages != expected_stage_count:
+      findings.append(f"❌ STAGE COUNT MISMATCH: Expected {expected_stage_count} stages, but executed query has {total_stages} stage(s).")
+      is_arch_match = False
 
   has_sample_floor = bool(re.search(r"\$(?:baseline_active_samples|active_hours|active_days|active_samples)\s*>=\s*\d+", query_text))
   has_dispersion_floor = bool(re.search(r"\$(?:baseline_dispersion|personal_stddev|fleet_stddev|sd|dispersion)\s*>\s*0", query_text) or re.search(r"\$(?:baseline_dispersion|personal_stddev|sd)\s*>=\s*\d+", query_text))
@@ -1492,7 +1525,13 @@ def audit_query_execution(
     elif model_verified:
       findings.append(f"✅ Model math verified: Mathematical signatures for '{expected_model}' confirmed.")
 
-  status = "PASS" if is_arch_match and model_verified else "MISMATCH"
+  if stage_degradation:
+    status = "STAGE_DEGRADATION"
+  elif is_arch_match and model_verified:
+    status = "PASS"
+  else:
+    status = "MISMATCH"
+
   if actual_arch != "SINGLE_STAGE_MACRO" and not has_sample_floor and not has_dispersion_floor:
     status = "GUARDRAIL_VIOLATION" if status == "PASS" else status
 
@@ -1501,7 +1540,7 @@ def audit_query_execution(
       "expected_architecture": expected_architecture,
       "actual_architecture": actual_arch,
       "intermediate_stages": stage_count,
-      "total_stages": stage_count + 1,
+      "total_stages": stage_count + 1 if stage_count > 0 else 1,
       "stage_names": stage_names,
       "model_verified": model_verified,
       "safeguards": safeguards,
@@ -1551,6 +1590,8 @@ class PostFlightExecutionAuditor:
       api_response: Optional[Dict[str, Any]] = None,
       expected_architecture: Optional[str] = None,
       expected_model: Optional[str] = None,
+      explained_to_user: Optional[str] = None,
+      expected_stage_count: Optional[int] = None,
   ) -> PostFlightAuditResult:
     errors = []
     findings = []
@@ -1565,8 +1606,15 @@ class PostFlightExecutionAuditor:
       all_query_errors = scope_errs + fatal_syntax + cram_errs + ecg_errs
       errors.extend(all_query_errors)
 
-      if expected_architecture:
-        arch_res = audit_query_execution(executed_query, expected_architecture, expected_model)
+      if expected_architecture or explained_to_user or expected_stage_count:
+        target_arch = expected_architecture or ("LOCAL_2STAGE" if (expected_stage_count and expected_stage_count == 2) else ("SINGLE_STAGE_MACRO" if expected_stage_count == 1 else "LOCAL_2STAGE"))
+        arch_res = audit_query_execution(
+            executed_query,
+            expected_architecture=target_arch,
+            expected_model=expected_model,
+            explained_to_user=explained_to_user,
+            expected_stage_count=expected_stage_count,
+        )
         findings.extend(arch_res.get("findings", []))
         if arch_res["status"] != "PASS":
           errors.append(f"ARCHITECTURE_AUDIT_ERROR: {arch_res['status']}")
@@ -1651,17 +1699,18 @@ class MultiStageTemplateRouter:
       "TELEMETRY_ENRICHMENT": "mad_exfiltration_2stage.yl2",
       "DUAL_PLANE_CORRELATION": "mad_exfiltration_2stage.yl2",
       "DUAL_PLANE_HYBRID": "mad_exfiltration_2stage.yl2",
-      "DIVERSITY_DEFICIT": "mad_exfiltration_2stage.yl2",
-      "ENTROPY_PROXY": "mad_exfiltration_2stage.yl2",
-      "ELEPHANT_FLOW_CONCENTRATION": "mad_exfiltration_2stage.yl2",
-      "CONCENTRATION_INDEX": "mad_exfiltration_2stage.yl2",
-      "ORTHOGONAL_THREAT_SPACE": "dual_baseline_delta_z_3stage.yl2",
-      "EUCLIDEAN_THREAT_DISTANCE": "dual_baseline_delta_z_3stage.yl2",
-      "BAYESIAN_JOINT_ODDS": "dual_baseline_delta_z_3stage.yl2",
+      "DIVERSITY_DEFICIT": "hybrid_entropy_concentration_2stage.yl2",
+      "ENTROPY_PROXY": "hybrid_entropy_concentration_2stage.yl2",
+      "ELEPHANT_FLOW_CONCENTRATION": "hybrid_entropy_concentration_2stage.yl2",
+      "CONCENTRATION_INDEX": "hybrid_entropy_concentration_2stage.yl2",
+      "HYBRID_ENTROPY_CONCENTRATION": "hybrid_entropy_concentration_2stage.yl2",
+      "ORTHOGONAL_THREAT_SPACE": "multi_sector_threat_fusion_4stage.yl2",
+      "EUCLIDEAN_THREAT_DISTANCE": "multi_sector_threat_fusion_4stage.yl2",
+      "BAYESIAN_JOINT_ODDS": "bayesian_gamma_shrinkage_4stage.yl2",
       "TWO_PART_HURDLE": "poisson_rare_surge_2stage.yl2",
       "DORMANT_ACCOUNT": "poisson_rare_surge_2stage.yl2",
-      "FLEET_PREVALENCE_NORMALIZATION": "poisson_rare_surge_2stage.yl2",
-      "PATCH_TUESDAY_SHIELD": "poisson_rare_surge_2stage.yl2",
+      "FLEET_PREVALENCE_NORMALIZATION": "dual_baseline_delta_z_3stage.yl2",
+      "PATCH_TUESDAY_SHIELD": "dual_baseline_delta_z_3stage.yl2",
   }
 
   def __init__(self, template_dir: Optional[Path] = None):
@@ -1686,6 +1735,10 @@ class MultiStageTemplateRouter:
       entity_type: str = "host",
       event_type: Optional[str] = None,
       window_hours: Optional[float] = None,
+      min_threshold: Optional[float] = None,
+      max_threshold: Optional[float] = None,
+      condition_expression: Optional[str] = None,
+      apply_threshold_condition: bool = True,
   ) -> str:
     tier_up = tier.upper()
     template_file = self.get_template_filename(archetype)
@@ -1772,6 +1825,39 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_fleet_sd}}", str(thresh.get("min_fleet_sd", 5.0)))
     rendered = rendered.replace("{{min_active_hosts}}", str(thresh.get("min_active_hosts", 15)))
 
+    # Dynamic Root-Stage Noise Level & Significance Threshold Conditioning
+    order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
+    score_var = order_match.group(1) if order_match else "$z_score"
+
+    if condition_expression:
+      cond_pat = re.compile(r'(\band\s+' + re.escape(score_var) + r'\s*[><=]=?\s*[^;\n]+)', re.MULTILINE)
+      if cond_pat.search(rendered):
+        rendered = cond_pat.sub(f"and {condition_expression}", rendered, count=1)
+      else:
+        rendered = re.sub(r'(\border:\s*)', f"condition:\n  {condition_expression}\n\n\\1", rendered, count=1)
+    elif min_threshold is not None and max_threshold is not None:
+      cond_str = f"{score_var} >= {min_threshold} and {score_var} < {max_threshold}"
+      cond_pat = re.compile(r'(\band\s+' + re.escape(score_var) + r'\s*[><=]=?\s*[^;\n]+)', re.MULTILINE)
+      if cond_pat.search(rendered):
+        rendered = cond_pat.sub(f"and {cond_str}", rendered, count=1)
+      else:
+        rendered = re.sub(r'(\border:\s*)', f"condition:\n  {cond_str}\n\n\\1", rendered, count=1)
+    elif min_threshold is not None:
+      op = "<=" if score_var == "$cv" else ">="
+      cond_str = f"{score_var} {op} {min_threshold}"
+      cond_pat = re.compile(r'(\band\s+' + re.escape(score_var) + r'\s*[><=]=?\s*[^;\n]+)', re.MULTILINE)
+      if cond_pat.search(rendered):
+        rendered = cond_pat.sub(f"and {cond_str}", rendered, count=1)
+      else:
+        rendered = re.sub(r'(\border:\s*)', f"condition:\n  {cond_str}\n\n\\1", rendered, count=1)
+    elif max_threshold is not None:
+      cond_str = f"{score_var} <= {max_threshold}"
+      cond_pat = re.compile(r'(\band\s+' + re.escape(score_var) + r'\s*[><=]=?\s*[^;\n]+)', re.MULTILINE)
+      if cond_pat.search(rendered):
+        rendered = cond_pat.sub(f"and {cond_str}", rendered, count=1)
+      else:
+        rendered = re.sub(r'(\border:\s*)', f"condition:\n  {cond_str}\n\n\\1", rendered, count=1)
+
     return rendered
 
 
@@ -1801,17 +1887,17 @@ class HandoffEndpoint:
       "TELEMETRY_ENRICHMENT": "DATA_EXFILTRATION_SPIKE",
       "DUAL_PLANE_CORRELATION": "DATA_EXFILTRATION_SPIKE",
       "DUAL_PLANE_HYBRID": "DATA_EXFILTRATION_SPIKE",
-      "DIVERSITY_DEFICIT": "DATA_EXFILTRATION_SPIKE",
-      "ENTROPY_PROXY": "DATA_EXFILTRATION_SPIKE",
-      "ELEPHANT_FLOW_CONCENTRATION": "DATA_EXFILTRATION_SPIKE",
-      "CONCENTRATION_INDEX": "DATA_EXFILTRATION_SPIKE",
-      "ORTHOGONAL_THREAT_SPACE": "DUAL_BASELINE_DELTA_Z",
-      "EUCLIDEAN_THREAT_DISTANCE": "DUAL_BASELINE_DELTA_Z",
-      "BAYESIAN_JOINT_ODDS": "DUAL_BASELINE_DELTA_Z",
-      "TWO_PART_HURDLE": "POISSON_RARE_SURGE",
-      "DORMANT_ACCOUNT": "POISSON_RARE_SURGE",
-      "FLEET_PREVALENCE_NORMALIZATION": "FLEET_PEER_ZSCORE",
-      "PATCH_TUESDAY_SHIELD": "FLEET_PEER_ZSCORE",
+      "DIVERSITY_DEFICIT": "DIVERSITY_DEFICIT",
+      "ENTROPY_PROXY": "DIVERSITY_DEFICIT",
+      "ELEPHANT_FLOW_CONCENTRATION": "ELEPHANT_FLOW_CONCENTRATION",
+      "CONCENTRATION_INDEX": "ELEPHANT_FLOW_CONCENTRATION",
+      "ORTHOGONAL_THREAT_SPACE": "ORTHOGONAL_THREAT_SPACE",
+      "EUCLIDEAN_THREAT_DISTANCE": "ORTHOGONAL_THREAT_SPACE",
+      "BAYESIAN_JOINT_ODDS": "BAYESIAN_JOINT_ODDS",
+      "TWO_PART_HURDLE": "TWO_PART_HURDLE",
+      "DORMANT_ACCOUNT": "TWO_PART_HURDLE",
+      "FLEET_PREVALENCE_NORMALIZATION": "FLEET_PREVALENCE_NORMALIZATION",
+      "PATCH_TUESDAY_SHIELD": "FLEET_PREVALENCE_NORMALIZATION",
   }
 
   @classmethod

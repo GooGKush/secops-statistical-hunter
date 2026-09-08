@@ -1,23 +1,26 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.3.0
+version: 2.4.0
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   and outlier hunting in Google Security Operations (SecOps) over raw UDM telemetry across custom time slices.
   Supports Z-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, Median Absolute Deviation (MAD),
   Coefficient of Variation (CV), Poisson-Gamma Bayesian Shrinkage, Beta-Binomial Ratio Regularization,
-  Dual-Baseline Delta-Z (Patch Tuesday Shield), and Multi-Sector Threat Fusion.
+  Dual-Baseline Delta-Z (Patch Tuesday Shield), Multi-Sector Threat Fusion, and 6 Hybrid Mathematical Models
+  (Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds, Two-Part Hurdle,
+  and Fleet Prevalence Normalization). Supports dynamic root-stage condition filtering and noise level steering.
   Enforces strict 5-Section CommonMark Triage Reporting (with 6 standardized forensic evidence pillars,
   Calibrated Risk Index [0-100] normalization, Unicode visual bars, and 1-click drilldowns),
-  strict visual axis-type isolation, and post-query intent auditing.
+  strict visual axis-type isolation, and post-query intent and stage degradation auditing.
   Triggers: "hunt for beaconing with jitter", "inline C2 timing regularity", "calculate MAD on DNS",
   "Tukey fence anomaly", "impossible travel velocity", "rolling volume ratio", "pre-flight boundary probe",
   "poisson burst clustering", "fano factor password spray", "rare admin tool surge",
   "bayesian gamma prior updating", "beta-binomial failure rate shrinkage", "dual-baseline delta-z",
   "patch tuesday immunity", "multi-sector threat fusion", "4-stage killchain hunter",
   "service account out of normal behavioral scope", "unexpected host origin or abnormal access patterns",
-  "unusual data repository access", "service account origin rarity", "source code repository anomaly".
+  "unusual data repository access", "service account origin rarity", "source code repository anomaly",
+  "diversity deficit", "elephant flow concentration", "orthogonal threat space", "two-part hurdle".
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
 ---
 
@@ -52,6 +55,7 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 | *"Isolate targeted endpoint spikes from company-wide software deployments or Patch Tuesday."* | **`DUAL_BASELINE_DELTA_Z`** ($\Delta Z \ge 3.0\sigma$) | **The Patch Tuesday Immunity Shield**: Subtracts concurrent fleet shift from personal surge ($\Delta Z = Z_p - Z_f$), ignoring company-wide updates. |
 | *"Detect coordinated low-and-slow kill chains across Auth, Endpoint, and Network silos."* | **`MULTI_SECTOR_FUSION`** ($D = \sqrt{\sum Z_i^2} \ge 3.0\sigma$) | **The Combined Arms Radar**: Computes orthogonal Euclidean distance across domains, catching multi-vector attacks where point detectors miss. |
 | *"Find service accounts accessing source code or data repositories (GitHub, GitLab, internal shares) from unexpected host origins or out of normal scope."* | **`POISSON_ORIGIN_RARITY`** (Poisson $Z > 3.5$) | **The Train on a New Track**: Service accounts operate like trains on fixed rails (fixed CI runners, deterministic IPs). Accessing a repository from an unseen host has a near-zero historical arrival rate ($\lambda \to 0$), triggering an acute statistical rarity alert over raw `USER_RESOURCE_ACCESS`. |
+| *"Find automated scripted exfiltration where an entity touches many destinations with minimal vocabulary entropy or elephant flows."* | **`DIVERSITY_DEFICIT`** ($k/(N+1) \le 0.20$) & **`ELEPHANT_FLOW_CONCENTRATION`** ($\text{Peak}/\text{Sum} \ge 0.70$) | **The High-Speed Conveyor**: Attackers scripting data exfiltration generate repetitive, low-entropy transfers with high volume concentration. |
 
 ---
 
@@ -63,6 +67,7 @@ Whenever the analyst initiates a threat hunt or selects an archetype, **THE AGEN
 1. **ZERO Tool Calls**: Execute 0 tool calls to `udm_search`.
 2. **Plain-English Operational Analogy**: Explain the detection mechanics in 1-2 down-to-earth sentences.
 3. **Structured Pre-Flight Hunting Specification Card**: Present hunting objective, telemetry scope, search horizon, model, and threshold.
+   * *Noise Level & Significance Threshold Steering*: Analysts may adjust sensitivity thresholds or define sensitivity bands (e.g. `$z_score >= 2.0 and $z_score < 3.0` for investigative anomalies, or `$z_score >= 3.0` for critical outliers), enforced via root-stage `condition:`.
 4. **Mandatory Upfront Query Preview Protocol**: Execute 1-shot pre-preview compiler probe with ISO 8601 timestamps: `secops-gus:udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Display query in markdown ONLY if probe compiles cleanly (200 OK). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED.
 5. **Explicit Clearance Question & Turn Termination**: Ask for analyst approval to proceed, and **STOP calling tools immediately and yield the turn**.
 
@@ -145,13 +150,14 @@ When generating Vega-Lite or Chart.js charts:
 
 ## 🔍 Post-Query Intent & Architecture Verification
 
-Before finalizing execution, verify that the executed query matches the promised architecture:
+Before finalizing execution, verify that the executed query matches the promised architecture and narrative:
 ```bash
 python3 scripts/multistage_query_builder.py \
   --query_file hunt_query.yara \
   --audit_intent DUAL_BASELINE_3STAGE \
   --audit_model DELTA_Z
 ```
+* **Concordance & Anti-Degradation**: `PostFlightExecutionAuditor` validates that when a multi-stage pipeline is explained to the analyst, the executed query actually runs as a multi-stage DAG with named stages, preventing silent degradation into single-stage stats searches.
 
 ---
 

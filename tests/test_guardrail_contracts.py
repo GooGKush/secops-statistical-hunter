@@ -159,7 +159,7 @@ class TestGuardrailContracts(unittest.TestCase):
     pipeline_dir = os.path.join(self.repo_dir, "templates", "pipelines")
     self.assertTrue(os.path.exists(pipeline_dir), "templates/pipelines/ directory must exist")
     yl2_files = glob.glob(os.path.join(pipeline_dir, "*.yl2"))
-    self.assertEqual(len(yl2_files), 9, f"Must have exactly 9 golden pipeline templates, found {len(yl2_files)}")
+    self.assertEqual(len(yl2_files), 10, f"Must have exactly 10 golden pipeline templates, found {len(yl2_files)}")
 
     router = MultiStageTemplateRouter(template_dir=pipeline_dir)
     for fpath in yl2_files:

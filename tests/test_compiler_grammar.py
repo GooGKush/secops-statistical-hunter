@@ -259,6 +259,45 @@ class TestCompilerGrammar(unittest.TestCase):
     errors = validate_multistage_syntax(query)
     self.assertEqual(errors, [], f"Rendered C2 beaconing jitter pipeline had errors: {errors}")
 
+  def test_reject_events_section_in_root_stage(self):
+    """Root stage of a multi-stage query must not contain an events: block header."""
+    bad_query = """
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      match: $host by 1h
+      outcome: $c = count(metadata.id)
+    }
+    events:
+      $host = $s1.host
+    match: $host by 1h
+    outcome: $out = max($s1.c)
+    condition: $out > 0
+    """
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("INVALID_EVENTS_SECTION_IN_ROOT" in e for e in errors),
+                    f"Expected INVALID_EVENTS_SECTION_IN_ROOT rejection, got: {errors}")
+
+  def test_reject_member_dot_notation_in_match(self):
+    """Match section must not contain member dot notation ($e.principal.hostname)."""
+    bad_query = """
+    metadata.event_type = "PROCESS_LAUNCH"
+    match: $e.principal.hostname by 1h
+    outcome: $c = count(metadata.id)
+    condition: $c > 0
+    """
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("INVALID_MATCH_DOT_NOTATION" in e for e in errors),
+                    f"Expected INVALID_MATCH_DOT_NOTATION rejection, got: {errors}")
+
+  def test_hybrid_entropy_concentration_template_passes_cleanly(self):
+    """Rendered hybrid entropy concentration template must pass syntax validation cleanly."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    query = router.build_query("DIVERSITY_DEFICIT")
+    errors = validate_multistage_syntax(query)
+    self.assertEqual(errors, [], f"Rendered hybrid entropy concentration had errors: {errors}")
+
 
 if __name__ == "__main__":
   unittest.main()
