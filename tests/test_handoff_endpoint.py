@@ -4,8 +4,13 @@
 """Unit tests for HandoffEndpoint federated handoff ingestion in secops-statistical-hunter."""
 
 import json
+import os
+from pathlib import Path
+import sys
 import unittest
-from scripts.multistage_query_builder import HandoffEndpoint
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from multistage_query_builder import HandoffEndpoint
 
 
 class TestHandoffEndpoint(unittest.TestCase):
