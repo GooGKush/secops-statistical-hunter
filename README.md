@@ -76,8 +76,11 @@ secops-statistical-hunter/
 │   ├── statistical-models-taxonomy.md       # Mathematical curves, Poisson dispersion, & 4D plots
 │   └── watchdog-polling-architecture.md     # LRO watchdog mechanics & F1 optimization
 ├── scripts/
+│   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & schema validator
 │   └── multistage_query_builder.py          # Python linter, AST validator, & report/chart generator
-└── tests/                                   # Automated test suite (85 tests, 100% pass rate)
+└── tests/                                   # Automated test suite (93 tests, 100% pass rate)
+    ├── __init__.py
+    ├── test_clean_handoff.py                # Clean Hand-Off UDM schema validation & batching tests
     ├── __init__.py
     ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, 20-var limit, and syntax trap tests
     ├── test_global_context_syntax.py        # Entity Context Graph (GLOBAL_CONTEXT/DERIVED_CONTEXT) syntax tests
@@ -92,6 +95,13 @@ secops-statistical-hunter/
 ---
 
 ## Release Notes
+
+### v2.5.1 (September 10, 2026)
+* **Automated Clean Hand-Off Protocol Engine (`scripts/clean_handoff.py`)**: Implemented dedicated helper for generating, validating, batching, and dispatching synthetic UDM events (`CUSTOM_SECURITY_DATA_ANALYTICS`) to Chronicle Event Store, caught by tenant rule `secops_statistical_hunter_alert_catchall` for seamless alert escalation without case comment pollution.
+* **Chronicle UDM Specification Conformance**: Enforced official string enumeration `"RESOURCE_TYPE_UNSPECIFIED"` (deprecating integer `0`), standardized complete `observer` metadata block, microsecond-precision UTC timestamps (`Z`), and MITRE ATT&CK taxonomy integration with automatic CRI-to-severity mapping.
+* **Correlated Multi-Finding Batching**: Added native array batching `[{"udm": ...}, ...]` binding all findings from a hunt session under a shared, unique `Hunt Campaign ID` (`hunt-<hex>`).
+* **Affirmative Escalation Routing & Pre-Ingestion Clearance Card**: Structured affirmative intent recognition in `SKILL.md` (*"create a UDM alert"*, *"log in Chronicle"*, *"escalate"*), requiring Pre-Ingestion Clearance Cards with 0-tool turn yield for explicit analyst authorization before dispatching `import_logs`.
+* **Test Suite Expansion & Dual-Engine Regression**: Added `tests/test_clean_handoff.py`, expanding automated test coverage to **93 tests (100% pass rate)**, and re-verified full dual-engine regression parity across AgentAPI and Direct MCP.
 
 ### v2.5.0 (September 10, 2026)
 * **Dual-Client Multi-Platform Regression Suite**: Integrated full regression evaluation across 10 scenarios in Dual-Engine Mode (workspace AgentAPI + headless Direct MCP client) against production-like tenant `gus-sdl` (`8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5`), achieving **100% pass rate (10/10)** and 100% cross-engine invariant parity.

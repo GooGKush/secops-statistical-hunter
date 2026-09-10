@@ -1,5 +1,29 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.5.1 (September 10, 2026) — Clean Hand-Off Synthetic UDM Ingestion, Correlated Multi-Finding Batching & Chronicle Specification Conformance
+
+* **Automated Clean Hand-Off (CH) Protocol Engine (`scripts/clean_handoff.py`)**:
+  * Implemented dedicated helper module `scripts/clean_handoff.py` for generating, validating, batching, and dispatching synthetic UDM events to Chronicle SIEM and SOAR.
+  * Formatted for seamless, in-band ingestion via `secops-gus:import_logs` into Chronicle Event Store (`gus-sdl`, customer `8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5`) using log type `CUSTOM_SECURITY_DATA_ANALYTICS`.
+  * Catches synthetic events with the persistent tenant rule `secops_statistical_hunter_alert_catchall` to promote high-significance outliers ($Z \ge 3.0\sigma$, $	ext{CRI} \ge 50$) into security alerts and investigative cases without arbitrary case comment pollution.
+* **Official Google Cloud Chronicle UDM Conformance & Invariants**:
+  * Corrected obsolete integer resource types (`resource_type: 0`) in `references/clean-handoff-udm-schema.md` to official Chronicle string enumeration `"RESOURCE_TYPE_UNSPECIFIED"`.
+  * Standardized complete `observer` metadata block (`hostname: "secops-statistical-hunter"`, `application: "Google SecOps Statistical Outlier Hunter"`).
+  * Enforced microsecond-precision ISO 8601 UTC timestamps ending strictly with `Z`.
+  * Standardized `security_result` array with MITRE ATT&CK taxonomy (`threat_id_namespace: "MITRE_ATTACK"`), integer Calibrated Risk Index (`risk_score` $0 \le 	ext{CRI} \le 100$), and automated CRI-to-severity mapping (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFORMATIONAL`).
+* **Multi-Finding Correlated Batching (`build_multi_event_batch`)**:
+  * Added native support for multi-event array generation `[ {"udm": ...}, {"udm": ...} ]` for hunts uncovering multiple concurrent outlier entities (e.g. volumetric burst + beaconing + rare exfiltration).
+  * Automatically binds all findings in a hunt session under a shared, unique `Hunt Campaign ID` (`hunt-<hex>`) across SIEM events, case attributes, and detection fields.
+* **Affirmative Trigger Routing & Pre-Ingestion Clearance Card**:
+  * Enforced affirmative intent recognition in `SKILL.md` (*"create a UDM alert"*, *"alert on this"*, *"log in Chronicle"*, *"send this in"*, *"escalate"*, *"generate synthetic event"*).
+  * Standardized the Pre-Ingestion Clearance Card format, previewing target tenant, campaign ID, catch-all rule, entity breakdown table, and explicitly yielding the turn (0 tools) for analyst authorization.
+* **Direct In-Band API vs. Forwarder Hierarchy**:
+  * Designated direct Chronicle API ingestion via IAM credentials as primary, establishing forwarders (`forwarderId`) as strictly optional on-prem network fallback.
+  * Formalized resilient operational fallback ladder: if API ingestion is unavailable, delivers structured UDM JSON artifact or provides case comment attachment (`create_case_comment`) if an explicit case ID was specified.
+* **Test Suite Expansion & Dual-Engine Regression Suite Validation (93/93 Passed, 100% Green)**:
+  * Added `tests/test_clean_handoff.py` (8 tests / 11 subtests) verifying all canonical statistical product event types, schema validation, timestamp conformance, integer resource rejection, batching, clearance card rendering, and payload argument serialization.
+  * Re-validated full multi-platform regression test suite in dual-engine mode (AgentAPI & Direct MCP) against tenant `gus-sdl`, verifying 100% invariant parity across all core scenarios and 93/93 passing automated unit tests.
+
 ## 📦 Version 2.5.0 (September 10, 2026) — Dual-Client Multi-Platform Regression Suite, Strict Match Binding & Additive Dispersion Floor
 
 * **Dual-Client Multi-Platform Regression Suite (AgentAPI & Direct MCP)**:

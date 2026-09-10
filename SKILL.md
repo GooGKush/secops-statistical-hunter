@@ -202,10 +202,11 @@ python3 scripts/multistage_query_builder.py \
 * **CRI Derivation Standard**: Derive the CRI either via the standardized sigmoid formula in post-processing presentation scripts (`scripts/multistage_query_builder.py`) or via piecewise outcome tiers in the query root stage.
 
 ### 3. Clean Hand-Off (CH) Protocol (Synthetic UDM Event Ingestion vs. Active Case Wall)
-* **Path A (Standard Escalation Default — Synthetic Event Ingestion)**: When an analyst requests escalation (*"Escalate to SecOps"*, *"Log in Chronicle"*), generate a synthetic UDM event (`product_name: "SecOps Statistical Hunter"`) encapsulating the 6 Evidence Pillars and ingest via `import_logs` for automated case promotion.
-* **Path B (Explicit Active Case Attachment)**: When the analyst is actively reviewing a specific case and explicitly instructs findings to be attached (e.g. *"Attach to Case 11075"*), execute `create_case_comment(case_id="...", comment=...)`.
-* **Case Attachment Targeting**: Call `create_case_comment` exclusively when provided with an explicit, analyst-confirmed `case_id`.
-* **Conceptual Handoff Contract (Cross-Skill Steering Protocol)**: Maintain Skill Handoff Cards as purely architectural and conceptual envelopes (specifying protocol, intent, target entity, and parameters). Query formulation and code emission belong exclusively to the destination skill once invoked.
+Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill analyst requests to alert, notify, or escalate findings (*"create a UDM alert"*, *"alert on this"*, *"send this in"*, *"escalate"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off. Always load `references/clean-handoff-udm-schema.md` or helper `scripts/clean_handoff.py`:
+* **Path A (Standard Escalation Default — Synthetic Event Ingestion)**: Map outliers to enriched synthetic UDM events (`product_name: "SecOps Statistical Hunter"`, `resource_type: "RESOURCE_TYPE_UNSPECIFIED"`, batching multiple findings under a shared `Hunt Campaign ID`). Preview the Pre-Ingestion Clearance Card to the analyst (yield turn, 0 tools). Upon approval, perform direct Chronicle API ingestion via `secops-gus:import_logs` (logType: `CUSTOM_SECURITY_DATA_ANALYTICS`; forwarders are strictly fallback).
+* **Path B (Explicit Active Case Attachment)**: When the analyst is actively reviewing a specific case and explicitly instructs findings to be attached (e.g. *"Attach this finding to Case 11075"*), call `create_case_comment(case_id="<ID>", comment=...)` targeting that designated case.
+* **Case Attachment Targeting**: Call `create_case_comment` exclusively when provided with an explicit, analyst-confirmed `case_id`. Arbitrary case hijacking is strictly forbidden.
+* **Conceptual Handoff Contract (Cross-Skill Steering Protocol)**: Maintain Skill Handoff Cards to peer skills as purely architectural and conceptual envelopes (specifying protocol, intent, target entity, and parameters). Query formulation and code emission belong exclusively to the destination skill once invoked.
 
 ---
 
