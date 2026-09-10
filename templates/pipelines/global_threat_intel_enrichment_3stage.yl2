@@ -1,0 +1,88 @@
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
+// Goal: Hunt for high-volume network exfiltration targeting newly registered domains or GCTI threats
+// Statistical Model: Z-Score with Global Threat Intel (ECG) Enrichment
+
+// --- STAGE 1: Event-Plane Traffic Extraction ---
+stage raw_traffic {
+  $net.metadata.event_type = "NETWORK_CONNECTION"
+  $host = $net.principal.asset.hostname
+  $domain = $net.target.hostname
+  $domain != ""
+  $host != ""
+
+  match:
+    $host, $domain by 1h
+
+  outcome:
+    $hourly_bytes = sum($net.network.sent_bytes)
+    $conn_count = count($net.metadata.id)
+}
+
+// --- STAGE 2: Global Context Graph Lookup (Max 1 ECG Alias) ---
+stage global_threat_intel {
+  $whois.graph.entity.domain.name = $domain
+  $whois.graph.metadata.entity_type = "DOMAIN_NAME"
+  $whois.graph.metadata.vendor_name = "WHOIS"
+  $whois.graph.metadata.source_type = "GLOBAL_CONTEXT"
+  $domain != ""
+
+  match:
+    $domain
+
+  outcome:
+    $creation_ts = max($whois.graph.entity.domain.creation_time.seconds)
+}
+
+// --- STAGE 3: Baseline Parameter Estimation ---
+stage host_baseline {
+  $host = $raw_traffic.host
+
+  match:
+    $host
+
+  outcome:
+    $hist_mean_bytes = avg($raw_traffic.hourly_bytes)
+    $hist_sd_bytes = stddev($raw_traffic.hourly_bytes)
+    $active_hours = count($raw_traffic.window_start)
+}
+
+// --- ROOT STAGE (UNWRAPPED): Joint Statistical & Threat Fusion ---
+$host = $raw_traffic.host
+$domain = $raw_traffic.domain
+$domain = $global_threat_intel.domain
+$host = $host_baseline.host
+
+match:
+  $host, $domain by 1h
+
+outcome:
+  $obs_bytes = max($raw_traffic.hourly_bytes)
+  $mean_bytes = max($host_baseline.hist_mean_bytes)
+  $sd_bytes = max($host_baseline.hist_sd_bytes)
+  $safe_sd = if($sd_bytes > 0, $sd_bytes, 1.0)
+  $z_score = ($obs_bytes - $mean_bytes) / $safe_sd
+
+  $created = max($global_threat_intel.creation_ts)
+  $domain_age_days = (timestamp.current_seconds() - $created) / 86400.0
+  $is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
+
+  // Context-Boosted Threat Score: Apply 2.5x multiplier for newly registered domains
+  $multiplier = if($is_nrd == 1.0, 2.5, 1.0)
+  $threat_score = $z_score * $multiplier
+
+  // 6 Standardized Evidence Pillars
+  $observation_count = $obs_bytes
+  $baseline_active_samples = max($host_baseline.active_hours)
+  $baseline_mean = $mean_bytes
+  $baseline_dispersion = $sd_bytes
+  $fleet_prevalence = 1
+  $distinct_binaries = max($raw_traffic.conn_count)
+
+condition:
+  $baseline_active_samples >= 12
+  and $baseline_dispersion >= 1.0
+  and $threat_score >= 3.0
+
+order:
+  $threat_score desc

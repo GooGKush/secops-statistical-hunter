@@ -109,6 +109,21 @@ SENSITIVITY_MAP = {
         "BALANCED": {"z_score": 2.5, "min_count": 5, "dormant_weight": 2.0, "min_sd": 0.5, "min_active_samples": 7},
         "AGGRESSIVE": {"z_score": 1.5, "min_count": 2, "dormant_weight": 1.5, "min_sd": 0.2, "min_active_samples": 3},
     },
+    "GLOBAL_THREAT_INTEL": {
+        "CONSERVATIVE": {"threat_score": 4.0, "min_obs_bytes": 1000000.0, "min_active_hours": 24, "nrd_multiplier": 2.5},
+        "BALANCED": {"threat_score": 3.0, "min_obs_bytes": 100000.0, "min_active_hours": 12, "nrd_multiplier": 2.5},
+        "AGGRESSIVE": {"threat_score": 2.0, "min_obs_bytes": 10000.0, "min_active_hours": 6, "nrd_multiplier": 2.0},
+    },
+    "GLOBAL_THREAT_INTEL_ENRICHMENT": {
+        "CONSERVATIVE": {"threat_score": 4.0, "min_obs_bytes": 1000000.0, "min_active_hours": 24, "nrd_multiplier": 2.5},
+        "BALANCED": {"threat_score": 3.0, "min_obs_bytes": 100000.0, "min_active_hours": 12, "nrd_multiplier": 2.5},
+        "AGGRESSIVE": {"threat_score": 2.0, "min_obs_bytes": 10000.0, "min_active_hours": 6, "nrd_multiplier": 2.0},
+    },
+    "DERIVED_CONTEXT_PREVALENCE": {
+        "CONSERVATIVE": {"threat_score": 3.5, "min_logins": 10, "min_active_days": 14, "new_asset_multiplier": 2.0},
+        "BALANCED": {"threat_score": 2.5, "min_logins": 5, "min_active_days": 7, "new_asset_multiplier": 2.0},
+        "AGGRESSIVE": {"threat_score": 1.5, "min_logins": 2, "min_active_days": 3, "new_asset_multiplier": 1.5},
+    },
 }
 
 
@@ -1461,6 +1476,10 @@ def audit_query_execution(
       actual_arch = "BAYESIAN_GAMMA_4STAGE"
     elif "posterior_fail_prob" in query_text.lower() or "alpha_post" in query_text.lower():
       actual_arch = "BETA_BINOMIAL_4STAGE"
+    elif "global_context" in query_text.lower() or "whois" in query_text.lower() or "gcti" in query_text.lower():
+      actual_arch = "GLOBAL_THREAT_INTEL_4STAGE"
+    elif "derived_context" in query_text.lower() or "first_seen" in query_text.lower():
+      actual_arch = "DERIVED_CONTEXT_4STAGE"
     else:
       actual_arch = "4STAGE_DAG"
   else:
@@ -1745,6 +1764,15 @@ class MultiStageTemplateRouter:
       "LATERAL_MOVEMENT_BIPARTITE": "privileged_lateral_expansion_2stage.yl2",
       "BIPARTITE_AUTH_RARITY": "privileged_lateral_expansion_2stage.yl2",
       "UNSEEN_ENDPOINT_ACCESS": "privileged_lateral_expansion_2stage.yl2",
+      "GLOBAL_THREAT_INTEL": "global_threat_intel_enrichment_3stage.yl2",
+      "GLOBAL_THREAT_INTEL_ENRICHMENT": "global_threat_intel_enrichment_3stage.yl2",
+      "GLOBAL_CONTEXT": "global_threat_intel_enrichment_3stage.yl2",
+      "GCTI_ENRICHMENT": "global_threat_intel_enrichment_3stage.yl2",
+      "WHOIS_NRD_EGRESS": "global_threat_intel_enrichment_3stage.yl2",
+      "DERIVED_CONTEXT_PREVALENCE": "derived_context_prevalence_3stage.yl2",
+      "DERIVED_CONTEXT": "derived_context_prevalence_3stage.yl2",
+      "ASSET_AGE_PREVALENCE": "derived_context_prevalence_3stage.yl2",
+      "NEW_ASSET_AUTHENTICATION": "derived_context_prevalence_3stage.yl2",
   }
 
   def __init__(self, template_dir: Optional[Path] = None):
@@ -1939,6 +1967,14 @@ class HandoffEndpoint:
       "BIPARTITE_AUTH_RARITY": "PRIVILEGED_LATERAL_EXPANSION",
       "UNSEEN_ENDPOINT_ACCESS": "PRIVILEGED_LATERAL_EXPANSION",
       "LATERAL_MOVEMENT": "PRIVILEGED_LATERAL_EXPANSION",
+      "GLOBAL_THREAT_INTEL": "GLOBAL_THREAT_INTEL",
+      "GLOBAL_CONTEXT": "GLOBAL_THREAT_INTEL",
+      "GCTI_ENRICHMENT": "GLOBAL_THREAT_INTEL",
+      "WHOIS_NRD_EGRESS": "GLOBAL_THREAT_INTEL",
+      "DERIVED_CONTEXT_PREVALENCE": "DERIVED_CONTEXT_PREVALENCE",
+      "DERIVED_CONTEXT": "DERIVED_CONTEXT_PREVALENCE",
+      "ASSET_AGE_PREVALENCE": "DERIVED_CONTEXT_PREVALENCE",
+      "NEW_ASSET_AUTHENTICATION": "DERIVED_CONTEXT_PREVALENCE",
   }
 
   @classmethod

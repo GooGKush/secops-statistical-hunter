@@ -20,7 +20,8 @@ description: |
   "patch tuesday immunity", "multi-sector threat fusion", "4-stage killchain hunter",
   "service account out of normal behavioral scope", "unexpected host origin or abnormal access patterns",
   "unusual data repository access", "service account origin rarity", "source code repository anomaly",
-  "diversity deficit", "elephant flow concentration", "orthogonal threat space", "two-part hurdle", "privileged lateral expansion", "unseen endpoint login", "admin destination breadth".
+    "diversity deficit", "elephant flow concentration", "orthogonal threat space", "two-part hurdle", "privileged lateral expansion", "unseen endpoint login", "admin destination breadth",
+    "global threat intel enrichment", "gcti threat match", "whois newly registered domain surge", "derived context asset age", "unfamiliar machine login".
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
 ---
 
@@ -58,6 +59,8 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 | *"Find automated scripted exfiltration where an entity touches many destinations with minimal vocabulary entropy or elephant flows."* | **`DIVERSITY_DEFICIT`** ($k/(N+1) \le 0.20$) & **`ELEPHANT_FLOW_CONCENTRATION`** ($\text{Peak}/\text{Sum} \ge 0.70$) | **The High-Speed Conveyor**: Attackers scripting data exfiltration generate repetitive, low-entropy transfers with high volume concentration. |
 | *"Detect privileged or administrative accounts logging into unseen endpoints or expanding their machine radius."* | **`PRIVILEGED_LATERAL_EXPANSION`** ($Z_{\text{breadth}} \ge 2.0\sigma$) | **The Explorer off the Beaten Path**: Admins routinely touch a small, bounded cluster of machines; a sudden surge in unique target workstations/servers reveals lateral traversal. |
 | *"Detect dormant accounts or service accounts suddenly awakening with unusual activity."* | **`TWO_PART_HURDLE`** ($H \ge 2.5$) | **The Sleeper Awakening**: Historically dormant accounts incur a discrete activation penalty; active accounts are evaluated on continuous baseline deviation with exact conditional zero-dispersion protection. |
+| *"Hunt for network exfiltration targeting newly registered domains or Google Cloud Threat Intelligence (GCTI) indicators."* | **`GLOBAL_THREAT_INTEL`** ($Z_{\text{threat}} \ge 3.0$) | **The Flash in the Dark**: Combines raw network burst velocity with Chronicle's persistent Entity Context Graph (WHOIS NRD age $< 30$d or GCTI feed matches) to boost threat severity on suspicious destinations. |
+| *"Find anomalous logins targeting brand-new, rare, or recently commissioned assets."* | **`DERIVED_CONTEXT_PREVALENCE`** ($Z_{\text{auth}} \ge 2.5$) | **The Unfamiliar Machine**: Uses Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to verify true enterprise first-seen age, separating routine logins from first-contact connections to unestablished endpoints. |
 
 ---
 

@@ -104,12 +104,18 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `DATA_EXFILTRATION_SPIKE` | **CONSERVATIVE** | `m_z=3.5`, `min_mb=500.0`, `min_mad=20.0`, `min_baseline_days=14` |
 | `DATA_EXFILTRATION_SPIKE` | **BALANCED** | `m_z=2.5`, `min_mb=100.0`, `min_mad=10.0`, `min_baseline_days=7` |
 | `DATA_EXFILTRATION_SPIKE` | **AGGRESSIVE** | `m_z=2.0`, `min_mb=25.0`, `min_mad=5.0`, `min_baseline_days=3` |
+| `DERIVED_CONTEXT_PREVALENCE` | **CONSERVATIVE** | `threat_score=3.5`, `min_logins=10`, `min_active_days=14`, `new_asset_multiplier=2.0` |
+| `DERIVED_CONTEXT_PREVALENCE` | **BALANCED** | `threat_score=2.5`, `min_logins=5`, `min_active_days=7`, `new_asset_multiplier=2.0` |
+| `DERIVED_CONTEXT_PREVALENCE` | **AGGRESSIVE** | `threat_score=1.5`, `min_logins=2`, `min_active_days=3`, `new_asset_multiplier=1.5` |
 | `DORMANT_ACCOUNT_AWAKENING` | **CONSERVATIVE** | `z_score=3.5`, `min_count=10`, `dormant_weight=3.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `DORMANT_ACCOUNT_AWAKENING` | **BALANCED** | `z_score=2.5`, `min_count=5`, `dormant_weight=2.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `DORMANT_ACCOUNT_AWAKENING` | **AGGRESSIVE** | `z_score=1.5`, `min_count=2`, `dormant_weight=1.5`, `min_sd=0.2`, `min_active_samples=3` |
 | `FLEET_PEER_ZSCORE` | **CONSERVATIVE** | `fleet_z=3.5`, `min_host_count=50`, `min_fleet_sd=10.0`, `min_active_hosts=25` |
 | `FLEET_PEER_ZSCORE` | **BALANCED** | `fleet_z=2.5`, `min_host_count=25`, `min_fleet_sd=5.0`, `min_active_hosts=15` |
 | `FLEET_PEER_ZSCORE` | **AGGRESSIVE** | `fleet_z=2.0`, `min_host_count=10`, `min_fleet_sd=2.0`, `min_active_hosts=10` |
+| `GLOBAL_THREAT_INTEL` | **CONSERVATIVE** | `threat_score=4.0`, `min_obs_bytes=1000000.0`, `min_active_hours=24`, `nrd_multiplier=2.5` |
+| `GLOBAL_THREAT_INTEL` | **BALANCED** | `threat_score=3.0`, `min_obs_bytes=100000.0`, `min_active_hours=12`, `nrd_multiplier=2.5` |
+| `GLOBAL_THREAT_INTEL` | **AGGRESSIVE** | `threat_score=2.0`, `min_obs_bytes=10000.0`, `min_active_hours=6`, `nrd_multiplier=2.0` |
 | `HEAVY_TAIL_OUTLIERS` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_iqr=50.0`, `min_baseline_days=14` |
 | `HEAVY_TAIL_OUTLIERS` | **BALANCED** | `surge_ratio=2.0`, `min_iqr=10.0`, `min_baseline_days=7` |
 | `HEAVY_TAIL_OUTLIERS` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_iqr=5.0`, `min_baseline_days=3` |

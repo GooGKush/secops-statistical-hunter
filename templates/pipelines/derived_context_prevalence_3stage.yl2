@@ -1,0 +1,86 @@
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
+// Goal: Hunt for anomalous privileged authentication spikes to newly commissioned or rare assets
+// Statistical Model: Z-Score with Derived Context (Asset First Seen) Enrichment
+
+// --- STAGE 1: Event-Plane Authentication Extraction ---
+stage raw_auth {
+  $login.metadata.event_type = "USER_LOGIN"
+  $login.security_result.action = "ALLOW"
+  $user = $login.target.user.userid
+  $host = $login.target.asset.hostname
+  $user != ""
+  $host != ""
+
+  match:
+    $user, $host by 1d
+
+  outcome:
+    $daily_logins = count($login.metadata.id)
+}
+
+// --- STAGE 2: Chronicle Derived Context Graph Lookup (Asset Age) ---
+stage asset_derived_context {
+  $asset.graph.entity.asset.hostname = $host
+  $asset.graph.metadata.entity_type = "ASSET"
+  $asset.graph.metadata.source_type = "DERIVED_CONTEXT"
+  $host != ""
+
+  match:
+    $host
+
+  outcome:
+    $first_seen_ts = min($asset.graph.entity.asset.first_seen_time.seconds)
+}
+
+// --- STAGE 3: User Baseline Parameter Estimation ---
+stage user_auth_baseline {
+  $user = $raw_auth.user
+
+  match:
+    $user
+
+  outcome:
+    $hist_mean_logins = avg($raw_auth.daily_logins)
+    $hist_sd_logins = stddev($raw_auth.daily_logins)
+    $active_days = count($raw_auth.window_start)
+}
+
+// --- ROOT STAGE (UNWRAPPED): Joint Authentication & Asset Age Fusion ---
+$user = $raw_auth.user
+$host = $raw_auth.host
+$host = $asset_derived_context.host
+$user = $user_auth_baseline.user
+
+match:
+  $user, $host by 1d
+
+outcome:
+  $obs_logins = max($raw_auth.daily_logins)
+  $mean_logins = max($user_auth_baseline.hist_mean_logins)
+  $sd_logins = max($user_auth_baseline.hist_sd_logins)
+  $safe_sd = if($sd_logins > 0, $sd_logins, 1.0)
+  $z_score = ($obs_logins - $mean_logins) / $safe_sd
+
+  $first_seen = min($asset_derived_context.first_seen_ts)
+  $asset_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
+  $is_new_asset = if($asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
+
+  // Context-Boosted Threat Score: Apply 2.0x multiplier for connections to brand-new assets
+  $multiplier = if($is_new_asset == 1.0, 2.0, 1.0)
+  $threat_score = $z_score * $multiplier
+
+  // 6 Standardized Evidence Pillars
+  $observation_count = $obs_logins
+  $baseline_active_samples = max($user_auth_baseline.active_days)
+  $baseline_mean = $mean_logins
+  $baseline_dispersion = $sd_logins
+  $fleet_prevalence = 1
+  $distinct_binaries = 1
+
+condition:
+  $baseline_active_samples >= 7
+  and $threat_score >= 2.5
+
+order:
+  $threat_score desc
