@@ -90,21 +90,53 @@ secops-statistical-hunter/
 
 ### v2.4.1 (September 9, 2026)
 * **Privileged Account Lateral Movement & Destination Expansion**: Added `templates/pipelines/privileged_lateral_expansion_2stage.yl2` measuring daily unique destination host footprint across a bounded lookback window (e.g. 90d) on raw `USER_LOGIN` events with AD privilege filtering.
+* **Safe Zero-Divisor Hardening**: Hardened arithmetic divisions across all golden templates with positive divisor gating (`if($sd > 0, $sd, 1.0)`).
+* **Two-Part Hurdle Model Pipeline**: Added `templates/pipelines/two_part_hurdle_2stage.yl2`.
 * **Federated Protocol & Intent Routing**: Registered `PRIVILEGED_LATERAL_EXPANSION` in `HandoffEndpoint` and `MultiStageTemplateRouter` for seamless bilateral delegation from `secops-risk-metrics-multistage`.
-* **Portfolio Expansion**: Expanded golden pipeline templates to 11 (76/76 unit tests passing).
+* **Portfolio Expansion**: Expanded golden pipeline templates to 12 (77/77 unit tests passing).
 
 ### v2.4.0 (September 7, 2026)
 * **Dynamic Root-Stage Condition Filtering**: Enabled root-stage condition filtering and noise level steering in `MultiStageTemplateRouter`.
 * **Anti-Degradation Auditing**: Upgraded `PostFlightExecutionAuditor` to detect stage degradation and enforce user narrative concordance.
 * **6 Hybrid Mathematical Models**: Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds, Two-Part Hurdle, and Fleet Prevalence Normalization.
 
-### v2.1.0 (Minor Point Revision)
-* **Strict UEBA Exclusion Guardrail**: Added prominent top-level routing guardrails (`🛑 STRICT UEBA EXCLUSION`) directing all 30-day pre-computed behavioral baselines, peer group comparisons, 360° health checks, and longitudinal CUSUM drift to `secops-risk-metrics-multistage`.
-* **Trigger Specialization & De-Duplication**: Refined skill triggers to explicitly anchor on raw telemetry ad-hoc inline statistical models (C2 beaconing jitter CV, Poisson burst clustering, Tukey fences, MAD on raw egress, Haversine impossible travel) to prevent skill collisions with UEBA.
-* **Separation of Concerns**: Clarified that `secops-statistical-hunter` is strictly for ad-hoc inline math over raw UDM telemetry across custom time slices and does not stand in for 30-day UEBA baselines.
+### v2.3.3 (September 5, 2026)
+* **Dual-Plane & Telemetry Enrichment Routing**: Added bilateral federated routing for `RAW_TELEMETRY_ENRICHMENT` and `DUAL_PLANE_CORRELATION` to micro telemetry spike models.
+* **Framework Synchronization**: Synchronized Section 7 (Two-Phase Federated Funnel) with `secops-risk-metrics-multistage`.
 
-### v2.0.1
-* Clarified reporting constraints and chart axis isolation for non-CLI clients.
+### v2.3.2 (September 5, 2026)
+* **Federated Threat Hunt Ingestion Endpoint**: Implemented `--ingest_handoff` supporting `secops-threat-hunt-handoff-v1` protocol.
+* **Dynamic Intent Routing Engine**: Added `INTENT_ROUTING_MAP` across 6 core statistical threat archetypes.
+* **Mutual ACK & Step-Out Contract**: Standardized `HANDOFF_ACK_ACCEPTED` and `STEP_OUT_CONFIRMED` contracts.
+
+### v2.3.1 (September 5, 2026)
+* **Bilateral Cooperative Threat Hunting Architecture**: Codified micro-analysis (raw telemetry) vs macro-analysis (30-day UEBA) boundary.
+* **Dual Grounding Invariants**: Enforced Zero Data Simulation ("Truth Over Completion") and Zero Schema/Syntax Fantasy.
+* **Intermediate AST Hardening**: Prohibited bare scalar `if()` in intermediate stage outcomes; regularized C2 jitter division floor.
+
+### v2.3.0 (September 3, 2026)
+* **Common Compiler AST Invariants**: Codified syntax traps (`$stage.var`, no outcome `sqrt()`, no `rule` wrapper, no event arithmetic).
+* **Calibrated Risk Index (CRI [0–100])**: Standardized logistic sigmoid normalization anchoring $3.0\sigma$ at CRI 50.
+* **Data Reduction Engine & Auto-Remediation**: Truncates large payloads to top $N$ anomalies; auto-detects `RAW_LOG_DUMP_DETECTED`.
+
+### v2.2.1 (September 1, 2026)
+* **Dual Multi-Stage Taxonomy Disambiguation**: Formalized operational boundary between ad-hoc raw DAGs (`UDM_EVENTS`) and pre-computed 30-day metric tables.
+
+### v2.2.0 (September 1, 2026)
+* **AST Pre-Flight Guards & Post-Flight Auditing**: Added pre-flight traps for `^`, `in ("A", "B")`, `by 1d`, and multi-vector cramming.
+
+### v2.1.0 (August 26, 2026)
+* **Progressive Disclosure Architecture**: Streamlined `SKILL.md` to core routing and modularized references.
+* **Post-Query Intent & Architecture Auditor**: Added automated AST verification against stage degradation.
+* **Advanced Raw Telemetry Hunting Models**: Added Bayesian Gamma Shrinkage, Beta-Binomial Regularizer, and Delta-Z.
+
+### v2.0.1 (August 24, 2026)
+* **Clarified Reporting & Chart Axis Isolation**: Enforced strict axis type isolation and 5-section reporting for non-CLI clients.
+
+### v2.0.0 (August 24, 2026)
+* **Four-Stage DAG Pipeline Architecture**: Formalized support for up to 4 intermediate stages plus root stage with 20-variable limit.
+* **6 Standardized Forensic Evidence Pillars**: Guaranteed observation count, active density, central tendency, dispersion, prevalence, and cardinality.
+* **Dynamic Time-Window Protocol**: Adaptive granularity matrix (`by 10m`, `by 1h`, `by 1d`) with proportional sample floor.
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

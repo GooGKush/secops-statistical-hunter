@@ -1,22 +1,27 @@
 # Release Notes: SecOps Statistical Hunter
 
-## 📦 Version 2.4.1 (September 9, 2026) — Privileged Account Lateral Movement & Destination Expansion Archetype
+## 📦 Version 2.4.1 (September 9, 2026) — Privileged Account Lateral Movement, Divisor Hardening & Two-Part Hurdle
 
-* **Privileged Account Lateral Movement & Destination Breadth Expansion**:
+* **Privileged Account Lateral Movement & Destination Breadth Expansion (New Feature)**:
   * Added `templates/pipelines/privileged_lateral_expansion_2stage.yl2`:
     * Multi-stage YARA-L 2.0 pipeline measuring daily unique destination machine footprint (`count_distinct(target.asset.hostname)`) across an ad-hoc bounded lookback window (e.g. 90 days) on raw `USER_LOGIN` events.
     * Incorporates Active Directory privileged account qualification (`$user in %privileged_ad_accounts` or naming convention regex).
-    * Evaluates destination breadth expansion ($Z_{\\text{breadth}} = \\frac{k - \\mu_{\\text{dest}}}{\\sigma_{\\text{dest}} + 0.001}$) and isolates visits to internal workstations/servers with zero prior access history.
+    * Evaluates destination breadth expansion ($Z_{\text{breadth}} = \frac{k - \mu_{\text{dest}}}{\sigma_{\text{dest}} + 0.001}$) and isolates visits to internal workstations/servers with zero prior access history.
     * Standardized 6 Evidence Pillars output for SOC triage.
-* **Federated Intent Routing & Ingestion**:
+* **Safe Zero-Divisor Hardening Across Golden Templates (Bug Fix & Stability)**:
+  * Hardened arithmetic divisions across all golden multi-stage pipeline templates (`templates/pipelines/*.yl2`) using explicit positive divisor gating (`if($sd > 0, $sd, 1.0)` and `if($mean > 0, $mean, 1.0)`).
+  * Prevents Chronicle F1 query execution runtime crashes during low-activity or calm operational windows where baseline dispersion ($\sigma$) or mean ($\mu$) equals zero.
+* **Two-Part Hurdle Model Pipeline Template (New Feature)**:
+  * Added `templates/pipelines/two_part_hurdle_2stage.yl2` separating zero-inflated binary occurrence hurdle ($\Pr(Y > 0)$) from conditional continuous/count severity ($\text{E}[Y \mid Y > 0]$).
+* **Federated Intent Routing & Ingestion (New Feature)**:
   * Added `PRIVILEGED_LATERAL_EXPANSION`, `LATERAL_MOVEMENT_BIPARTITE`, `BIPARTITE_AUTH_RARITY`, and `UNSEEN_ENDPOINT_ACCESS` to `HandoffEndpoint.INTENT_ROUTING_MAP` and `MultiStageTemplateRouter.ARCHETYPE_TEMPLATE_MAP`.
   * Seamlessly receives and ACKs incoming handoff payloads from `secops-risk-metrics-multistage`.
-* **Consultative Intent Catalog & Non-Statistician Analogies**:
-  * Added *"The Explorer off the Beaten Path"* operational concept and trigger keywords to `SKILL.md`.
+* **Consultative Intent Catalog & Non-Statistician Analogies (New Feature)**:
+  * Added *"The Explorer off the Beaten Path"* operational concept and trigger keywords to `SKILL.md` and created `references/consultative-worksheet.md`.
 * **Golden Pipeline Template Portfolio**:
-  * Expanded portfolio to 11 golden multi-stage pipeline templates (all 11 pass compiler grammar and AST scope validation).
+  * Expanded portfolio to **12 golden multi-stage pipeline templates** (all 12 pass compiler grammar and AST scope validation).
 * **Automated Unit Test Suite Expansion**:
-  * Added unit test in `tests/test_handoff_endpoint.py` (`test_ingest_valid_handoff_privileged_lateral_expansion`) verifying protocol compliance, AST validation, and execution directives (76/76 unit tests passing, 100% pass rate).
+  * Expanded automated test suite to **77 unit tests** across 10 test modules with 100% pass rate (added `test_ingest_valid_handoff_privileged_lateral_expansion` and divisor validation tests).
 
 ---
 
