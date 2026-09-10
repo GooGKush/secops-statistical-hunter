@@ -35,37 +35,37 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertEqual(multistage_query_builder.__author__, "Greg Kushmerek")
 
   def test_hard_stop_on_api_error_contract_present(self):
-    """SKILL.md must explicitly contain the Hard Stop on API Error contract."""
+    """SKILL.md must explicitly contain the Transparent Error Surfacing contract."""
     self.assertIn(
-        "Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)",
+        "Transparent Error Surfacing",
         self.skill_content,
-        "SKILL.md must define the Hard Stop on API Error contract."
+        "SKILL.md must define the Transparent Error Surfacing contract."
     )
     self.assertIn(
-        "STRICTLY PROHIBITED",
+        "surface the exact error response",
         self.skill_content,
-        "SKILL.md must strictly prohibit silent local simulation."
+        "SKILL.md must direct surfacing error responses."
     )
 
   def test_zero_python_simulation_contract_present(self):
-    """SKILL.md must explicitly prohibit writing scratch Python scripts to simulate SIEM baselines."""
+    """SKILL.md must explicitly define the Native SIEM Engine Execution Guarantee."""
     self.assertIn(
-        "Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)",
+        "Native SIEM Engine Execution Guarantee",
         self.skill_content,
-        "SKILL.md must define the Native Execution Guarantee prohibiting Python simulation."
+        "SKILL.md must define the Native SIEM Engine Execution Guarantee."
     )
     self.assertIn(
-        "CRITICAL COMPLIANCE VIOLATION",
+        "natively within Google SecOps Chronicle SIEM",
         self.skill_content,
-        "SKILL.md must define local arithmetic simulation as a critical compliance violation."
+        "SKILL.md must direct executing calculations natively within SIEM."
     )
 
   def test_literal_query_display_mandate_present(self):
     """SKILL.md must enforce that Section 2 contains the literal query passed to udm_search."""
     self.assertIn(
-        "Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)",
+        "Verbatim Query Provenance",
         self.skill_content,
-        "SKILL.md must enforce literal query display."
+        "SKILL.md must enforce verbatim query provenance."
     )
 
   def test_clean_handoff_contract_present(self):
@@ -76,40 +76,40 @@ class TestGuardrailContracts(unittest.TestCase):
         "SKILL.md must define the Clean Hand-Off protocol."
     )
     self.assertIn(
-        "Path A (Mandatory Default — Synthetic Event Ingestion)",
+        "Path A (Standard Escalation Default — Synthetic Event Ingestion)",
         self.skill_content,
         "SKILL.md must define Path A default synthetic event ingestion."
     )
     self.assertIn(
-        "Path B (Carved-Out Active Case Exception)",
+        "Path B (Explicit Active Case Attachment)",
         self.skill_content,
         "SKILL.md must define Path B active case comment exception."
     )
 
   def test_zero_code_handoff_invariant_present(self):
-    """SKILL.md must enforce the Zero-Code Handoff Invariant prohibiting code emission during skill steering."""
+    """SKILL.md must enforce the Conceptual Handoff Contract prohibiting code emission during skill steering."""
+    self.assertIn(
+        "Conceptual Handoff Contract",
+        self.skill_content,
+        "SKILL.md must define the Conceptual Handoff Contract."
+    )
     self.assertIn(
         "Zero-Code Handoff Invariant",
         self.skill_content,
-        "SKILL.md must define the Zero-Code Handoff Invariant."
-    )
-    self.assertIn(
-        "Tool-Precondition Code Block Embargo",
-        self.skill_content,
-        "SKILL.md must link zero-code handoffs to the Tool-Precondition Code Block Embargo."
+        "SKILL.md must enforce Zero-Code Handoff Invariant."
     )
 
   def test_strict_nomenclature_mandate_present(self):
     """SKILL.md must enforce Query vs. Rule nomenclature mandate."""
     self.assertIn(
-        "Strict Nomenclature Mandate (Query vs. Rule)",
+        "Search Query Nomenclature",
         self.skill_content,
-        "SKILL.md must mandate query vs rule nomenclature."
+        "SKILL.md must mandate search query nomenclature."
     )
     self.assertIn(
-        "CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION",
+        "ad-hoc Multi-Stage Queries",
         self.skill_content,
-        "SKILL.md must flag rule creation as a critical nomenclature violation."
+        "SKILL.md must direct using ad-hoc Multi-Stage Queries."
     )
 
   def test_postflight_auditor_flags_raw_event_dump_and_remediates(self):
@@ -154,12 +154,22 @@ class TestGuardrailContracts(unittest.TestCase):
     errs_rule = validate_multistage_syntax(bad_rule)
     self.assertTrue(any("INVALID_DETECTION_RULE_SYNTAX" in e for e in errs_rule))
 
+    # 5. if() conditional with missing else clause
+    bad_if_else = "stage s { match: $h by 1h outcome: $val = if($a > 0, 1.0) }"
+    errs_if_else = validate_multistage_syntax(bad_if_else)
+    self.assertTrue(any("INVALID_IF_CONDITIONAL" in e for e in errs_if_else))
+
+    # 6. if() conditional with compound arithmetic in then-clause
+    bad_if_compound = "stage s { match: $h by 1h outcome: $val = if($a > 0, $b / $c, 0.0) }"
+    errs_if_compound = validate_multistage_syntax(bad_if_compound)
+    self.assertTrue(any("INVALID_IF_CONDITIONAL" in e for e in errs_if_compound))
+
   def test_all_pipeline_templates_pass_validation(self):
     """All golden pipeline templates in templates/pipelines/ must pass grammar and scope validation."""
     pipeline_dir = os.path.join(self.repo_dir, "templates", "pipelines")
     self.assertTrue(os.path.exists(pipeline_dir), "templates/pipelines/ directory must exist")
     yl2_files = glob.glob(os.path.join(pipeline_dir, "*.yl2"))
-    self.assertEqual(len(yl2_files), 10, f"Must have exactly 10 golden pipeline templates, found {len(yl2_files)}")
+    self.assertEqual(len(yl2_files), 12, f"Must have exactly 12 golden pipeline templates, found {len(yl2_files)}")
 
     router = MultiStageTemplateRouter(template_dir=pipeline_dir)
     for fpath in yl2_files:
@@ -178,8 +188,8 @@ class TestGuardrailContracts(unittest.TestCase):
   def test_dual_grounding_commandments_contract(self):
     """SKILL.md must strictly define the Dual Grounding Commandments."""
     self.assertIn("THE DUAL GROUNDING INVARIANTS (THE NON-NEGOTIABLE INTEGRITY CORE)", self.skill_content)
-    self.assertIn("Invariant 1: Zero Data Simulation (NEVER Fabricate Data)", self.skill_content)
-    self.assertIn("Invariant 2: Zero Schema/Syntax Fantasy (NEVER Hallucinate UDM Fields or YARA-L Grammar)", self.skill_content)
+    self.assertIn("Invariant 1: Empirical Data Grounding (Zero Data Simulation)", self.skill_content)
+    self.assertIn("Invariant 2: Verified Compiler Grammar (Zero Schema/Syntax Fantasy)", self.skill_content)
     self.assertIn("Truth Over Completion", self.skill_content)
 
   def test_three_state_active_hunt_lifecycle_contract(self):

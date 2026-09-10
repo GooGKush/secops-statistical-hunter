@@ -67,7 +67,11 @@ outcome:
   $sample_commands = array_distinct($hourly_failures.sample_ip)
   
   // Aggregate Fano Factor (F = σ² / μ)
-  $fano_factor = (max($dispersion_baseline.stddev_rate) * max($dispersion_baseline.stddev_rate)) / (max($dispersion_baseline.mean_rate) + 0.001)
+  $raw_mean = max($dispersion_baseline.mean_rate)
+  $safe_mean = if($raw_mean > 0, $raw_mean, 1.0)
+  $raw_stddev = max($dispersion_baseline.stddev_rate)
+  $variance = $raw_stddev * $raw_stddev
+  $fano_factor = $variance / $safe_mean
 
 condition:
   $baseline_active_samples >= {{min_active_samples}}

@@ -76,7 +76,11 @@ outcome:
   $sample_commands = array_distinct($today_activity.today_cmds)
   
   // Aggregate Poisson Squared Score (Z^2 = (k - λ)^2 / λ)
-  $poisson_z_sq = ((max($today_activity.today_runs) - max($tool_baseline.lambda_rate)) * (max($today_activity.today_runs) - max($tool_baseline.lambda_rate))) / (max($tool_baseline.lambda_rate) + 0.001)
+  $diff = max($today_activity.today_runs) - max($tool_baseline.lambda_rate)
+  $diff_sq = $diff * $diff
+  $raw_lambda = max($tool_baseline.lambda_rate)
+  $safe_lambda = if($raw_lambda > 0, $raw_lambda, 1.0)
+  $poisson_z_sq = $diff_sq / $safe_lambda
 
 condition:
   $baseline_active_samples >= {{min_baseline_days}}

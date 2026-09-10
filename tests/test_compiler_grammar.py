@@ -298,7 +298,46 @@ class TestCompilerGrammar(unittest.TestCase):
     errors = validate_multistage_syntax(query)
     self.assertEqual(errors, [], f"Rendered hybrid entropy concentration had errors: {errors}")
 
+  def test_root_stage_sequential_derivations_and_if_logic(self):
+    """Terminal Root stage permits sequential derived assignments and safe if() logic."""
+    good_query = """
+    // Goal: Test sequential derivations and conditional logic in root stage
+    // Statistical Model: Z-Score with safe denominator
+    stage host_s {
+      metadata.event_type = "PROCESS_LAUNCH"
+      $entity = principal.hostname
+      match: $entity by 1h
+      outcome:
+        $hourly_count = count(metadata.id)
+    }
+    stage host_stats {
+      $entity = $host_s.entity
+      match: $entity
+      outcome:
+        $host_mean = avg($host_s.hourly_count)
+        $host_stddev = stddev($host_s.hourly_count)
+    }
+    $entity = $host_s.entity
+    $entity = $host_stats.entity
+    $window_start = $host_s.window_start
+    match: $entity, $window_start by 1h
+    outcome:
+      $obs = max($host_s.hourly_count)
+      $mean = max($host_stats.host_mean)
+      $stddev = max($host_stats.host_stddev)
+      $diff = $obs - $mean
+      $safe_stddev = if($stddev > 0, $stddev, 1.0)
+      $z_score = $diff / $safe_stddev
+    condition:
+      $z_score >= 3.0
+    order:
+      $z_score desc
+    """
+    errors = validate_multistage_syntax(good_query)
+    self.assertEqual(errors, [], f"Root stage derivations should pass cleanly: {errors}")
+
 
 if __name__ == "__main__":
   unittest.main()
+
 

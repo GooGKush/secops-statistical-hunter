@@ -68,7 +68,10 @@ outcome:
   $sample_commands = array_distinct($host_hourly.sample_cmd)
   
   // Aggregate computed Z-Score
-  $z_score = (max($host_hourly.hourly_count) - max($host_stats.host_mean)) / (max($host_stats.host_stddev) + 0.001)
+  $diff = max($host_hourly.hourly_count) - max($host_stats.host_mean)
+  $raw_stddev = max($host_stats.host_stddev)
+  $safe_stddev = if($raw_stddev > 0, $raw_stddev, 1.0)
+  $z_score = $diff / $safe_stddev
 
 condition:
   $baseline_active_samples >= {{min_active_samples}}

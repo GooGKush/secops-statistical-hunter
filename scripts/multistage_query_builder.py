@@ -14,7 +14,7 @@ generates Strictly-Typed True Dual-Y Axis Timeline Specs (with orient: right and
 """
 
 __author__ = "Greg Kushmerek"
-__version__ = "2.3.0"
+__version__ = "2.4.1"
 
 import argparse
 import json
@@ -93,6 +93,21 @@ SENSITIVITY_MAP = {
         "CONSERVATIVE": {"fleet_z": 3.5, "min_host_count": 50, "min_fleet_sd": 10.0, "min_active_hosts": 25},
         "BALANCED": {"fleet_z": 2.5, "min_host_count": 25, "min_fleet_sd": 5.0, "min_active_hosts": 15},
         "AGGRESSIVE": {"fleet_z": 2.0, "min_host_count": 10, "min_fleet_sd": 2.0, "min_active_hosts": 10},
+    },
+    "PRIVILEGED_LATERAL_EXPANSION": {
+        "CONSERVATIVE": {"z_score": 3.0, "min_distinct_targets": 5, "min_sd": 1.0, "min_active_samples": 30},
+        "BALANCED": {"z_score": 2.0, "min_distinct_targets": 3, "min_sd": 0.5, "min_active_samples": 14},
+        "AGGRESSIVE": {"z_score": 1.5, "min_distinct_targets": 2, "min_sd": 0.2, "min_active_samples": 7},
+    },
+    "TWO_PART_HURDLE": {
+        "CONSERVATIVE": {"z_score": 3.5, "min_count": 10, "dormant_weight": 3.0, "min_sd": 1.0, "min_active_samples": 14},
+        "BALANCED": {"z_score": 2.5, "min_count": 5, "dormant_weight": 2.0, "min_sd": 0.5, "min_active_samples": 7},
+        "AGGRESSIVE": {"z_score": 1.5, "min_count": 2, "dormant_weight": 1.5, "min_sd": 0.2, "min_active_samples": 3},
+    },
+    "DORMANT_ACCOUNT_AWAKENING": {
+        "CONSERVATIVE": {"z_score": 3.5, "min_count": 10, "dormant_weight": 3.0, "min_sd": 1.0, "min_active_samples": 14},
+        "BALANCED": {"z_score": 2.5, "min_count": 5, "dormant_weight": 2.0, "min_sd": 0.5, "min_active_samples": 7},
+        "AGGRESSIVE": {"z_score": 1.5, "min_count": 2, "dormant_weight": 1.5, "min_sd": 0.2, "min_active_samples": 3},
     },
 }
 
@@ -500,6 +515,16 @@ def validate_multistage_syntax(query: str) -> List[str]:
   errors.extend(check_event_section_arithmetic(query))
   errors.extend(check_match_placeholders_bound(query))
 
+  # Chronicle Common Compiler Grammar Invariants for if():
+  for m in re.finditer(r"\bif\s*\(([^)]+)\)", code_only):
+    args = [a.strip() for a in m.group(1).split(",")]
+    if len(args) < 3:
+      errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' is missing required else-clause: {m.group(0)}")
+    else:
+      then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
+      if re.search(r"[\+\-\*\/]", then_clause):
+        errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {m.group(0)}")
+
   stages = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{", code_only)
   is_multistage = bool(stages)
 
@@ -563,14 +588,16 @@ def validate_multistage_syntax(query: str) -> List[str]:
       rhs_clean = rhs.strip()
       
       # Check for intra-stage dependency / race condition:
-      # If rhs references any variable previously defined in THIS outcome block
-      for prev_var in defined_vars:
-        if re.search(r"\$" + re.escape(prev_var) + r"\b", rhs):
-          errors.append(
-              f"INTRA-STAGE RACE CONDITION: Variable '${prev_var}' is defined on an earlier line in outcome block #{b_idx+1} "
-              f"and referenced in '${line_clean}'. In YARA-L, multi-stage pipelines require dependent calculations "
-              f"to be computed in an earlier stage or decomposed across stages."
-          )
+      # In intermediate stages, chaining across variables is invalid because each stage aggregates raw events.
+      # In the root stage, Chronicle Common Compiler natively permits sequential derived assignments.
+      if is_stage:
+        for prev_var in defined_vars:
+          if re.search(r"\$" + re.escape(prev_var) + r"\b", rhs):
+            errors.append(
+                f"INTRA-STAGE RACE CONDITION: Variable '${prev_var}' is defined on an earlier line in outcome block #{b_idx+1} "
+                f"and referenced in '${line_clean}'. In YARA-L, multi-stage pipelines require dependent calculations "
+                f"to be computed in an earlier stage or decomposed across stages."
+            )
 
       defined_vars.append(var_name)
 
@@ -578,14 +605,14 @@ def validate_multistage_syntax(query: str) -> List[str]:
       if is_stage and re.match(r"^if\s*\(", rhs_clean):
         errors.append(
             f"MALACHITE AST ERROR: Bare scalar if() in intermediate stage outcome: '{line_clean}'. "
-            f"Intermediate stages reject scalar if(); use linear arithmetic (e.g. '/ ($denom + 0.001)') or compute conditions in the root stage."
+            f"Intermediate stages reject scalar if(); use linear arithmetic or compute conditions in the root stage."
         )
 
-      # Check for inline/bare if in arithmetic: e.g. / if(...) or * if(...)
+      # Check for inline if in compound arithmetic: e.g. / if(...) or * if(...)
       if re.search(r"[-+*/]\s*if\s*\(|if\s*\([^)]*\)\s*[-+*/]", rhs):
         errors.append(
             f"MALACHITE AST ERROR: Inline if() inside outcome arithmetic: '{line_clean}'. "
-            f"Outcome math rejects inline if() for division protection. Enforce non-zero divisor in 'condition:' instead."
+            f"Chronicle compiler requires computing conditional expressions into intermediate variables before arithmetic (e.g. '$safe_std = if(...); $z = $diff / $safe_std')."
         )
 
 
@@ -1707,10 +1734,17 @@ class MultiStageTemplateRouter:
       "ORTHOGONAL_THREAT_SPACE": "multi_sector_threat_fusion_4stage.yl2",
       "EUCLIDEAN_THREAT_DISTANCE": "multi_sector_threat_fusion_4stage.yl2",
       "BAYESIAN_JOINT_ODDS": "bayesian_gamma_shrinkage_4stage.yl2",
-      "TWO_PART_HURDLE": "poisson_rare_surge_2stage.yl2",
-      "DORMANT_ACCOUNT": "poisson_rare_surge_2stage.yl2",
+      "TWO_PART_HURDLE": "two_part_hurdle_2stage.yl2",
+      "DORMANT_ACCOUNT": "two_part_hurdle_2stage.yl2",
+      "DORMANT_ACCOUNT_AWAKENING": "two_part_hurdle_2stage.yl2",
+      "COLD_START_AWAKENING": "two_part_hurdle_2stage.yl2",
+      "HURDLE": "two_part_hurdle_2stage.yl2",
       "FLEET_PREVALENCE_NORMALIZATION": "dual_baseline_delta_z_3stage.yl2",
       "PATCH_TUESDAY_SHIELD": "dual_baseline_delta_z_3stage.yl2",
+      "PRIVILEGED_LATERAL_EXPANSION": "privileged_lateral_expansion_2stage.yl2",
+      "LATERAL_MOVEMENT_BIPARTITE": "privileged_lateral_expansion_2stage.yl2",
+      "BIPARTITE_AUTH_RARITY": "privileged_lateral_expansion_2stage.yl2",
+      "UNSEEN_ENDPOINT_ACCESS": "privileged_lateral_expansion_2stage.yl2",
   }
 
   def __init__(self, template_dir: Optional[Path] = None):
@@ -1779,7 +1813,7 @@ class MultiStageTemplateRouter:
 
     # Default event type resolution
     if not event_type:
-      if "POISSON_BURST" in template_file or "beta_binomial" in template_file:
+      if "POISSON_BURST" in template_file or "beta_binomial" in template_file or "privileged_lateral" in template_file or "two_part_hurdle" in template_file:
         event_type = "USER_LOGIN"
       elif "c2_beaconing" in template_file:
         event_type = "NETWORK_CONNECTION"
@@ -1805,6 +1839,8 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_active_hours}}", str(min_samples))
     rendered = rendered.replace("{{min_count}}", str(thresh.get("min_count", 25)))
     rendered = rendered.replace("{{min_sd}}", str(thresh.get("min_sd", 5.0)))
+    rendered = rendered.replace("{{min_distinct_targets}}", str(thresh.get("min_distinct_targets", 3)))
+    rendered = rendered.replace("{{dormant_weight}}", str(thresh.get("dormant_weight", 2.0)))
     rendered = rendered.replace("{{z_score}}", str(thresh.get("z_score", 2.0)))
     rendered = rendered.replace("{{fano_factor}}", str(thresh.get("fano_factor", 4.0)))
     rendered = rendered.replace("{{min_fails}}", str(thresh.get("min_fails", 15)))
@@ -1898,6 +1934,11 @@ class HandoffEndpoint:
       "DORMANT_ACCOUNT": "TWO_PART_HURDLE",
       "FLEET_PREVALENCE_NORMALIZATION": "FLEET_PREVALENCE_NORMALIZATION",
       "PATCH_TUESDAY_SHIELD": "FLEET_PREVALENCE_NORMALIZATION",
+      "PRIVILEGED_LATERAL_EXPANSION": "PRIVILEGED_LATERAL_EXPANSION",
+      "LATERAL_MOVEMENT_BIPARTITE": "PRIVILEGED_LATERAL_EXPANSION",
+      "BIPARTITE_AUTH_RARITY": "PRIVILEGED_LATERAL_EXPANSION",
+      "UNSEEN_ENDPOINT_ACCESS": "PRIVILEGED_LATERAL_EXPANSION",
+      "LATERAL_MOVEMENT": "PRIVILEGED_LATERAL_EXPANSION",
   }
 
   @classmethod

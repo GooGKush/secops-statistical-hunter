@@ -1,0 +1,91 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect privileged administrative accounts exhibiting anomalous lateral movement or destination expansion across unvisited endpoints.
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Bounded Historical Baseline of Daily Destination Breadth (Z = (Distinct_Today - μ_dest) / σ_dest)
+// Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
+// Mathematical Rationale:
+//   - Why this model: Privileged accounts (Domain Admins, Tier-0) normally operate within a tight, bounded radius of endpoints (domain controllers, jump boxes).
+//     Volumetric login counts fail to detect single-hop lateral movement. Baselining daily unique target hostnames (count_distinct(target.asset.hostname))
+//     over a bounded historical window (e.g. 90d) reveals sudden breadth expansion and access to endpoints with zero prior interaction.
+//   - Small-Sample & Division-by-Zero Protection: Enforces Active Directory privilege filtering (%privileged_ad_accounts),
+//     an active baseline sample floor (>= {{min_active_samples}} samples), an activity floor (>= {{min_distinct_targets}} destinations),
+//     and a standard deviation floor (σ >= {{min_sd}}) to prevent zero-variance divisions and idle account false alarms.
+// Sensitivity Boundary: {{tier}} (Z-Score >= {{z_score}}, Distinct Endpoints Today >= {{min_distinct_targets}}, Min Stddev >= {{min_sd}}, Min Active Samples >= {{min_active_samples}})
+// ============================================================================
+
+// Stage 1: Daily destination breadth and login activity per privileged account
+stage daily_user_breadth {
+    metadata.event_type = "{{event_type}}"
+    security_result.action = "ALLOW"
+    {{entity_field}} = $entity
+    $entity != ""
+    (
+      $entity in %privileged_ad_accounts
+      or re.regex($entity, `(?i)(admin|adm_|svc_).*`)
+    )
+
+  match:
+    $entity by {{bucket_size}}
+  outcome:
+    $daily_targets = count_distinct(target.asset.hostname)
+    $daily_logins = count(metadata.id)
+    $window_start = min(metadata.event_timestamp.seconds)
+    $sample_target = array_distinct(target.asset.hostname)
+}
+
+// Stage 2: Historical destination breadth baseline (mean, stddev, active days) per privileged account
+stage user_breadth_baseline {
+    $entity = $daily_user_breadth.entity
+
+  match:
+    $entity
+  outcome:
+    $mean_daily_targets = avg($daily_user_breadth.daily_targets)
+    $stddev_daily_targets = stddev($daily_user_breadth.daily_targets)
+    $active_days = count($daily_user_breadth.window_start)
+}
+
+// Stage 3: Current observation window destination footprint
+stage current_breadth {
+    $entity = $daily_user_breadth.entity
+    $window_start = $daily_user_breadth.window_start
+
+  match:
+    $entity, $window_start by {{bucket_size}}
+  outcome:
+    $current_targets = max($daily_user_breadth.daily_targets)
+    $current_logins = max($daily_user_breadth.daily_logins)
+    $current_hosts = array_distinct($daily_user_breadth.sample_target)
+}
+
+// Root Stage: Join historical baseline with current window, calculate breadth Z-Score, and emit 6 Evidence Pillars
+$entity = $user_breadth_baseline.entity
+$entity = $current_breadth.entity
+$window_start = $current_breadth.window_start
+
+match:
+  $entity, $window_start by {{bucket_size}}
+outcome:
+  // 6 Core Evidence Pillars
+  $observation_count = max($current_breadth.current_targets)
+  $baseline_active_samples = max($user_breadth_baseline.active_days)
+  $baseline_mean = max($user_breadth_baseline.mean_daily_targets)
+  $baseline_dispersion = max($user_breadth_baseline.stddev_daily_targets)
+  $fleet_prevalence = 1
+  $distinct_binaries = max($current_breadth.current_logins)
+  $sample_commands = array_distinct($current_breadth.current_hosts)
+
+  // Breadth Expansion Z-Score
+  $diff = max($current_breadth.current_targets) - max($user_breadth_baseline.mean_daily_targets)
+  $safe_stddev = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
+  $z_score = $diff / $safe_stddev
+
+condition:
+  $baseline_active_samples >= {{min_active_samples}}
+  and $observation_count >= {{min_distinct_targets}}
+  and $baseline_dispersion >= {{min_sd}}
+  and $z_score >= {{z_score}}
+
+order:
+  $z_score desc

@@ -104,6 +104,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `DATA_EXFILTRATION_SPIKE` | **CONSERVATIVE** | `m_z=3.5`, `min_mb=500.0`, `min_mad=20.0`, `min_baseline_days=14` |
 | `DATA_EXFILTRATION_SPIKE` | **BALANCED** | `m_z=2.5`, `min_mb=100.0`, `min_mad=10.0`, `min_baseline_days=7` |
 | `DATA_EXFILTRATION_SPIKE` | **AGGRESSIVE** | `m_z=2.0`, `min_mb=25.0`, `min_mad=5.0`, `min_baseline_days=3` |
+| `DORMANT_ACCOUNT_AWAKENING` | **CONSERVATIVE** | `z_score=3.5`, `min_count=10`, `dormant_weight=3.0`, `min_sd=1.0`, `min_active_samples=14` |
+| `DORMANT_ACCOUNT_AWAKENING` | **BALANCED** | `z_score=2.5`, `min_count=5`, `dormant_weight=2.0`, `min_sd=0.5`, `min_active_samples=7` |
+| `DORMANT_ACCOUNT_AWAKENING` | **AGGRESSIVE** | `z_score=1.5`, `min_count=2`, `dormant_weight=1.5`, `min_sd=0.2`, `min_active_samples=3` |
 | `FLEET_PEER_ZSCORE` | **CONSERVATIVE** | `fleet_z=3.5`, `min_host_count=50`, `min_fleet_sd=10.0`, `min_active_hosts=25` |
 | `FLEET_PEER_ZSCORE` | **BALANCED** | `fleet_z=2.5`, `min_host_count=25`, `min_fleet_sd=5.0`, `min_active_hosts=15` |
 | `FLEET_PEER_ZSCORE` | **AGGRESSIVE** | `fleet_z=2.0`, `min_host_count=10`, `min_fleet_sd=2.0`, `min_active_hosts=10` |
@@ -116,6 +119,12 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `POISSON_RARE_SURGE` | **CONSERVATIVE** | `poisson_z=5.0`, `min_observed=5`, `max_lambda=1.0`, `min_baseline_days=14` |
 | `POISSON_RARE_SURGE` | **BALANCED** | `poisson_z=3.5`, `min_observed=3`, `max_lambda=2.0`, `min_baseline_days=7` |
 | `POISSON_RARE_SURGE` | **AGGRESSIVE** | `poisson_z=2.5`, `min_observed=2`, `max_lambda=3.0`, `min_baseline_days=3` |
+| `PRIVILEGED_LATERAL_EXPANSION` | **CONSERVATIVE** | `z_score=3.0`, `min_distinct_targets=5`, `min_sd=1.0`, `min_active_samples=30` |
+| `PRIVILEGED_LATERAL_EXPANSION` | **BALANCED** | `z_score=2.0`, `min_distinct_targets=3`, `min_sd=0.5`, `min_active_samples=14` |
+| `PRIVILEGED_LATERAL_EXPANSION` | **AGGRESSIVE** | `z_score=1.5`, `min_distinct_targets=2`, `min_sd=0.2`, `min_active_samples=7` |
+| `TWO_PART_HURDLE` | **CONSERVATIVE** | `z_score=3.5`, `min_count=10`, `dormant_weight=3.0`, `min_sd=1.0`, `min_active_samples=14` |
+| `TWO_PART_HURDLE` | **BALANCED** | `z_score=2.5`, `min_count=5`, `dormant_weight=2.0`, `min_sd=0.5`, `min_active_samples=7` |
+| `TWO_PART_HURDLE` | **AGGRESSIVE** | `z_score=1.5`, `min_count=2`, `dormant_weight=1.5`, `min_sd=0.2`, `min_active_samples=3` |
 | `VELOCITY_SURGE_RATIO` | **CONSERVATIVE** | `ratio_1v7=5.0`, `ratio_1v30=8.0`, `min_today=200`, `min_baseline_days=20` |
 | `VELOCITY_SURGE_RATIO` | **BALANCED** | `ratio_1v7=3.0`, `ratio_1v30=5.0`, `min_today=100`, `min_baseline_days=14` |
 | `VELOCITY_SURGE_RATIO` | **AGGRESSIVE** | `ratio_1v7=2.0`, `ratio_1v30=3.0`, `min_today=50`, `min_baseline_days=7` |

@@ -38,7 +38,19 @@ secops-statistical-hunter/
 ├── RELEASE_NOTES.md                         # Detailed version changelog & feature notes
 ├── LICENSE                                  # Apache 2.0 open-source license
 ├── llms.txt                                 # Token-efficient AI agent summary file
-├── examples/                                # Working multi-stage YARA-L search templates (12)
+├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (11)
+│   ├── privileged_lateral_expansion_2stage.yl2 # Privileged lateral movement & destination expansion
+│   ├── hybrid_entropy_concentration_2stage.yl2 # Diversity Deficit & Elephant Flow Concentration
+│   ├── c2_beaconing_jitter_2stage.yl2       # C2 beaconing timing jitter & interval regularity (CV)
+│   ├── poisson_burst_clustering_2stage.yl2  # Poisson Burst Clustering & Fano Factor (password spray)
+│   ├── poisson_rare_surge_2stage.yl2        # Discrete Poisson Rarity & Two-Part Hurdle
+│   ├── multi_sector_threat_fusion_4stage.yl2 # Orthogonal Threat Space & Euclidean Distance
+│   ├── bayesian_gamma_shrinkage_4stage.yl2  # Poisson-Gamma Bayesian Credibility Shrinkage
+│   ├── beta_binomial_failure_4stage.yl2     # Beta-Binomial Failure Rate Shrinkage
+│   ├── dual_baseline_delta_z_3stage.yl2     # Dual-Baseline Delta-Z & Fleet Prevalence Normalization
+│   ├── mad_exfiltration_2stage.yl2          # Median Absolute Deviation (MAD) & Non-Parametric IQR
+│   └── zscore_process_surge_2stage.yl2      # Parametric Z-Score process surges per host
+├── examples/                                # Working standalone YARA-L search templates (12)
 │   ├── bayesian_gamma_shrinkage.yara        # Poisson-Gamma Bayesian Credibility Shrinkage
 │   ├── beta_binomial_failure_regularization.yara # Beta-Binomial failure rate regularization
 │   ├── c2_beaconing_jitter_cv.yara          # Inter-arrival CV + low-prevalence filter
@@ -75,6 +87,16 @@ secops-statistical-hunter/
 ---
 
 ## Release Notes
+
+### v2.4.1 (September 9, 2026)
+* **Privileged Account Lateral Movement & Destination Expansion**: Added `templates/pipelines/privileged_lateral_expansion_2stage.yl2` measuring daily unique destination host footprint across a bounded lookback window (e.g. 90d) on raw `USER_LOGIN` events with AD privilege filtering.
+* **Federated Protocol & Intent Routing**: Registered `PRIVILEGED_LATERAL_EXPANSION` in `HandoffEndpoint` and `MultiStageTemplateRouter` for seamless bilateral delegation from `secops-risk-metrics-multistage`.
+* **Portfolio Expansion**: Expanded golden pipeline templates to 11 (76/76 unit tests passing).
+
+### v2.4.0 (September 7, 2026)
+* **Dynamic Root-Stage Condition Filtering**: Enabled root-stage condition filtering and noise level steering in `MultiStageTemplateRouter`.
+* **Anti-Degradation Auditing**: Upgraded `PostFlightExecutionAuditor` to detect stage degradation and enforce user narrative concordance.
+* **6 Hybrid Mathematical Models**: Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds, Two-Part Hurdle, and Fleet Prevalence Normalization.
 
 ### v2.1.0 (Minor Point Revision)
 * **Strict UEBA Exclusion Guardrail**: Added prominent top-level routing guardrails (`🛑 STRICT UEBA EXCLUSION`) directing all 30-day pre-computed behavioral baselines, peer group comparisons, 360° health checks, and longitudinal CUSUM drift to `secops-risk-metrics-multistage`.

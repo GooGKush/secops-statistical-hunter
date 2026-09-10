@@ -45,6 +45,39 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertIn("order:\n  $cv asc", res["compiled_query"])
     self.assertIn("CV = sigma / mu <= 0.20", res["preflight_spec"]["formula"])
 
+  def test_ingest_valid_handoff_privileged_lateral_expansion(self):
+    """Privileged lateral movement handoff payload must return HANDOFF_ACK_ACCEPTED and compile cleanly."""
+    payload = {
+        "protocol": "secops-threat-hunt-handoff-v1",
+        "request_id": "req-lateral-unit-01",
+        "source_skill": "secops-risk-metrics-multistage",
+        "target_skill": "secops-statistical-hunter",
+        "intent": "PRIVILEGED_LATERAL_EXPANSION",
+        "target_entity": {
+            "type": "USER",
+            "value": "domain_admins"
+        },
+        "search_window": {
+            "lookback": "90d"
+        },
+        "statistical_model": {
+            "name": "PRIVILEGED_LATERAL_EXPANSION",
+            "sensitivity": "BALANCED",
+            "parameters": {
+                "min_distinct_targets": 3
+            }
+        },
+        "justification": "Bipartite user-to-host destination expansion across internal endpoints."
+    }
+    res = HandoffEndpoint.ingest(payload)
+    self.assertEqual(res["status"], "HANDOFF_ACK_ACCEPTED")
+    self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
+    self.assertEqual(res["model_routed"], "PRIVILEGED_LATERAL_EXPANSION")
+    self.assertIn("stage daily_user_breadth", res["compiled_query"])
+    self.assertIn("stage user_breadth_baseline", res["compiled_query"])
+    self.assertIn("stage current_breadth", res["compiled_query"])
+    self.assertIn("order:\n  $z_score desc", res["compiled_query"])
+
   def test_ingest_json_string_with_fences(self):
     """Payload provided as markdown-fenced JSON string must parse and compile cleanly."""
     json_str = "```json\n" + json.dumps(self.valid_exfil_payload) + "\n```"

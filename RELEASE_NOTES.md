@@ -1,5 +1,44 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.4.1 (September 9, 2026) — Privileged Account Lateral Movement & Destination Expansion Archetype
+
+* **Privileged Account Lateral Movement & Destination Breadth Expansion**:
+  * Added `templates/pipelines/privileged_lateral_expansion_2stage.yl2`:
+    * Multi-stage YARA-L 2.0 pipeline measuring daily unique destination machine footprint (`count_distinct(target.asset.hostname)`) across an ad-hoc bounded lookback window (e.g. 90 days) on raw `USER_LOGIN` events.
+    * Incorporates Active Directory privileged account qualification (`$user in %privileged_ad_accounts` or naming convention regex).
+    * Evaluates destination breadth expansion ($Z_{\\text{breadth}} = \\frac{k - \\mu_{\\text{dest}}}{\\sigma_{\\text{dest}} + 0.001}$) and isolates visits to internal workstations/servers with zero prior access history.
+    * Standardized 6 Evidence Pillars output for SOC triage.
+* **Federated Intent Routing & Ingestion**:
+  * Added `PRIVILEGED_LATERAL_EXPANSION`, `LATERAL_MOVEMENT_BIPARTITE`, `BIPARTITE_AUTH_RARITY`, and `UNSEEN_ENDPOINT_ACCESS` to `HandoffEndpoint.INTENT_ROUTING_MAP` and `MultiStageTemplateRouter.ARCHETYPE_TEMPLATE_MAP`.
+  * Seamlessly receives and ACKs incoming handoff payloads from `secops-risk-metrics-multistage`.
+* **Consultative Intent Catalog & Non-Statistician Analogies**:
+  * Added *"The Explorer off the Beaten Path"* operational concept and trigger keywords to `SKILL.md`.
+* **Golden Pipeline Template Portfolio**:
+  * Expanded portfolio to 11 golden multi-stage pipeline templates (all 11 pass compiler grammar and AST scope validation).
+* **Automated Unit Test Suite Expansion**:
+  * Added unit test in `tests/test_handoff_endpoint.py` (`test_ingest_valid_handoff_privileged_lateral_expansion`) verifying protocol compliance, AST validation, and execution directives (76/76 unit tests passing, 100% pass rate).
+
+---
+
+## 📦 Version 2.4.0 (September 7, 2026) — Dynamic Root-Stage Condition Filtering, Anti-Degradation Audit & 6 Hybrid Models
+
+* **Dynamic Root-Stage Condition Filtering & Noise Level Steering**:
+  * Enabled root-stage condition filtering and noise level steering in `MultiStageTemplateRouter`.
+  * Support sensitivity bands, single thresholds, and compound boolean expressions in condition blocks.
+* **Anti-Degradation Auditing**:
+  * Upgraded `PostFlightExecutionAuditor` to detect stage degradation and enforce user narrative concordance.
+* **6 Hybrid Mathematical Models**:
+  * Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds, Two-Part Hurdle, and Fleet Prevalence Normalization.
+  * Canonical 2-stage raw UDM pipeline for Diversity Deficit & Elephant Flow Concentration (`hybrid_entropy_concentration_2stage.yl2`).
+* **AST Guardrails**:
+  * Added AST guardrails for root stage events blocks and match member dot-notation.
+* **Code-as-Single-Source-of-Truth Reference Generator**:
+  * Implemented `scripts/generate_references.py` to auto-generate reference docs from Python schemas.
+* **Automated Test Suite Expansion**:
+  * Expanded test suite to 75 unit tests with 100% pass rate.
+
+---
+
 ## 📦 Version 2.3.3 (September 5, 2026) — Dual-Plane Hybrid Enrichment Routing & Section 7 Framework Sync
 
 * **Dual-Plane & Telemetry Enrichment Intent Routing**:
