@@ -6,7 +6,7 @@ This guide defines the syntax, structural limits, and compilation invariants for
 
 ## 1. Multi-Stage Pipeline Topography
 
-A valid Malachite multi-stage query consists of **1 to 4 named intermediate stages** followed by **1 unwrapped root stage**:
+A valid Malachite multi-stage query consists of **1 to 3 named intermediate stages** followed by **1 unwrapped root stage** (up to 4 stages total):
 
 ```yara
 // --- INTERMEDIATE STAGE 1: Event-Plane Extraction & Binning ---

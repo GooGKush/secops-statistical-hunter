@@ -529,10 +529,10 @@ def validate_multistage_syntax(query: str) -> List[str]:
   is_multistage = bool(stages)
 
   if is_multistage:
-    if len(stages) > 4:
+    if len(stages) > 3:
       errors.append(
           f"STAGE COUNT LIMIT EXCEEDED ({len(stages)} named stages found): Malachite supports a maximum "
-          f"of 4 named intermediate stages plus 1 unwrapped root stage (5 stages total). Reduce stage count."
+          f"of 3 named intermediate stages plus 1 unwrapped root stage (4 stages total). Reduce stage count."
       )
 
     # Verify that the final stage is unwrapped at the root level

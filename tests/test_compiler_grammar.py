@@ -336,6 +336,43 @@ class TestCompilerGrammar(unittest.TestCase):
     errors = validate_multistage_syntax(good_query)
     self.assertEqual(errors, [], f"Root stage derivations should pass cleanly: {errors}")
 
+  def test_reject_excessive_named_stages(self):
+    """Rejects queries with > 3 named stages (allowance is strictly 1-3 named stages + root)."""
+    four_named_stages = """
+    // Goal: Test stage limit rejection
+    // Statistical Model: Excessive stages
+    stage s1 {
+      metadata.event_type = "USER_LOGIN"
+      $u = principal.user.userid
+      match: $u by 1h
+      outcome: $c1 = count(metadata.id)
+    }
+    stage s2 {
+      $u = $s1.u
+      match: $u by 1h
+      outcome: $c2 = max($s1.c1)
+    }
+    stage s3 {
+      $u = $s2.u
+      match: $u by 1h
+      outcome: $c3 = max($s2.c2)
+    }
+    stage s4 {
+      $u = $s3.u
+      match: $u by 1h
+      outcome: $c4 = max($s3.c3)
+    }
+    $u = $s4.u
+    match: $u by 1h
+    outcome:
+      $final = max($s4.c4)
+    condition:
+      $final >= 1
+    """
+    errors = validate_multistage_syntax(four_named_stages)
+    self.assertTrue(any("STAGE COUNT LIMIT EXCEEDED" in e for e in errors),
+                    f"Expected STAGE COUNT LIMIT EXCEEDED rejection for 4 named stages, got: {errors}")
+
 
 if __name__ == "__main__":
   unittest.main()
