@@ -1,5 +1,29 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.5.0 (September 10, 2026) — Dual-Client Multi-Platform Regression Suite, Strict Match Binding & Additive Dispersion Floor
+
+* **Dual-Client Multi-Platform Regression Suite (AgentAPI & Direct MCP)**:
+  * Integrated full regression harness evaluation against production-like Google SecOps SIEM tenant (`gus-sdl`, `8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5`).
+  * Validated across 10 multi-turn test scenarios covering P0 critical invariants, P1 domain boundaries, and P2 presentation/surface integrity.
+  * Achieved **100% pass rate (10/10)** with complete cross-engine invariant parity between workspace-based AgentAPI and headless Direct MCP client.
+  * Established strict multi-branch reporting federation and ledger isolation (`reports/stats-hunter/branches/main/`) with independent POSIX file locking (`fcntl`), preventing cross-project pollution with `secops-risk-metrics-multistage`.
+  * Integrated automated live HTML dashboards, concise launch feedback reporting, and multi-branch master hub navigation (`reports/index.html`).
+* **YARA-L 2.0 Match Invariant Enforcement (`ZERO DOTS IN MATCH`)**:
+  * Codified and enforced that YARA-L 2.0 `match:` blocks accept strictly simple bare identifiers (`$host by 1h`, `$entity, $ws by 1h`).
+  * Prohibited member dot-notation (`$e.principal.hostname`, `$stage1.host`, `$hourly.window_start`) in `match:`, mandating explicit attribute binding in stage event predicates or root bindings prior to `match:` (`$entity = $e.principal.asset.hostname` or `$host = $stage1.host`).
+* **Additive Dispersion Floor (`+ 1.0`) Divisor Protection**:
+  * Enforced the standardized additive dispersion floor `+ 1.0` in all outcome division expressions across all 14 golden pipeline templates (`templates/pipelines/*.yl2`).
+  * Completely eliminates division-by-zero crashes on idle or quiet baselines (`($obs - $mean) / ($std + 1.0)`) without violating the Chronicle Malachite compiler constraint requiring linear expressions in `outcome:` sections.
+* **Self-Healing Compiler Syntax Feedback & Grammar Ceilings**:
+  * Upgraded query syntax guidance in `references/multi-stage-query-guide.md` and runtime engines with automatic self-healing loops for match dot-notation, `if()` compound expressions, and `re.match` patterns.
+  * Codified pre-preview 1-shot compiler probing restricted to single-event UDM filters (`metadata.event_type = "..."`) with strict ISO 8601 timestamps against a 10-minute horizon, capped at 2 probes maximum.
+  * Banned non-linear functions like `sqrt()` / `math.sqrt()`, standardizing Poisson deviance and Euclidean distances on squared formulations (`$diff_sq / ($safe_lambda + 1.0)` with threshold $3.5^2 = 12.25$).
+* **Affirmative Guidance Directives in `SKILL.md`**:
+  * Refactored negative constraint directives into positive, constructive engineering guidance throughout `SKILL.md`.
+  * Enforced standardized 5-Section CommonMark Triage Reporting and 6 Forensic Evidence Pillars across all hunt responses.
+
+---
+
 ## 📦 Version 2.4.2 (September 9, 2026) — Entity Context Graph (GLOBAL_CONTEXT & DERIVED_CONTEXT), 1–3 Named Stage Ceiling & Regression Suite
 
 * **Entity Context Graph (ECG) Architecture & Golden Pipeline Templates (New Feature)**:

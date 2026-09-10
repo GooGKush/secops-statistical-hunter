@@ -71,7 +71,7 @@ outcome:
   $safe_mean = if($raw_mean > 0, $raw_mean, 1.0)
   $raw_stddev = max($dispersion_baseline.stddev_rate)
   $variance = $raw_stddev * $raw_stddev
-  $fano_factor = $variance / $safe_mean
+  $fano_factor = $variance / ($safe_mean + 1.0)
 
 condition:
   $baseline_active_samples >= {{min_active_samples}}

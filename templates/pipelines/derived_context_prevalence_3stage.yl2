@@ -60,7 +60,7 @@ outcome:
   $mean_logins = max($user_auth_baseline.hist_mean_logins)
   $sd_logins = max($user_auth_baseline.hist_sd_logins)
   $safe_sd = if($sd_logins > 0, $sd_logins, 1.0)
-  $z_score = ($obs_logins - $mean_logins) / $safe_sd
+  $z_score = ($obs_logins - $mean_logins) / ($safe_sd + 1.0)
 
   $first_seen = min($asset_derived_context.first_seen_ts)
   $asset_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0

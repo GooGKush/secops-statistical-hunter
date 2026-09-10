@@ -28,7 +28,7 @@ stage host_intervals {
     $first_seen = min($ts)
     $last_seen = max($ts)
     $conn_count = count(metadata.id)
-    $avg_gap = (max($ts) - min($ts)) / (count(metadata.id) - 0.999)
+    $avg_gap = (max($ts) - min($ts)) / (count(metadata.id) + 1.0)
 }
 
 // Stage 2: Aggregate historical timing stats across the window
@@ -76,7 +76,7 @@ outcome:
   $raw_mean = max($timing_stats.mean_gap)
   $safe_mean = if($raw_mean > 0, $raw_mean, 1.0)
   $raw_stddev = max($timing_stats.stddev_gap)
-  $cv = $raw_stddev / $safe_mean
+  $cv = $raw_stddev / ($safe_mean + 1.0)
 
 condition:
   $baseline_active_samples >= {{min_active_hours}}

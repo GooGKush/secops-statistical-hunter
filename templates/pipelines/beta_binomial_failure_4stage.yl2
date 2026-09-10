@@ -71,7 +71,7 @@ outcome:
 
   // Regularized Posterior Probability (alpha_0 = 1.0, beta_0 = 9.0)
   $regularized_failure_prob = (max($entity_hourly_trials.failed_trials) + 1.0) / (max($entity_hourly_trials.total_trials) + 10.0)
-  $unregularized_raw_rate = max($entity_hourly_trials.failed_trials) / (max($entity_hourly_trials.total_trials) + 0.001)
+  $unregularized_raw_rate = max($entity_hourly_trials.failed_trials) / (max($entity_hourly_trials.total_trials) + 1.0)
   $hourly_trials_count = max($entity_hourly_trials.total_trials)
 
 condition:

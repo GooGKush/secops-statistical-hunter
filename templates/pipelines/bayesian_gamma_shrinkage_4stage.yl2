@@ -38,8 +38,8 @@ stage host_prior_stats {
     $hist_mean = avg($host_hourly_activity.hourly_count)
     $hist_stddev = stddev($host_hourly_activity.hourly_count)
     $active_hours = count($host_hourly_activity.window_start)
-    $beta_prior = avg($host_hourly_activity.hourly_count) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 0.001)
-    $alpha_prior = (avg($host_hourly_activity.hourly_count) * avg($host_hourly_activity.hourly_count)) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 0.001)
+    $beta_prior = avg($host_hourly_activity.hourly_count) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 1.0)
+    $alpha_prior = (avg($host_hourly_activity.hourly_count) * avg($host_hourly_activity.hourly_count)) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 1.0)
 }
 
 // Stage 3: Organizational Peer Prevalence Baseline
@@ -75,7 +75,7 @@ outcome:
   $posterior_arrival_rate = (max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)
   $prior_weight_pct = max($host_prior_stats.beta_prior) / (max($host_prior_stats.beta_prior) + 1.0)
   $evidence_weight_pct = 1.0 / (max($host_prior_stats.beta_prior) + 1.0)
-  $anomaly_score = ((max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)) / (max($host_prior_stats.hist_mean) + 0.001)
+  $anomaly_score = ((max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)) / (max($host_prior_stats.hist_mean) + 1.0)
 
 condition:
   $baseline_active_samples >= 24

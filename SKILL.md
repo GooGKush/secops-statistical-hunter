@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.4.2
+version: 2.5.0
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   outlier hunting, and Entity Context Graph (GLOBAL_CONTEXT and DERIVED_CONTEXT) enrichment in Google Security
@@ -75,10 +75,20 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
    * *Consultative Discovery*: If the analyst's request is open-ended, inspect `references/consultative-worksheet.md` to classify the objective across the 5 Raw Behavioral Telemetry Deformations and present 2–3 targeted Summary View options.
    * *Expert Bypass Rule*: If the analyst specifies both the target telemetry (e.g. `PROCESS_LAUNCH`) and statistical model (e.g. `MAD` or `Z-score`), proceed directly to emitting the Pre-Flight Card.
 3. **Plain-English Operational Analogy**: Explain the detection mechanics in 1-2 intuitive sentences.
-4. **Structured Pre-Flight Hunting Specification Card**: Present hunting objective, telemetry scope, search horizon, model, and threshold.
+4. **Structured Pre-Flight Hunting Specification Card & Candidate Query Preview**:
+   * *Template-First Formulation Directive*: Before formulating a candidate query, inspect the matching canonical pipeline template in `templates/pipelines/<model_name>.yl2` (or consult `references/multi-stage-query-guide.md`) to adopt verified variable bindings, match keys, and outcome formulas.
+   * *Hard Compiler Grammar Invariants*:
+     - **Zero `events:` Section Headers (CRITICAL SYNTAX ERROR)**: Multi-stage YARA-L queries do NOT use an `events:` header block anywhere. In named stages, declare event predicates directly inside the stage body (`stage <name> { $e.metadata.event_type = "..." ... }`). In the root stage, declare stage bindings directly before `match:`. Writing `events:` inside a stage or in root stage causes compiler error `INVALID_EVENTS_SECTION_IN_STAGE`.
+     - **Match Binding Invariant (ZERO DOTS IN MATCH)**: Match blocks accept ONLY simple bare identifiers (`$host by 1h`, `$src_ip, $dst_ip by 1h`, `$entity, $ws by 1h`), NEVER member expressions or dots (`$e.target.ip`, `$e.principal.asset.hostname`, `$stage1.host`, `$hourly.window_start` in `match:` is a fatal syntax error). Variables in `match:` MUST bind first in stage predicates or root bindings (`$host = $stage1.host; $ws = $stage1.window_start`).
+     - **Outcome `if()` Grammar**: The `then` clause of `if()` accepts ONLY simple placeholders or constants. Compound arithmetic inside `then` must be assigned to an intermediate variable first.
+     - **Additive Dispersion Floor**: Every outcome division must include a `+ 1.0` additive floor on the denominator (`/ ($dispersion + 1.0)`) to prevent division-by-zero on quiet accounts.
+     - **Zero Non-Linear Functions (No `sqrt()`)**: YARA-L 2.0 does not support `sqrt()` or `math.sqrt()`. For orthogonal distance, compute squared Euclidean distance (`$dist_sq = ($z1 * $z1) + ($z2 * $z2)`) and sort by `$dist_sq desc`. In Poisson rarity, compute squared Poisson deviance (`$diff = $obs - $lambda; $diff_sq = $diff * $diff; $poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)`) and condition on `$poisson_z_sq >= 12.25` ($3.5^2$).
+     - **Table Headers Plain Unicode**: In summary tables, format column headers with plain Unicode (`Mean (μ)`, `StdDev (σ)`, `Rate (λ)`), never raw KaTeX (`$\mu$`) in table headers.
    * *Noise Level & Significance Threshold Steering*: Analysts may adjust sensitivity thresholds or define sensitivity bands (e.g. `$z_score >= 2.0 and $z_score < 3.0` for investigative anomalies, or `$z_score >= 3.0` for critical outliers), enforced via root-stage `condition:`.
-5. **Compile-Time Verification Protocol**: Verify query grammar via a background 1-shot probe with ISO 8601 timestamps against a 10-minute horizon: `secops-gus:udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Present the candidate YARA-L query in markdown once validated (200 OK).
-6. **Explicit Clearance Question & Turn Termination**: Solicit analyst confirmation to execute across the full historical horizon, conclude the turn, and await approval.
+5. **Compile-Time Verification Protocol & Single-Cycle Self-Healing Ceiling**:
+   * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative offsets like 'now-10m' are invalid). Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400). In multi-stage queries, probe the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED.
+   * *Single-Cycle Self-Healing Ceiling*: Limit compiler probes on Turn 1 to at most **ONE initial probe + ONE retry (maximum 2 probes total)**. Never enter runaway retry loops. Even if the probe returns 0 events (`{}`), zero results reflect nominal baseline activity, not an error—proceed directly to present the Pre-Flight Card and candidate query preview.
+6. **Explicit Clearance Question & Turn Termination**: Solicit analyst confirmation to execute across the full historical horizon: *"Would you like me to proceed with executing this search in **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Timeline)**?"*. Conclude the turn immediately and await approval.
 
 ---
 

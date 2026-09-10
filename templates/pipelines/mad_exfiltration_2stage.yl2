@@ -69,7 +69,7 @@ outcome:
   $diff = max($daily_stats.daily_volume) - max($mad_stats.host_median_val)
   $raw_mad = max($mad_stats.mad)
   $safe_mad = if($raw_mad > 0, $raw_mad, 1.0)
-  $m_z_score = 0.6745 * $diff / $safe_mad
+  $m_z_score = 0.6745 * $diff / ($safe_mad + 1.0)
 
 condition:
   $baseline_active_samples >= {{min_baseline_days}}

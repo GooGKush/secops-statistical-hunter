@@ -80,7 +80,7 @@ outcome:
   $diff_sq = $diff * $diff
   $raw_lambda = max($tool_baseline.lambda_rate)
   $safe_lambda = if($raw_lambda > 0, $raw_lambda, 1.0)
-  $poisson_z_sq = $diff_sq / $safe_lambda
+  $poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)
 
 condition:
   $baseline_active_samples >= {{min_baseline_days}}

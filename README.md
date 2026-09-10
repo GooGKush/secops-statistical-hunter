@@ -38,12 +38,15 @@ secops-statistical-hunter/
 ├── RELEASE_NOTES.md                         # Detailed version changelog & feature notes
 ├── LICENSE                                  # Apache 2.0 open-source license
 ├── llms.txt                                 # Token-efficient AI agent summary file
-├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (11)
+├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (14)
+│   ├── derived_context_prevalence_3stage.yl2 # Derived Context enterprise prevalence & asset age
+│   ├── global_threat_intel_enrichment_3stage.yl2 # GCTI Threat Intel & WHOIS NRD egress correlation
 │   ├── privileged_lateral_expansion_2stage.yl2 # Privileged lateral movement & destination expansion
+│   ├── two_part_hurdle_2stage.yl2           # Two-Part Hurdle model for zero-inflated dormant entities
 │   ├── hybrid_entropy_concentration_2stage.yl2 # Diversity Deficit & Elephant Flow Concentration
 │   ├── c2_beaconing_jitter_2stage.yl2       # C2 beaconing timing jitter & interval regularity (CV)
 │   ├── poisson_burst_clustering_2stage.yl2  # Poisson Burst Clustering & Fano Factor (password spray)
-│   ├── poisson_rare_surge_2stage.yl2        # Discrete Poisson Rarity & Two-Part Hurdle
+│   ├── poisson_rare_surge_2stage.yl2        # Discrete Poisson Rarity & Low-Volume Spikes
 │   ├── multi_sector_threat_fusion_4stage.yl2 # Orthogonal Threat Space & Euclidean Distance
 │   ├── bayesian_gamma_shrinkage_4stage.yl2  # Poisson-Gamma Bayesian Credibility Shrinkage
 │   ├── beta_binomial_failure_4stage.yl2     # Beta-Binomial Failure Rate Shrinkage
@@ -89,6 +92,13 @@ secops-statistical-hunter/
 ---
 
 ## Release Notes
+
+### v2.5.0 (September 10, 2026)
+* **Dual-Client Multi-Platform Regression Suite**: Integrated full regression evaluation across 10 scenarios in Dual-Engine Mode (workspace AgentAPI + headless Direct MCP client) against production-like tenant `gus-sdl` (`8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5`), achieving **100% pass rate (10/10)** and 100% cross-engine invariant parity.
+* **Strict Match Binding Invariant (`ZERO DOTS IN MATCH`)**: Codified and enforced that YARA-L 2.0 `match:` blocks accept strictly simple bare identifiers (`$host by 1h`), prohibiting member dot-notation (`$e.principal.hostname`, `$stage1.host`) and requiring explicit variable binding prior to `match:`.
+* **Additive Dispersion Floor (`+ 1.0`)**: Enforced standardized `+ 1.0` additive floor in all outcome division expressions across all 14 golden templates, preventing division-by-zero on quiet baselines while adhering to Chronicle linear arithmetic grammar.
+* **Self-Healing Compiler Syntax Feedback**: Implemented automated error detection and self-healing loops in runtime engines for match dot-notation, `if()` expressions, and `re.match` patterns; restricted Turn 1 probes to single-event UDM filters with ISO 8601 timestamps (2 probe ceiling).
+* **Affirmative Guidance Directives**: Refactored negative enforcements into positive constructive engineering directives in `SKILL.md`.
 
 ### v2.4.2 (September 9, 2026)
 * **Entity Context Graph (GLOBAL_CONTEXT & DERIVED_CONTEXT)**: Added `references/entity-context-graph-guide.md` and two 3-stage golden templates (`global_threat_intel_enrichment_3stage.yl2` for GCTI/WHOIS NRD network correlation, and `derived_context_prevalence_3stage.yl2` for new asset authentication anomalies).

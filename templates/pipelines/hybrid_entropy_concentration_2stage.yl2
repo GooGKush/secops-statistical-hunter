@@ -65,17 +65,17 @@ outcome:
   $diff = max($stage2_current_window.current_count) - avg($stage1_raw_baseline.hourly_count)
   $raw_sd = stddev($stage1_raw_baseline.hourly_count)
   $safe_sd = if($raw_sd > 0, $raw_sd, 1.0)
-  $z_score = $diff / $safe_sd
+  $z_score = $diff / ($safe_sd + 1.0)
 
   // Information-Theoretic Diversity Ratio: k / N
   $count_obs = max($stage2_current_window.current_count)
   $safe_count = if($count_obs > 0, $count_obs, 1)
-  $diversity_ratio = max($stage2_current_window.distinct_destinations) / $safe_count
+  $diversity_ratio = max($stage2_current_window.distinct_destinations) / ($safe_count + 1.0)
 
   // Linear Concentration Ratio: Peak / Sum (Elephant Flow Proxy)
   $sum_b = max($stage2_current_window.sum_bytes)
   $safe_sum = if($sum_b > 0, $sum_b, 1.0)
-  $concentration_ratio = max($stage2_current_window.peak_bytes) / $safe_sum
+  $concentration_ratio = max($stage2_current_window.peak_bytes) / ($safe_sum + 1.0)
 
   // Combined Threat Score: High volume anomaly weighted by concentration
   $weight = 1.0 + $concentration_ratio

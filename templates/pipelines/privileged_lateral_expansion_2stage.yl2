@@ -79,7 +79,7 @@ outcome:
   // Breadth Expansion Z-Score
   $diff = max($current_breadth.current_targets) - max($user_breadth_baseline.mean_daily_targets)
   $safe_stddev = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
-  $z_score = $diff / $safe_stddev
+  $z_score = $diff / ($safe_stddev + 1.0)
 
 condition:
   $baseline_active_samples >= {{min_active_samples}}
