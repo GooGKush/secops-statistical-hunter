@@ -74,10 +74,12 @@ secops-statistical-hunter/
 │   └── watchdog-polling-architecture.md     # LRO watchdog mechanics & F1 optimization
 ├── scripts/
 │   └── multistage_query_builder.py          # Python linter, AST validator, & report/chart generator
-└── tests/                                   # Automated test suite (30 tests, 100% pass rate)
+└── tests/                                   # Automated test suite (85 tests, 100% pass rate)
     ├── __init__.py
-    ├── test_chart_specifications.py         # Dual-Y scale isolation and NaN sanitization tests
-    ├── test_compiler_grammar.py             # AST grammar, 20-var limit, and syntax trap tests
+    ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, 20-var limit, and syntax trap tests
+    ├── test_global_context_syntax.py        # Entity Context Graph (GLOBAL_CONTEXT/DERIVED_CONTEXT) syntax tests
+    ├── test_guardrail_contracts.py          # Golden pipeline validation, session lock, and guardrail contracts
+    ├── test_handoff_endpoint.py             # Federated handoff ingestion and protocol ACK tests
     ├── test_math_models.py                  # Bayesian, Beta-Binomial, Fano, and norm unit tests
     ├── test_query_auditor.py                # Post-flight intent and raw log dump detection tests
     ├── test_triage_reporting.py             # CommonMark 5-section triage schema tests
@@ -87,6 +89,12 @@ secops-statistical-hunter/
 ---
 
 ## Release Notes
+
+### v2.4.2 (September 9, 2026)
+* **Entity Context Graph (GLOBAL_CONTEXT & DERIVED_CONTEXT)**: Added `references/entity-context-graph-guide.md` and two 3-stage golden templates (`global_threat_intel_enrichment_3stage.yl2` for GCTI/WHOIS NRD network correlation, and `derived_context_prevalence_3stage.yl2` for new asset authentication anomalies).
+* **Stage Allowance Limit Enforcement**: Strictly codified and enforced 1 to 3 named intermediate stages plus 1 root stage ceiling in `references/multi-stage-query-guide.md` and `scripts/multistage_query_builder.py`.
+* **Consultative Intent Catalog**: Added *"The Flash in the Dark"* and *"The Unfamiliar Machine"* operational analogies and intent routing in `SKILL.md`.
+* **Portfolio & Regression Suite Expansion**: Expanded golden pipeline templates to 14 and regression test suite to 85 tests (100% pass rate).
 
 ### v2.4.1 (September 9, 2026)
 * **Privileged Account Lateral Movement & Destination Expansion**: Added `templates/pipelines/privileged_lateral_expansion_2stage.yl2` measuring daily unique destination host footprint across a bounded lookback window (e.g. 90d) on raw `USER_LOGIN` events with AD privilege filtering.

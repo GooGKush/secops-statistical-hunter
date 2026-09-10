@@ -1,5 +1,32 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.4.2 (September 9, 2026) — Entity Context Graph (GLOBAL_CONTEXT & DERIVED_CONTEXT), 1–3 Named Stage Ceiling & Regression Suite
+
+* **Entity Context Graph (ECG) Architecture & Golden Pipeline Templates (New Feature)**:
+  * Added `references/entity-context-graph-guide.md` codifying Chronicle's Entity Context Graph integration for both `GLOBAL_CONTEXT` (GCTI threat intelligence, WHOIS Newly Registered Domains (NRD), SafeBrowsing) and `DERIVED_CONTEXT` (enterprise entity prevalence, asset/user first-seen time, and last-seen time).
+  * Added `templates/pipelines/global_threat_intel_enrichment_3stage.yl2`:
+    * Multi-stage YARA-L 2.0 pipeline (3 named intermediate stages + 1 root stage) correlating raw network connection volume bursts with WHOIS NRD / GCTI threat intelligence, positive divisor protection, and standardized 6 Evidence Pillars output for SOC triage.
+  * Added `templates/pipelines/derived_context_prevalence_3stage.yl2`:
+    * Multi-stage YARA-L 2.0 pipeline (3 named intermediate stages + 1 root stage) hunting authentication anomalies against newly commissioned, unestablished assets using `DERIVED_CONTEXT` asset first-seen time age evaluation (`$asset_age_days < 7.0`), positive divisor protection, and standardized 6 Evidence Pillars output.
+  * Codified Chronicle F1 compiler invariants for ECG: maximum 1 ECG graph alias per stage, zero event arithmetic on graph records, and linearized `if()` expressions.
+* **Stage Allowance Boundary Enforcement (1–3 Named Stages + 1 Root Stage) (Specification Fix & Hardening)**:
+  * Corrected multi-stage query guidance in `references/multi-stage-query-guide.md` and compiler guardrails to strictly enforce the Google SecOps platform constraint of **1 to 3 named intermediate stages plus 1 unwrapped root stage** (up to 4 stages total).
+  * Added validator enforcement in `scripts/multistage_query_builder.py` (`len(stages) > 3`) rejecting any pipeline that defines $> 3$ named intermediate stages (`STAGE COUNT LIMIT EXCEEDED`).
+* **Federated Intent Routing & Ingestion for ECG (New Feature)**:
+  * Registered `GLOBAL_THREAT_INTEL`, `GLOBAL_THREAT_INTEL_ENRICHMENT`, `GLOBAL_CONTEXT`, `GCTI_ENRICHMENT`, `WHOIS_NRD_EGRESS`, `DERIVED_CONTEXT_PREVALENCE`, `DERIVED_CONTEXT`, `ASSET_AGE_PREVALENCE`, and `NEW_ASSET_AUTHENTICATION` in `MultiStageTemplateRouter.ARCHETYPE_TEMPLATE_MAP`, `HandoffEndpoint.INTENT_ROUTING_MAP`, and `SENSITIVITY_MAP`.
+  * Updated `audit_query_execution()` to recognize `GLOBAL_THREAT_INTEL_4STAGE` and `DERIVED_CONTEXT_4STAGE`.
+* **Consultative Intent Catalog & Non-Statistician Analogies (New Feature)**:
+  * Added *"The Flash in the Dark"* (`GLOBAL_THREAT_INTEL`) and *"The Unfamiliar Machine"* (`DERIVED_CONTEXT_PREVALENCE`) operational concepts, trigger keywords, and sensitivity band parameters to `SKILL.md` and `references/statistical-models-taxonomy.md`.
+* **Golden Pipeline Template Portfolio Expansion**:
+  * Expanded portfolio to **14 golden multi-stage pipeline templates** (all 14 pass compiler grammar, AST scope, and positive divisor validation).
+* **Automated Regression Test Suite Expansion**:
+  * Expanded automated test suite to **85 unit and regression tests** across 8 test modules with 100% pass rate.
+  * Added `tests/test_global_context_syntax.py` (7 tests) verifying ECG syntax compilation, graph entity limit enforcement, safe divisor injection, and federated handoff ingestion for ECG intents.
+  * Added `test_reject_excessive_named_stages` in `tests/test_compiler_grammar.py` verifying stage limit enforcement.
+  * Confirmed 100% cross-repository regression compatibility with `secops-risk_metrics-multistage` (193/193 tests passing; 278/278 total passing ecosystem-wide).
+
+---
+
 ## 📦 Version 2.4.1 (September 9, 2026) — Privileged Account Lateral Movement, Divisor Hardening & Two-Part Hurdle
 
 * **Privileged Account Lateral Movement & Destination Breadth Expansion (New Feature)**:

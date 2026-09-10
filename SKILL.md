@@ -1,10 +1,11 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.4.1
+version: 2.4.2
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
-  and outlier hunting in Google Security Operations (SecOps) over raw UDM telemetry across custom time slices.
+  outlier hunting, and Entity Context Graph (GLOBAL_CONTEXT and DERIVED_CONTEXT) enrichment in Google Security
+  Operations (SecOps) over raw UDM telemetry across custom time slices.
   Supports Z-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, Median Absolute Deviation (MAD),
   Coefficient of Variation (CV), Poisson-Gamma Bayesian Shrinkage, Beta-Binomial Ratio Regularization,
   Dual-Baseline Delta-Z (Patch Tuesday Shield), Multi-Sector Threat Fusion, and 6 Hybrid Mathematical Models

@@ -14,7 +14,7 @@ generates Strictly-Typed True Dual-Y Axis Timeline Specs (with orient: right and
 """
 
 __author__ = "Greg Kushmerek"
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 
 import argparse
 import json
