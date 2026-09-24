@@ -70,9 +70,10 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Interactive Verification Gate)
 
 When an analyst initiates a threat hunt or selects an archetype, proceed through the interactive pre-flight gate:
-0. **Pre-Flight Routing Interceptor (Risk Metrics Delegation Gate)**:
-   Before formulating an ad-hoc query or pre-flight card, evaluate if the analyst's request is better served by `secops-risk-metrics-multistage` (or run `python3 scripts/multistage_query_builder.py --check_routing "<prompt>"`):
-   - **Explicit UEBA / 30-Day Baselines / Risk Metrics**: Any request containing the terms `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, or `"risk score"` MUST immediately route to `secops-risk-metrics-multistage`. Statistical Hunter operates over short-horizon raw telemetry (typically 1h to 7d) without pre-computed 30-day behavioral metrics tables.
+0. **Pre-Flight Routing Interceptor (Risk Metrics Delegation Gate - Strict Precedence)**:
+   Always evaluate this routing interceptor first. It strictly supersedes both Consultative Discovery (Step 2) and Pre-Flight Specification (Step 4).
+   When the analyst request matches any pre-computed baseline or UEBA indicators below, immediately present the Markdown **Skill Delegation Card** and conclude your response (0 tool calls):
+   - **Explicit UEBA / 30-Day Baselines / Risk Metrics**: Any request containing the terms `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, or `"risk score"`. Statistical Hunter operates over short-horizon raw telemetry (typically 1h to 7d); rolling 30-day baselines belong to `secops-risk-metrics-multistage`.
    - **Web / HTTP Traffic**: Requests asking to baseline or compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`, `metrics.http_queries_success`, `metrics.http_queries_fail`).
    - **Authentication Volume**: Requests comparing logins/failures to an entity's 30-day normal/typical baseline (`metrics.auth_attempts_*`).
    - **Network Bytes/Flows**: Outbound/inbound data transfer baselines (`metrics.network_bytes_*`, `metrics.network_flows_*`).
@@ -80,10 +81,26 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
    - **File Executions**: Process execution baselines (`metrics.file_executions_*`).
    - **Workspace / Cloud Activity**: Administrative settings changes, file downloads, email volume (`metrics.workspace_*`).
    - **Peer Cohorts & Entity Risk Scores**: Inquiries comparing an entity to their department/role peer group, or referencing omnibus entity risk scores (`graph.risk_score`) / 360° health checks.
-   👉 **Routing Action**: If ANY of the above conditions apply, **DO NOT** execute any telemetry search tools (`udm_search`) or attempt to construct an ad-hoc query in `secops-statistical-hunter`. Immediately emit the **Skill Delegation Card** and instruct the user to pick up the query in `secops-risk-metrics-multistage`.
-1. **Interactive Scoping Protocol & Zero Execution on Turn 1**: Reserve Turn 1 strictly for approach overview, operational analogy, pre-flight specification card, and candidate query preview. Full historical telemetry search execution (`udm_search` with multi-stage queries, queries with `stage` or `match:`, or queries without `maxEvents=1`) is STRICTLY PROHIBITED on Turn 1. Only a single 1-event probe (`maxEvents=1`) is permitted on Turn 1 to verify schema connectivity.
+
+   **Affirmative Delegation Output**:
+   When any indicator above matches, output the canonical delegation card directly in Markdown and yield the turn:
+   ```markdown
+   ### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`
+
+   > [!NOTE]
+   > **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**
+   > • **Routing Rationale**: Rolling 30-day behavioral baselines and UEBA metric functions are pre-computed in Google SecOps and exclusively maintained in secops-risk-metrics-multistage.
+   > • **Target Skill**: `secops-risk-metrics-multistage`
+   > • **Recommended Metric / Function**: `metrics.*`
+   > • **Target Dimension**: `[target user, host, or metric]`
+
+   > [!IMPORTANT]
+   > **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the behavioral baseline query.
+   > *Please switch to the `secops-risk-metrics-multistage` skill to execute this behavioral baseline hunt.*
+   ```
+1. **Interactive Scoping Protocol & Zero Execution on Turn 1**: Reserve Turn 1 strictly for approach overview, operational analogy, pre-flight specification card, and candidate query preview. Full historical telemetry search execution (`udm_search` with multi-stage queries, queries with `stage` or `match:`, or queries without `maxEvents=1`) is strictly deferred until Turn 2 clearance. Only a single 1-event probe (`maxEvents=1`) is executed on Turn 1 to verify schema connectivity.
 2. **Consultative Support & Expert Bypass Rule**:
-   * *Consultative Discovery*: If the analyst's request is open-ended, inspect `references/consultative-worksheet.md` to classify the objective across the 5 Raw Behavioral Telemetry Deformations and present 2–3 targeted Summary View options.
+   * *Consultative Discovery*: For open-ended requests that remain within raw telemetry scope after clearing Step 0, inspect `references/consultative-worksheet.md` to classify the objective across the 5 Raw Behavioral Telemetry Deformations and present 2–3 targeted Summary View options.
    * *Expert Bypass Rule*: If the analyst specifies both the target telemetry (e.g. `PROCESS_LAUNCH`) and statistical model (e.g. `MAD` or `Z-score`), proceed directly to emitting the Pre-Flight Card.
 3. **Plain-English Operational Analogy**: Explain the detection mechanics in 1-2 intuitive sentences.
 4. **Structured Pre-Flight Hunting Specification Card & Candidate Query Preview**:
