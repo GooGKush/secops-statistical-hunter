@@ -20,17 +20,17 @@ stage daily_user_breadth {
     security_result.action = "ALLOW"
     {{entity_field}} = $entity
     $entity != ""
-    (
-      $entity in %privileged_ad_accounts
-      or re.regex($entity, `(?i)(admin|adm_|svc_).*`)
-    )
+    // Privileged-account scoping. The regex compiles on any tenant. If a curated
+    // reference list exists, widen the predicate to:
+    //   ($entity in %privileged_ad_accounts or re.regex($entity, `(?i)(admin|adm_|svc_).*`))
+    // A reference to a list that does not exist is rejected as an invalid argument.
+    re.regex($entity, `(?i)(admin|adm_|svc_).*`)
 
   match:
     $entity by {{bucket_size}}
   outcome:
     $daily_targets = count_distinct(target.asset.hostname)
     $daily_logins = count(metadata.id)
-    $window_start = min(metadata.event_timestamp.seconds)
     $sample_target = array_distinct(target.asset.hostname)
 }
 
@@ -49,10 +49,10 @@ stage user_breadth_baseline {
 // Stage 3: Current observation window destination footprint
 stage current_breadth {
     $entity = $daily_user_breadth.entity
-    $window_start = $daily_user_breadth.window_start
+    $ws = $daily_user_breadth.window_start
 
   match:
-    $entity, $window_start by {{bucket_size}}
+    $entity, $ws by {{bucket_size}}
   outcome:
     $current_targets = max($daily_user_breadth.daily_targets)
     $current_logins = max($daily_user_breadth.daily_logins)
@@ -62,7 +62,7 @@ stage current_breadth {
 // Root Stage: Join historical baseline with current window, calculate breadth Z-Score, and emit 6 Evidence Pillars
 $entity = $user_breadth_baseline.entity
 $entity = $current_breadth.entity
-$window_start = $current_breadth.window_start
+$window_start = $current_breadth.ws
 
 match:
   $entity, $window_start by {{bucket_size}}

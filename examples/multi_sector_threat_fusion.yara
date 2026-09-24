@@ -2,84 +2,82 @@
 // METHODOLOGY & HUNTING GOAL
 // Goal: Hunt for coordinated multi-stage intrusions across Auth, Endpoint, and Network (Multi-Sector Threat Fusion)
 // Target Telemetry: UDM_EVENTS (USER_LOGIN + PROCESS_LAUNCH + NETWORK_CONNECTION)
-// Statistical Model: 4-Stage Multi-Sector Fusion & Euclidean Vector Norm (D = sqrt(Z_auth^2 + Z_proc^2 + Z_net^2))
+// Statistical Model: Multi-Sector Fusion & Euclidean Vector Norm (D^2 = Z_auth^2 + Z_proc^2 + Z_net^2)
+// Topology: ONE raw stage with per-sector conditional sums -> per-host sector baselines -> root fusion.
+//   Three independent raw sector stages joined at the root are rejected by the compiler
+//   (verified: any two compile, all three do not). Conditional sums keep one scan and one join.
 // Operational Analogy: "The Combined Arms Threat Radar"
 // Mathematical Rationale:
 //   Adversaries execute multi-stage kill chains with low-and-slow tactics in each silo.
 //   Single-domain detectors miss these events because each vector is only mildly elevated (Z ~ 2.0σ).
 //   Multi-Sector Fusion computes the orthogonal Euclidean distance across Authentication,
 //   Process Execution, and Network Egress into a unified multi-domain threat norm D >= 3.0σ (D^2 >= 9.0).
-// Sensitivity Boundary: Composite Threat Distance D >= 3.0σ (D^2 >= 9.0), Min Events >= 1 in each active sector
+// Sensitivity Boundary: BALANCED (Composite Threat Distance D >= 3.0σ [D^2 >= 9.0], Min Events >= 1 in each active sector)
 // ============================================================================
 
-// --- STAGE 1: Sector 1 - Authentication / Credential Access Anomalies ---
-stage auth_sector {
-  $e.metadata.event_type = "USER_LOGIN"
-  $e.security_result.action = "BLOCK"
+// --- STAGE 1: Hourly per-host activity in each sector via conditional sums ---
+stage sector_counts {
   $host = $e.principal.hostname
   $host != ""
+  (
+    $e.metadata.event_type = "USER_LOGIN"
+    or $e.metadata.event_type = "PROCESS_LAUNCH"
+    or $e.metadata.event_type = "NETWORK_CONNECTION"
+  )
 
   match:
     $host by 1h
 
   outcome:
-    $auth_fails = count($e.metadata.id)
-    $auth_distinct_users = count_distinct($e.target.user.userid)
+    $auth_fails = sum(if($e.metadata.event_type = "USER_LOGIN" and $e.security_result.action = "BLOCK", 1, 0))
+    $proc_launches = sum(if($e.metadata.event_type = "PROCESS_LAUNCH", 1, 0))
+    $net_flows = sum(if($e.metadata.event_type = "NETWORK_CONNECTION", 1, 0))
 }
 
-// --- STAGE 2: Sector 2 - Endpoint / Suspicious Process Execution Anomalies ---
-stage proc_sector {
-  $e.metadata.event_type = "PROCESS_LAUNCH"
-  $host = $e.principal.hostname
-  $host != ""
+// --- STAGE 2: Per-host historical baseline (mean, stddev) for each sector ---
+stage host_sector_baseline {
+  $host = $sector_counts.host
 
   match:
-    $host by 1h
+    $host
 
   outcome:
-    $proc_launches = count($e.metadata.id)
-    $proc_distinct_files = count_distinct($e.target.process.file.full_path)
+    $auth_mean = avg($sector_counts.auth_fails)
+    $auth_sd = stddev($sector_counts.auth_fails)
+    $proc_mean = avg($sector_counts.proc_launches)
+    $proc_sd = stddev($sector_counts.proc_launches)
+    $net_mean = avg($sector_counts.net_flows)
+    $net_sd = stddev($sector_counts.net_flows)
+    $active_hours = count($sector_counts.window_start)
 }
 
-// --- STAGE 3: Sector 3 - Network / Egress Data Anomalies ---
-stage net_sector {
-  $e.metadata.event_type = "NETWORK_CONNECTION"
-  $host = $e.principal.hostname
-  $host != ""
-
-  match:
-    $host by 1h
-
-  outcome:
-    $net_flows = count($e.metadata.id)
-    $net_distinct_ports = count_distinct($e.target.port)
-}
-
-// --- STAGE 4 (ROOT STAGE): Multi-Sector Fusion & Vector Threat Norm ---
-$host = $auth_sector.host
-$host = $proc_sector.host
-$host = $net_sector.host
-
-$ws = $auth_sector.window_start
-$ws = $proc_sector.window_start
-$ws = $net_sector.window_start
+// --- ROOT STAGE: Orthogonal Threat-Space Fusion (squared Euclidean norm; no sqrt in YARA-L) ---
+$host = $sector_counts.host
+$host = $host_sector_baseline.host
+$ws = $sector_counts.window_start
 
 match:
   $host, $ws by 1h
 
 outcome:
-  // Sector Breakdown
-  $auth_event_count = max($auth_sector.auth_fails)
-  $proc_event_count = max($proc_sector.proc_launches)
-  $net_event_count = max($net_sector.net_flows)
+  // Evidence pillars
+  $auth_event_count = max($sector_counts.auth_fails)
+  $proc_event_count = max($sector_counts.proc_launches)
+  $net_event_count = max($sector_counts.net_flows)
+  $baseline_active_samples = max($host_sector_baseline.active_hours)
+  $observation_count = max($sector_counts.auth_fails) + max($sector_counts.proc_launches) + max($sector_counts.net_flows)
 
-  $sector_z_auth = max($auth_sector.auth_fails) / 5.0
-  $sector_z_proc = max($proc_sector.proc_launches) / 10.0
-  $sector_z_net = max($net_sector.net_flows) / 20.0
+  // Per-sector Z with +1.0 additive dispersion floor
+  $sector_z_auth = (max($sector_counts.auth_fails) - max($host_sector_baseline.auth_mean)) / (max($host_sector_baseline.auth_sd) + 1.0)
+  $sector_z_proc = (max($sector_counts.proc_launches) - max($host_sector_baseline.proc_mean)) / (max($host_sector_baseline.proc_sd) + 1.0)
+  $sector_z_net = (max($sector_counts.net_flows) - max($host_sector_baseline.net_mean)) / (max($host_sector_baseline.net_sd) + 1.0)
 
-  // Composite Distance Metric D^2 = Z_auth^2 + Z_proc^2 + Z_net^2
-  $threat_vector_norm_sq = (max($auth_sector.auth_fails) / 5.0) * (max($auth_sector.auth_fails) / 5.0) + (max($proc_sector.proc_launches) / 10.0) * (max($proc_sector.proc_launches) / 10.0) + (max($net_sector.net_flows) / 20.0) * (max($net_sector.net_flows) / 20.0)
+  // D^2 = Z_auth^2 + Z_proc^2 + Z_net^2 ; sort by D^2 (monotone in D)
+  $threat_vector_norm_sq = $sector_z_auth * $sector_z_auth + $sector_z_proc * $sector_z_proc + $sector_z_net * $sector_z_net
 
 condition:
-  ($auth_event_count > 0 or $proc_event_count > 0 or $net_event_count > 0)
-  and $threat_vector_norm_sq >= 9.0 // Composite Threat Distance D >= 3.0 sigma
+  $baseline_active_samples >= 60
+  and $threat_vector_norm_sq >= 9.0
+
+order:
+  $threat_vector_norm_sq desc

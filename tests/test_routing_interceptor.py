@@ -82,7 +82,7 @@ class TestRoutingInterceptor(unittest.TestCase):
         "justification": "Web HTTP request volume across user-agent strings is pre-computed.",
     }
     card = format_routing_handoff_card(rec)
-    self.assertIn("### 🔄 Skill Delegation: Route to `secops-risk-metrics-multistage`", card)
+    self.assertIn("### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`", card)
     self.assertIn("metrics.http_queries_total", card)
     self.assertIn("hybrid_metric_fleet_prevalence_2stage.yl2", card)
     self.assertIn("network.http.user_agent", card)

@@ -38,16 +38,16 @@ stage host_prior_stats {
     $hist_mean = avg($host_hourly_activity.hourly_count)
     $hist_stddev = stddev($host_hourly_activity.hourly_count)
     $active_hours = count($host_hourly_activity.window_start)
-    $beta_prior = avg($host_hourly_activity.hourly_count) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 1.0)
-    $alpha_prior = (avg($host_hourly_activity.hourly_count) * avg($host_hourly_activity.hourly_count)) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 1.0)
 }
 
 // Stage 3: Organizational Peer Prevalence Baseline
+// Keyed on the window (NOT the host): grouping by $host and counting distinct
+// hosts always yields 1. A $dummy = 1 Cartesian key is rejected by the compiler.
 stage fleet_context {
-  $host = $host_hourly_activity.host
+  $ws = $host_hourly_activity.window_start
 
   match:
-    $host
+    $ws by {{bucket_size}}
 
   outcome:
     $fleet_hosts = count_distinct($host_hourly_activity.host)
@@ -56,8 +56,8 @@ stage fleet_context {
 // Root Stage: Bayesian Conjugate Updating & Credibility Scoring
 $host = $host_hourly_activity.host
 $host = $host_prior_stats.host
-$host = $fleet_context.host
 $ws = $host_hourly_activity.window_start
+$ws = $fleet_context.ws
 
 match:
   $host, $ws by {{bucket_size}}
@@ -72,10 +72,15 @@ outcome:
   $distinct_binaries = max($host_hourly_activity.distinct_procs)
 
   // Bayesian Posterior Metrics
-  $posterior_arrival_rate = (max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)
-  $prior_weight_pct = max($host_prior_stats.beta_prior) / (max($host_prior_stats.beta_prior) + 1.0)
-  $evidence_weight_pct = 1.0 / (max($host_prior_stats.beta_prior) + 1.0)
-  $anomaly_score = ((max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)) / (max($host_prior_stats.hist_mean) + 1.0)
+  // Method-of-Moments Gamma prior (alpha_0 = mu^2 / sigma^2, beta_0 = mu / sigma^2), derived
+  // linearly in the root from stage-2 moments with a +1.0 additive floor on the variance.
+  $variance = max($host_prior_stats.hist_stddev) * max($host_prior_stats.hist_stddev)
+  $beta_prior = max($host_prior_stats.hist_mean) / ($variance + 1.0)
+  $alpha_prior = (max($host_prior_stats.hist_mean) * max($host_prior_stats.hist_mean)) / ($variance + 1.0)
+  $posterior_arrival_rate = ($alpha_prior + max($host_hourly_activity.hourly_count)) / ($beta_prior + 1.0)
+  $prior_weight_pct = $beta_prior / ($beta_prior + 1.0)
+  $evidence_weight_pct = 1.0 / ($beta_prior + 1.0)
+  $anomaly_score = $posterior_arrival_rate / (max($host_prior_stats.hist_mean) + 1.0)
 
 condition:
   $baseline_active_samples >= 24

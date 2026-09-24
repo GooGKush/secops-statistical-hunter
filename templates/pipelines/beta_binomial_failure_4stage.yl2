@@ -41,11 +41,13 @@ stage entity_historical_rates {
 }
 
 // Stage 3: Fleet Context
+// Keyed on the window (NOT the user): grouping by $user and counting distinct
+// users always yields 1. A $dummy = 1 Cartesian key is rejected by the compiler.
 stage fleet_stats {
-  $user = $entity_hourly_trials.user
+  $ws = $entity_hourly_trials.window_start
 
   match:
-    $user
+    $ws by {{bucket_size}}
 
   outcome:
     $fleet_users = count_distinct($entity_hourly_trials.user)
@@ -54,8 +56,8 @@ stage fleet_stats {
 // Root Stage: Beta-Binomial Conjugate Updating & Shrinkage
 $user = $entity_hourly_trials.user
 $user = $entity_historical_rates.user
-$user = $fleet_stats.user
 $ws = $entity_hourly_trials.window_start
+$ws = $fleet_stats.ws
 
 match:
   $user, $ws by {{bucket_size}}

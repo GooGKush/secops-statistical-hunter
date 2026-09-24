@@ -67,7 +67,7 @@ outcome:
   $is_new_asset = if($asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
 
   // Context-Boosted Threat Score: Apply 2.0x multiplier for connections to brand-new assets
-  $multiplier = if($is_new_asset == 1.0, 2.0, 1.0)
+  $multiplier = if($is_new_asset = 1.0, 2.0, 1.0)
   $threat_score = $z_score * $multiplier
 
   // 6 Standardized Evidence Pillars

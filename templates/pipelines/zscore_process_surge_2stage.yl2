@@ -39,12 +39,14 @@ stage host_stats {
     $active_samples = count($host_hourly.window_start)
 }
 
-// Stage 3: Enterprise-wide fleet prevalence of process activity
-stage fleet_prevalence {
-    $entity = $host_hourly.entity
+// Stage 3: Enterprise-wide fleet prevalence of process activity per window.
+// Keyed on the window (NOT the entity): grouping by $entity and counting distinct
+// entities always yields 1. A $dummy = 1 Cartesian key is rejected by the compiler.
+stage fleet_breadth {
+    $ws = $host_hourly.window_start
 
   match:
-    $entity
+    $ws by {{bucket_size}}
   outcome:
     $fleet_hosts = count_distinct($host_hourly.entity)
 }
@@ -52,8 +54,8 @@ stage fleet_prevalence {
 // Root Stage: Join all stages, calculate Z-score in outcome section, and emit standardized 6 Evidence Pillars
 $entity = $host_hourly.entity
 $entity = $host_stats.entity
-$entity = $fleet_prevalence.entity
 $window_start = $host_hourly.window_start
+$window_start = $fleet_breadth.ws
 
 match:
   $entity, $window_start by {{bucket_size}}
@@ -63,7 +65,7 @@ outcome:
   $baseline_active_samples = max($host_stats.active_samples)
   $baseline_mean = max($host_stats.host_mean)
   $baseline_dispersion = max($host_stats.host_stddev)
-  $fleet_prevalence = max($fleet_prevalence.fleet_hosts)
+  $fleet_prevalence = max($fleet_breadth.fleet_hosts)
   $distinct_binaries = max($host_hourly.distinct_procs)
   $sample_commands = array_distinct($host_hourly.sample_cmd)
   

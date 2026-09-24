@@ -68,7 +68,7 @@ outcome:
   $is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
 
   // Context-Boosted Threat Score: Apply 2.5x multiplier for newly registered domains
-  $multiplier = if($is_nrd == 1.0, 2.5, 1.0)
+  $multiplier = if($is_nrd = 1.0, 2.5, 1.0)
   $threat_score = $z_score * $multiplier
 
   // 6 Standardized Evidence Pillars

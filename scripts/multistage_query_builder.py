@@ -53,6 +53,10 @@ SYNTAX_TRAPS = [
     (r"match:\s*[^;\n]*\$[a-zA-Z0-9_]+\.[a-zA-Z0-9_.]+", "SYNTAX ERROR (INVALID_MATCH_DOT_NOTATION): Match blocks accept ONLY simple bound variable identifiers (e.g. '$host by 1d'), not member dot-notation. Bind variables in event predicates before match:."),
     (r"\$dummy\s*=\s*\d+", "SYNTAX ERROR (CARTESIAN_DUMMY_JOIN): Multi-stage YARA-L queries do not support artificial Cartesian joins via '$dummy = 1'. Align stages using real partition keys (e.g. '$token by 1d') across stages."),
     (r"match:\s*[^;\n]*\$dummy\b", "SYNTAX ERROR (CARTESIAN_DUMMY_JOIN): Multi-stage YARA-L queries do not support artificial Cartesian joins via '$dummy'. Align stages using real partition keys (e.g. '$token by 1d') across stages."),
+    # --- Verified compiler facts (live udm_search probes, 2026-09-24) ---
+    (r"\bif\s*\([^)]*==", "SYNTAX ERROR (DOUBLE_EQUALS_IN_IF): '==' inside if() is rejected by the Chronicle compiler. Use a single '=' for equality inside if(cond, a, b), e.g. if($x = 1.0, 1, 0)."),
+    (r"\$window_start\s*=\s*(?:min|max|avg|sum|count)\s*\(", "SYNTAX ERROR (WINDOW_START_SHADOWED): '$window_start' is an implicit output of every windowed stage ('match: $k by <dur>'). Defining it in outcome: (e.g. '$window_start = min(metadata.event_timestamp.seconds)') is rejected. Remove the definition and bind '$ws = $stage.window_start' in the consuming stage instead."),
+    (r"match:\s*[^;\n]*\bby\s+(?!1d\b)\d+d\b", "SYNTAX ERROR (NONCANONICAL_MATCH_WINDOW): Multi-day tumbling windows ('by 2d', 'by 7d', 'by 14d') are rejected by the compiler. Verified windows: 'by 5m', 'by 1h', 'by 2h', 'by 1d'. Keep the bucket at <= 1d and widen startTime/endTime to cover longer horizons."),
 ]
 
 SENSITIVITY_MAP = {
@@ -385,23 +389,38 @@ EVENT_DOMAINS = {
 
 
 def check_multivector_cramming(query: str) -> List[str]:
-  """Detects single-stage multi-vector event cramming across distinct telemetry silos."""
+  """Detects single-stage multi-vector event cramming across distinct telemetry silos.
+
+  A stage that mixes telemetry domains is legal ONLY as a *fused sector-counting*
+  stage: an `or`-disjunction event_type filter whose outcome separates the
+  domains with conditional sums (`sum(if(metadata.event_type = "X", 1, 0))`).
+  That topology is required when fusing three or more sectors, because the
+  compiler rejects three independent raw stages joined at the root (verified
+  by live udm_search probes, 2026-09-24). Mixing domains without conditional
+  sums collapses them into one undifferentiated count and is flagged.
+  """
   errors = []
   stage_blocks = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", query, flags=re.DOTALL)
   for stage_name, stage_body in stage_blocks:
     event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))
     silos = set(EVENT_DOMAINS.get(et, et) for et in event_types)
     if len(silos) > 1:
+      is_fused_sector_stage = bool(re.search(r"\bsum\s*\(\s*if\s*\([^)]*metadata\.event_type\s*=", stage_body))
+      if is_fused_sector_stage:
+        continue
       errors.append(
-          f"MULTI-VECTOR CRAMMING in stage '{stage_name}': Stage mixes cross-domain telemetry silos {silos} ({event_types}). "
-          "In multi-sector hunting, each distinct telemetry domain must be isolated in its own named stage and fused in the Root stage."
+          f"MULTI-VECTOR CRAMMING in stage '{stage_name}': Stage mixes cross-domain telemetry silos {silos} ({event_types}) "
+          "without separating them. Either isolate each telemetry domain in its own named stage (the compiler accepts at most "
+          "TWO independent raw stages joined at the root) or, for three or more sectors, use ONE raw stage with an 'or' "
+          "event_type filter and per-sector conditional sums: sum(if(metadata.event_type = \"X\", 1, 0))."
       )
   if not stage_blocks:
     event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", query))
     silos = set(EVENT_DOMAINS.get(et, et) for et in event_types)
     if len(silos) > 1 and "MULTI_SECTOR" in query.upper():
       errors.append(
-          "MULTI-VECTOR CRAMMING: Multi-sector threat fusion requires separate 'stage' blocks for each telemetry domain."
+          "MULTI-VECTOR CRAMMING: Multi-sector threat fusion requires a multi-stage pipeline (one fused sector-counting "
+          "stage with conditional sums, a per-entity baseline stage, and a root fusion stage), not a single-stage search."
       )
   return errors
 
@@ -528,6 +547,67 @@ def check_match_placeholders_bound(query: str) -> List[str]:
   return errors
 
 
+def check_stage_name_collisions(query: str) -> List[str]:
+  """Flags outcome variables whose identifier equals a declared stage name.
+
+  Verified compiler fact (live udm_search probes, 2026-09-24): a stage named
+  `fleet_prevalence` combined with an outcome variable `$fleet_prevalence` in
+  ANY outcome block (intermediate or root) is rejected as an invalid argument.
+  """
+  errors: List[str] = []
+  code_only = re.sub(r"//.*", "", query)
+  stage_names = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", code_only)
+  if not stage_names:
+    return errors
+
+  outcome_vars = set()
+  for om in re.finditer(r"\boutcome\s*:(.*?)(?=\n\s*(?:condition|order|match)\s*:|\}|\Z)", code_only, flags=re.DOTALL):
+    outcome_vars.update(re.findall(r"^\s*\$([a-zA-Z0-9_]+)\s*=", om.group(1), flags=re.MULTILINE))
+
+  for name in stage_names:
+    if name in outcome_vars:
+      errors.append(
+          f"SYNTAX ERROR (STAGE_OUTCOME_NAME_COLLISION): Stage 'stage {name} {{' and outcome variable "
+          f"'${name}' share the same identifier; the compiler rejects this. Rename one of them "
+          f"(e.g. stage '{name}' -> '{name}_stage', or '${name}' -> '${name}_value')."
+      )
+  return errors
+
+
+def check_independent_raw_stages(query: str) -> List[str]:
+  """Flags more than two independent raw-event stages.
+
+  Verified compiler fact (live udm_search probes, 2026-09-24): three named
+  stages that each read raw UDM events (no `$other_stage.` reference inside
+  the block) and are joined only in the root are rejected, regardless of the
+  event-variable names or the join key. Any two compile. Fuse sectors into one
+  raw stage using conditional sums (sum(if(cond, 1, 0))) instead.
+  """
+  errors: List[str] = []
+  code_only = re.sub(r"//.*", "", query)
+  blocks = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", code_only, flags=re.DOTALL)
+  if len(blocks) < 3:
+    return errors
+
+  names = [n for n, _ in blocks]
+  raw_stages = []
+  for name, body in blocks:
+    references_other_stage = any(
+        re.search(r"\$" + re.escape(other) + r"\.", body) for other in names if other != name
+    )
+    if not references_other_stage:
+      raw_stages.append(name)
+
+  if len(raw_stages) > 2:
+    errors.append(
+        f"SYNTAX ERROR (TOO_MANY_INDEPENDENT_RAW_STAGES): {len(raw_stages)} independent raw-event stages "
+        f"({', '.join(raw_stages)}) joined only at the root. The compiler accepts at most two. Collapse "
+        f"sector/event-type splits into ONE raw stage with conditional sums (sum(if(<predicate>, 1, 0))) "
+        f"and derive per-sector baselines in a chained stage."
+    )
+  return errors
+
+
 def validate_multistage_syntax(query: str) -> List[str]:
   """Performs structural validation on multi-stage YARA-L search queries."""
   errors = []
@@ -541,6 +621,8 @@ def validate_multistage_syntax(query: str) -> List[str]:
   errors.extend(check_ecg_limits(query))
   errors.extend(check_event_section_arithmetic(query))
   errors.extend(check_match_placeholders_bound(query))
+  errors.extend(check_stage_name_collisions(query))
+  errors.extend(check_independent_raw_stages(query))
 
   # Chronicle Common Compiler Grammar Invariants for if():
   for m in re.finditer(r"\bif\s*\(([^)]+)\)", code_only):
@@ -2230,7 +2312,7 @@ def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
 def format_routing_handoff_card(routing_info: Dict[str, Any]) -> str:
   """Renders the user-facing routing delegation card when a query belongs in Risk Metrics."""
   lines = [
-      "### 🔄 Skill Delegation: Route to `secops-risk-metrics-multistage`",
+      "### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`",
       "",
       "> [!NOTE]",
       "> **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**",

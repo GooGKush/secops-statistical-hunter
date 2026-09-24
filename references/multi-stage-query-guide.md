@@ -126,4 +126,20 @@ condition:
      - `two_part_hurdle_2stage.yl2` (Two-Part Hurdle)
      - `dual_baseline_delta_z_3stage.yl2` (Delta-Z)
      - `multi_sector_threat_fusion_4stage.yl2` (Multi-Sector Threat Fusion)
+12. **Verified Compiler Facts (live `udm_search` probes, 2026-09-24)**. Each row was established by submitting a minimal pair to the compiler; treat these as ground truth over folklore:
+   | Construct | Verdict |
+   | :--- | :--- |
+   | Full multi-stage query (`stage … { }` + root) as the `udm_search` `query` argument | **Compiles**; returns aggregated `stats` rows. The Turn 2 execution path. |
+   | Intermediate stage keyed on a real entity with no window (`match: $host`) | **Compiles**. Canonical per-entity baseline collapse. |
+   | Constant key (`$dummy = 1` … `match: $dummy`) | **Rejected**. Use a window key (`$ws by 1h`) for fleet-wide stages. |
+   | Referencing `$stage.window_start` without defining it | **Compiles**. It is an implicit column of every windowed stage. |
+   | Defining `$window_start = min(metadata.event_timestamp.seconds)` in a stage outcome | **Rejected**. Collides with the implicit column. |
+   | Root outcome variable named the same as a stage | **Rejected**. Rename the stage. |
+   | Three independent raw stages joined at the root | **Rejected** (any two compile). Fold sectors into one raw stage with conditional sums. |
+   | `match: … by 2d` / `by 7d` / `by 14d` / `by 24h` | **Rejected**. `by 5m`, `by 1h`, `by 2h`, `by 1d` verified to compile; any `by Nd` with N > 1 is rejected. Widen `startTime`/`endTime` for longer horizons. |
+   | `if($x == 1.0, …)` | **Rejected**. Use `=`. |
+   | Aggregator arithmetic inside a stage outcome (`(max($ts) - min($ts)) / (count(metadata.id) + 1.0)`, `avg(x) * avg(x)`) | **Compiles**. |
+   | `array_distinct($stage.array_col)` in root (re-aggregating a stage array) | **Compiles**. |
+   | Aggregator wrapping an outcome variable (`max($some_outcome_var)`) | **Rejected**: "aggregation cannot refer to outcome variables". |
+   | Reference list that does not exist in the tenant (`$x in %missing_list`) | **Rejected** as an invalid argument — tenant-dependent, not a grammar error. |
 

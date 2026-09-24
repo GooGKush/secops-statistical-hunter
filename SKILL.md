@@ -93,7 +93,12 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
      - **Outcome `if()` Grammar**: The `then` clause of `if()` accepts ONLY simple placeholders or constants. Compound arithmetic inside `then` must be assigned to an intermediate variable first.
      - **Additive Dispersion Floor**: Every outcome division must include a `+ 1.0` additive floor on the denominator (`/ ($dispersion + 1.0)`) to prevent division-by-zero on quiet accounts.
      - **Zero Artificial Cartesian Joins (`$dummy = 1` PROHIBITED)**: Multi-stage YARA-L queries do NOT support artificial unwindowed Cartesian joins via `$dummy = 1` or `match: $dummy`. Stages must align using real partition keys (e.g. `$token by 1d` or `$ws by 1h` with `$ws = $stage.window_start`) across all stages.
-     - **Window Alignment Across Stages**: Intermediate stages with `match:` must declare a match window (`by 1h` or `by 1d`). Unwindowed intermediate stages or mismatched window topologies fail compilation.
+     - **Stage Keying (Verified Compiler Facts)**: An intermediate stage keyed on a real entity WITHOUT a window (`match: $host`) is legal and is the canonical per-entity baseline collapse (`avg`/`stddev` across an entity's hourly buckets). What is rejected is a *constant* key (`$dummy`). For fleet-wide breadth, key the stage on the window instead (`$ws = $stage1.window_start` … `match: $ws by 1h` … `count_distinct($stage1.host)`); keying on the entity and counting distinct entities always yields 1.
+     - **Implicit `window_start` Column**: Every windowed stage exposes `$stage.window_start` implicitly. NEVER define `$window_start = min(metadata.event_timestamp.seconds)` in a stage outcome — it collides with the implicit column and fails compilation. Binding it in a later stage or root (`$ws = $stage.window_start`) is correct.
+     - **No Stage / Outcome Name Collision**: A root outcome variable may not share a name with a stage (`stage fleet_prevalence { … }` + `$fleet_prevalence = max($fleet_prevalence.x)` fails). Name the stage `fleet_breadth` and keep the pillar variable `$fleet_prevalence`.
+     - **At Most Two Independent Raw Stages**: A root may join two independent raw-telemetry stages, not three (verified: any pair compiles, all three do not). For multi-sector fusion, use ONE raw stage with per-sector conditional sums (`sum(if($e.metadata.event_type = "USER_LOGIN" and $e.security_result.action = "BLOCK", 1, 0))`) — see `multi_sector_threat_fusion_4stage.yl2`.
+     - **Canonical Match Windows Only**: `by 5m`, `by 1h`, `by 2h`, `by 1d` compile; multi-day windows (`by 2d`, `by 7d`, `by 14d`) and `by 24h` are rejected. Compare against longer horizons by widening `startTime`/`endTime`, not the match window.
+     - **Equality Inside `if()` Uses `=`**: `if($flag == 1.0, …)` is rejected; write `if($flag = 1.0, …)`.
      - **Categorical Outlier & Entity Rarity Architecture**: To detect rare categorical strings (e.g., browser user-agent strings, rare domains, JA3 hashes, commands):
        * *Option 1 (High-Performance Single-Stage Rarity Hunt)*: `match: $token by 1h`, `outcome: $device_count = count_distinct(principal.ip)`, `condition: $device_count <= 2 and $event_count >= 5`.
        * *Option 2 (2-Stage Token-Centric Fleet Adoption Pipeline)*: Stage 1 groups by `$host, $token by 1d`, Stage 2 groups by `$token by 1d`, and Root joins on `$token by 1d` (see `examples/rare_user_agent_prevalence.yara`).
@@ -101,7 +106,8 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
      - **Table Headers Plain Unicode**: In summary tables, format column headers with plain Unicode (`Mean (μ)`, `StdDev (σ)`, `Rate (λ)`), never raw KaTeX (`$\mu$`) in table headers.
    * *Noise Level & Significance Threshold Steering*: Analysts may adjust sensitivity thresholds or define sensitivity bands (e.g. `$z_score >= 2.0 and $z_score < 3.0` for investigative anomalies, or `$z_score >= 3.0` for critical outliers), enforced via root-stage `condition:`.
 5. **Compile-Time Verification Protocol & Single-Cycle Self-Healing Ceiling**:
-   * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative offsets like 'now-10m' are invalid). Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400). In multi-stage queries, probe the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED.
+   * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative offsets like 'now-10m' are invalid). The Turn 1 probe uses the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`) because its purpose is fast schema and time-boundary verification, not analysis. Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED.
+   * *Turn 2 Execution Contract (Full Multi-Stage Submission)*: `secops-gus:udm_search` natively accepts multi-stage YARA-L (`stage ... { ... }` + root stage) and returns aggregated `stats` rows. After clearance, submit the **complete multi-stage query verbatim** as the `query` argument over the cleared horizon. NEVER substitute a single-event filter at execution time: an unaggregated `events` response is not evidence for a triage report (see Section 1, *Statistical Aggregation Integrity*).
    * *Single-Cycle Self-Healing Ceiling*: Limit compiler probes on Turn 1 to at most **ONE initial probe + ONE retry (maximum 2 probes total)**. Never enter runaway retry loops. Even if the probe returns 0 events (`{}`), zero results reflect nominal baseline activity, not an error—proceed directly to present the Pre-Flight Card and candidate query preview.
 6. **Explicit Clearance Question & Turn Termination**: Solicit analyst confirmation to execute across the full historical horizon: *"Would you like me to proceed with executing this search in **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Timeline)**?"*. Conclude the turn immediately and await approval.
 
@@ -142,8 +148,8 @@ When formatting hunting results for ANY client (CLI, Chat UI, or Web UI), the ag
 
 ---
 #### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)
-*(Passive UDM filter provided strictly as an analyst copy-paste reference for manual triage within the Chronicle SIEM console. Automated multi-turn agent execution is reserved for multi-stage statistical pipelines.)*
-```yara
+*(Passive UDM filter provided strictly as an analyst copy-paste reference for manual triage within the Chronicle SIEM console. Automated multi-turn agent execution is reserved for multi-stage statistical pipelines. Use a ```text fence here, never ```yara, so this single-line filter is never mistaken for the executed multi-stage query.)*
+```text
 principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 ```
 
@@ -157,6 +163,18 @@ principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 $$\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right) = \mathbf{100}$$
 ##### 🌐 Multiple-Comparison Fleet Correction ($Z_{\text{adj}} \approx \sqrt{2 \ln N}$)
 ##### 🛡️ Statistical Validity & Safeguard Verification
+##### 💻 Executed Multi-Stage Query (Verbatim Provenance)
+*(The exact literal multi-stage YARA-L string submitted to `secops-gus:udm_search(query=...)`, in a ```yara fence. This is the only ```yara block in the report.)*
+```yara
+stage host_hourly { ... }
+$host = $host_hourly.host
+match:
+  $host by 1h
+outcome:
+  ...
+order:
+  $z desc
+```
 </details>
 ```
 
@@ -206,7 +224,7 @@ python3 scripts/multistage_query_builder.py \
 * **Empirical Metric Derivation Contract**: Derive all summary numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) directly from `secops-gus:udm_search` query outputs. When a search yields no outliers, report the normal baseline status accurately.
 * **Transparent Error Surfacing**: When an API query returns an error, surface the exact error response and diagnostic details directly to the analyst with proposed template adjustments.
 * **Native SIEM Engine Execution Guarantee**: Execute all multi-stage baseline aggregations, standard deviation calculations, and threshold evaluations natively within Google SecOps Chronicle SIEM via `secops-gus:udm_search`.
-* **Verbatim Query Provenance**: Display the exact literal multi-stage YARA-L query string submitted to `secops-gus:udm_search(query=...)` in Section 2 of the triage report.
+* **Verbatim Query Provenance**: Display the exact literal multi-stage YARA-L query string submitted to `secops-gus:udm_search(query=...)` inside the Section 5 appendix (*Executed Multi-Stage Query*) in a ```yara fence. Section 4's manual pivot filter uses a ```text fence so the executed query is the report's only ```yara block.
 * **Statistical Aggregation Integrity**: Format the 5-Section Triage Report exclusively from aggregated `stats` buckets. If `udm_search` returns unaggregated raw events, present the auto-corrected multi-stage query (via `MultiStageTemplateRouter`) and solicit analyst clearance to execute the aggregated pipeline.
 * **Search Query Nomenclature**: Identify and structure all threat hunting artifacts as ad-hoc Multi-Stage Queries (`stage ... { ... }` + Root stage). Continuous detection rules (`rule ... { ... }`) are reserved for detection engineering workflows.
 

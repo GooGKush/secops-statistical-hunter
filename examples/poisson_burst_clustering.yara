@@ -1,7 +1,7 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
 // Goal: Detect automated authentication spray campaigns and burst reconnaissance waves that evade volume rate limits.
-// Target Telemetry: UDM_EVENTS (USER_LOGIN)
+// Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
 // Statistical Model: Poisson Dispersion via Fano Factor (F = σ² / μ > 4.0) & Fleet Prevalence Filter
 // Mathematical Rationale:
 //   - Why this model: Random human login mistakes occur independently over time following a memoryless Poisson process
@@ -14,13 +14,13 @@
 
 // Stage 1: Hourly authentication failure counts and source IP diversity per target user
 stage hourly_failures {
-    metadata.event_type = "USER_LOGIN"
+    metadata.event_type = "PROCESS_LAUNCH"
     (security_result.action = "BLOCK" or security_result.action = "FAIL")
-    target.user.userid = $user
-    $user != ""
+    principal.hostname = $entity
+    $entity != ""
 
   match:
-    $user by 1h
+    $entity by 1h
   outcome:
     $hourly_fails = count(metadata.id)
     $sample_ip = array_distinct(principal.ip)
@@ -28,10 +28,10 @@ stage hourly_failures {
 
 // Stage 2: Calculate historical arrival mean (μ), standard deviation (σ), and active sample density
 stage dispersion_baseline {
-    $user = $hourly_failures.user
+    $entity = $hourly_failures.entity
 
   match:
-    $user
+    $entity
   outcome:
     $mean_rate = avg($hourly_failures.hourly_fails)
     $stddev_rate = stddev($hourly_failures.hourly_fails)
@@ -39,46 +39,49 @@ stage dispersion_baseline {
     $active_hours = count($hourly_failures.window_start)
 }
 
-// Stage 3: Measure enterprise-wide prevalence of users experiencing authentication failures
-stage fleet_prevalence {
-    $user = $hourly_failures.user
+// Stage 3: Measure enterprise-wide prevalence of users experiencing authentication failures per window.
+// Keyed on the window (NOT the entity): grouping by $entity and counting distinct
+// entities always yields 1. A $dummy = 1 Cartesian key is rejected by the compiler.
+stage fleet_breadth {
+    $ws = $hourly_failures.window_start
 
   match:
-    $user
+    $ws by 1h
   outcome:
-    $fleet_users = count_distinct($hourly_failures.user)
+    $fleet_users = count_distinct($hourly_failures.entity)
 }
 
-// Root Stage: Join stages, calculate Fano Factor in events section, and emit 6 Evidence Pillars
-$user = $hourly_failures.user
-$user = $dispersion_baseline.user
-$user = $fleet_prevalence.user
+// Root Stage: Join stages, calculate Fano Factor in outcome section, and emit 6 Evidence Pillars
+// Root collapses each entity across all windows; fleet prevalence reports the peak per-window breadth.
+$entity = $hourly_failures.entity
+$entity = $dispersion_baseline.entity
+$ws = $hourly_failures.window_start
+$ws = $fleet_breadth.ws
 
 match:
-  $user
+  $entity
 outcome:
   // 6 Core Evidence Pillars
   $observation_count = max($dispersion_baseline.total_failures)
   $baseline_active_samples = max($dispersion_baseline.active_hours)
   $baseline_mean = max($dispersion_baseline.mean_rate)
   $baseline_dispersion = max($dispersion_baseline.stddev_rate)
-  $fleet_prevalence = max($fleet_prevalence.fleet_users)
+  $fleet_prevalence = max($fleet_breadth.fleet_users)
   $distinct_binaries = max($dispersion_baseline.total_failures)
   $sample_commands = array_distinct($hourly_failures.sample_ip)
   
   // Aggregate Fano Factor (F = σ² / μ)
-  $fano_factor = (max($dispersion_baseline.stddev_rate) * max($dispersion_baseline.stddev_rate)) / (max($dispersion_baseline.mean_rate) + 0.001)
+  $raw_mean = max($dispersion_baseline.mean_rate)
+  $safe_mean = if($raw_mean > 0, $raw_mean, 1.0)
+  $raw_stddev = max($dispersion_baseline.stddev_rate)
+  $variance = $raw_stddev * $raw_stddev
+  $fano_factor = $variance / ($safe_mean + 1.0)
 
 condition:
-  // Small-Sample Protection: Require at least 30 active hourly observation windows
   $baseline_active_samples >= 30
-  // Activity Floor: at least 15 failed logins across the search window
   and $observation_count >= 15
-  // Historical Rate Floor: average at least 1 failure per active hour (protects against zero-division)
   and $baseline_mean >= 1.0
-  // Over-dispersion Threshold: Fano Factor >= 4.0 indicates non-random burst clustering
   and $fano_factor >= 4.0
 
 order:
   $fano_factor desc
-
