@@ -2121,9 +2121,143 @@ class HandoffEndpoint:
     }
 
 
+def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
+  """Inspects an analyst prompt to detect when the request is better routed to secops-risk-metrics-multistage.
+
+  Returns a recommendation dictionary if the prompt matches pre-computed risk metrics or UEBA baselines,
+  or None if secops-statistical-hunter is the authoritative skill.
+  """
+  prompt_clean = user_prompt.lower()
+
+  # 1. HTTP / Web User-Agent queries & baselines
+  if ("user-agent" in prompt_clean or "user_agent" in prompt_clean or "user agent" in prompt_clean) and \
+     any(kw in prompt_clean for kw in ["network", "http", "web", "traffic", "query", "queries", "compare", "comparison", "volume", "baseline"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.http_queries_total",
+        "recommended_pipeline": "hybrid_metric_fleet_prevalence_2stage.yl2",
+        "target_dimension": "network.http.user_agent",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "Web / HTTP request volume across user-agent strings is pre-computed in Google SecOps via "
+            "'metrics.http_queries_total' (with dimension 'network.http.user_agent'). "
+            "Evaluating user-agent surges against 30-day historical behavior belongs in secops-risk-metrics-multistage "
+            "to avoid expensive full-table scans over raw HTTP logs."
+        ),
+    }
+
+  # 2. Authentication baselines (30d normal / typical login behavior)
+  if any(kw in prompt_clean for kw in ["auth", "login", "logon", "password spray", "credential"]) and \
+     any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "historical baseline", "typical behavior", "normal behavior", "baseline"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.auth_attempts_total",
+        "recommended_pipeline": "standard_z_score_2stage.yl2",
+        "target_dimension": "target.user.userid",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "Entity authentication baselining against 30-day normal/typical behavior is pre-computed in Google SecOps via "
+            "'metrics.auth_attempts_*'. Risk Metrics provides O(1) 30-day mean and stddev lookups."
+        ),
+    }
+
+  # 3. Network byte / flow baselines
+  if any(kw in prompt_clean for kw in ["network byte", "network flow", "outbound byte", "inbound byte", "bandwidth"]) and \
+     any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "baseline", "typical", "normal"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.network_bytes_outbound",
+        "recommended_pipeline": "standard_z_score_2stage.yl2",
+        "target_dimension": "principal.asset.hostname",
+        "entity_dimension": "principal.user.userid",
+        "justification": (
+            "Network byte volume and connection flow baselining is pre-computed via "
+            "'metrics.network_bytes_*' and 'metrics.network_flows_*' in secops-risk-metrics-multistage."
+        ),
+    }
+
+  # 4. Peer group / cohort comparison
+  if any(kw in prompt_clean for kw in ["peer group", "cohort", "department", "colleagues", "peers", "peer baseline"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.auth_attempts_total",
+        "recommended_pipeline": "dual_baseline_delta_z_3stage.yl2",
+        "target_dimension": "target.user.userid",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "Comparing an entity's behavior against an organizational peer cohort or department baseline "
+            "requires pre-computed cohort metrics in secops-risk-metrics-multistage."
+        ),
+    }
+
+  # 5. Entity Risk Score / 360 Health Check
+  if any(kw in prompt_clean for kw in ["risk score", "risk_score", "graph.risk_score", "360 health", "omnibus risk"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "graph.risk_score",
+        "recommended_pipeline": "radar_360_decoupled_sector.yl2",
+        "target_dimension": "graph.entity",
+        "entity_dimension": "principal.user.userid",
+        "justification": (
+            "Entity risk score evaluations and 360° health checks query Google SecOps UEBA Risk Scoring tables "
+            "('graph.risk_score'), which are exclusively managed by secops-risk-metrics-multistage."
+        ),
+    }
+
+  # 6. Explicit 30-day UEBA baseline request
+  if "30-day baseline" in prompt_clean or "30 day baseline" in prompt_clean or "30d baseline" in prompt_clean or "ueba" in prompt_clean:
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.*",
+        "recommended_pipeline": "standard_z_score_2stage.yl2",
+        "target_dimension": "target.user.userid",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "Rolling 30-day behavioral baselines and UEBA metric functions are pre-computed in Google SecOps "
+            "and exclusively maintained in secops-risk-metrics-multistage."
+        ),
+    }
+
+  return None
+
+
+def format_routing_handoff_card(routing_info: Dict[str, Any]) -> str:
+  """Renders the user-facing routing delegation card when a query belongs in Risk Metrics."""
+  lines = [
+      "### 🔄 Skill Delegation: Route to `secops-risk-metrics-multistage`",
+      "",
+      "> [!NOTE]",
+      "> **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**",
+      f"> • **Routing Rationale**: {routing_info['justification']}",
+      f"> • **Target Skill**: `{routing_info['target_skill']}`",
+      f"> • **Recommended Metric / Function**: `{routing_info.get('recommended_metric', 'metrics.*')}`",
+      f"> • **Recommended Pipeline**: `{routing_info.get('recommended_pipeline', 'standard_z_score_2stage.yl2')}`",
+  ]
+  if "target_dimension" in routing_info:
+    lines.append(f"> • **Target Dimension**: `{routing_info['target_dimension']}`")
+  lines.extend([
+      "",
+      "> [!IMPORTANT]",
+      "> **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the behavioral baseline query.",
+      "> *Please switch to the `secops-risk-metrics-multistage` skill to execute this behavioral baseline hunt.*",
+      "",
+  ])
+  return "\n".join(lines)
+
+
 def main():
   parser = argparse.ArgumentParser(
       description="secops-statistical-hunter Query Validation & Boundary Utility"
+  )
+  parser.add_argument(
+      "--check_routing",
+      help="Check an analyst prompt to see if it should be routed to secops-risk-metrics-multistage",
   )
   parser.add_argument(
       "--query_file", help="Path to YARA-L query file to validate"
@@ -2196,6 +2330,15 @@ def main():
   )
 
   args = parser.parse_args()
+
+  if args.check_routing:
+    routing_info = check_routing_recommendation(args.check_routing)
+    if routing_info:
+      print(format_routing_handoff_card(routing_info))
+      sys.exit(0)
+    else:
+      print("STAY_IN_STATISTICAL_HUNTER: Request is suited for ad-hoc raw telemetry statistical hunting.")
+      sys.exit(0)
 
   if args.ingest_handoff:
     ack_result = HandoffEndpoint.ingest(args.ingest_handoff)

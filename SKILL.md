@@ -70,6 +70,16 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Interactive Verification Gate)
 
 When an analyst initiates a threat hunt or selects an archetype, proceed through the interactive pre-flight gate:
+0. **Pre-Flight Routing Interceptor (Risk Metrics Delegation Gate)**:
+   Before formulating an ad-hoc query or pre-flight card, evaluate if the analyst's request is better served by `secops-risk-metrics-multistage` (or run `python3 scripts/multistage_query_builder.py --check_routing "<prompt>"`):
+   - **Web / HTTP Traffic**: Requests asking to baseline or compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`, `metrics.http_queries_success`, `metrics.http_queries_fail`).
+   - **Authentication Volume**: Requests comparing logins/failures to an entity's 30-day normal/typical baseline (`metrics.auth_attempts_*`).
+   - **Network Bytes/Flows**: Outbound/inbound data transfer baselines (`metrics.network_bytes_*`, `metrics.network_flows_*`).
+   - **DNS Queries**: DNS resolution volume or payload bytes over 30 days (`metrics.dns_*`).
+   - **File Executions**: Process execution baselines (`metrics.file_executions_*`).
+   - **Workspace / Cloud Activity**: Administrative settings changes, file downloads, email volume (`metrics.workspace_*`).
+   - **Peer Cohorts & Entity Risk Scores**: Inquiries comparing an entity to their department/role peer group, or referencing omnibus entity risk scores (`graph.risk_score`) / 360° health checks.
+   👉 **Routing Action**: If ANY of the above conditions apply, **DO NOT** attempt to construct an ad-hoc query or Cartesian approximation in `secops-statistical-hunter`. Immediately emit the **Skill Delegation Card** and instruct the user to pick up the query in `secops-risk-metrics-multistage`.
 1. **Interactive Scoping Protocol**: Reserve Turn 1 for configuration, scoping, and confirmation. Full historical search execution begins after analyst clearance.
 2. **Consultative Support & Expert Bypass Rule**:
    * *Consultative Discovery*: If the analyst's request is open-ended, inspect `references/consultative-worksheet.md` to classify the objective across the 5 Raw Behavioral Telemetry Deformations and present 2–3 targeted Summary View options.
