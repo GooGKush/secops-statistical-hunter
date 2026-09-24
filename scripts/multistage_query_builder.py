@@ -56,6 +56,7 @@ SYNTAX_TRAPS = [
     # --- Verified compiler facts (live udm_search probes, 2026-09-24) ---
     (r"\bif\s*\([^)]*==", "SYNTAX ERROR (DOUBLE_EQUALS_IN_IF): '==' inside if() is rejected by the Chronicle compiler. Use a single '=' for equality inside if(cond, a, b), e.g. if($x = 1.0, 1, 0)."),
     (r"\$window_start\s*=\s*(?:min|max|avg|sum|count)\s*\(", "SYNTAX ERROR (WINDOW_START_SHADOWED): '$window_start' is an implicit output of every windowed stage ('match: $k by <dur>'). Defining it in outcome: (e.g. '$window_start = min(metadata.event_timestamp.seconds)') is rejected. Remove the definition and bind '$ws = $stage.window_start' in the consuming stage instead."),
+    (r"\b(?:max|min)\s*\(\s*(?:\$?[a-zA-Z0-9_.]*\.(?:hostname|userid|user_agent|full_path|command_line|sha256|md5|sha1|domain|url|email_addresses|ip)|\$(?:host|hostname|user|userid|token|entity|domain|ip|src_ip|dst_ip|hash|sha256|url|cmd|command))\s*\)", "SYNTAX ERROR (INVALID_STRING_AGGREGATION_FUNCTION): max()/min() are numeric only (Int/Float); calling them on a string field or string placeholder is rejected. Project strings with array_distinct(...) or count them with count_distinct(...)."),
     (r"match:\s*[^;\n]*\bby\s+(?!1d\b)\d+d\b", "SYNTAX ERROR (NONCANONICAL_MATCH_WINDOW): Multi-day tumbling windows ('by 2d', 'by 7d', 'by 14d') are rejected by the compiler. Verified windows: 'by 5m', 'by 1h', 'by 2h', 'by 1d'. Keep the bucket at <= 1d and widen startTime/endTime to cover longer horizons."),
 ]
 

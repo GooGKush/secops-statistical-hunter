@@ -99,6 +99,21 @@ class TestVerifiedCompilerFacts(unittest.TestCase):
         ok = LEGAL_TWO_STAGE.replace("by 1h", f"by {good_window}")
         self.assertEqual(_fatal(validate_multistage_syntax(ok)), [])
 
+  def test_max_on_string_field_rejected(self):
+    bad = LEGAL_TWO_STAGE.replace("$event_count = count(metadata.id)",
+                                  "$event_count = count(metadata.id)\n    $top_path = max(target.process.file.full_path)")
+    errors = validate_multistage_syntax(bad)
+    self.assertTrue(any("INVALID_STRING_AGGREGATION_FUNCTION" in e for e in errors), errors)
+    bad2 = LEGAL_TWO_STAGE.replace("$event_count = count(metadata.id)",
+                                   "$event_count = count(metadata.id)\n    $h = max($host)")
+    errors2 = validate_multistage_syntax(bad2)
+    self.assertTrue(any("INVALID_STRING_AGGREGATION_FUNCTION" in e for e in errors2), errors2)
+
+  def test_array_distinct_on_string_field_is_legal(self):
+    ok = LEGAL_TWO_STAGE.replace("$event_count = count(metadata.id)",
+                                 "$event_count = count(metadata.id)\n    $paths = array_distinct(target.process.file.full_path)")
+    self.assertEqual(_fatal(validate_multistage_syntax(ok)), [])
+
   def test_stage_outcome_name_collision_rejected(self):
     bad = LEGAL_TWO_STAGE.replace("stage fleet_breadth {", "stage fleet_prevalence {") \
                          .replace("$fleet_breadth.", "$fleet_prevalence.")

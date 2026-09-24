@@ -141,5 +141,6 @@ condition:
    | Aggregator arithmetic inside a stage outcome (`(max($ts) - min($ts)) / (count(metadata.id) + 1.0)`, `avg(x) * avg(x)`) | **Compiles**. |
    | `array_distinct($stage.array_col)` in root (re-aggregating a stage array) | **Compiles**. |
    | Aggregator wrapping an outcome variable (`max($some_outcome_var)`) | **Rejected**: "aggregation cannot refer to outcome variables". |
+   | `max()` / `min()` on a string field or string placeholder (`max(target.process.file.full_path)`, `max($host)`) | **Rejected**: `max()`/`min()` are numeric only (Int/Float). Project strings with `array_distinct(...)` or count them with `count_distinct(...)`; the same field under `array_distinct()` compiles. |
    | Reference list that does not exist in the tenant (`$x in %missing_list`) | **Rejected** as an invalid argument — tenant-dependent, not a grammar error. |
 
