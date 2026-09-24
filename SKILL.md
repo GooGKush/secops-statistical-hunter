@@ -72,6 +72,7 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 When an analyst initiates a threat hunt or selects an archetype, proceed through the interactive pre-flight gate:
 0. **Pre-Flight Routing Interceptor (Risk Metrics Delegation Gate)**:
    Before formulating an ad-hoc query or pre-flight card, evaluate if the analyst's request is better served by `secops-risk-metrics-multistage` (or run `python3 scripts/multistage_query_builder.py --check_routing "<prompt>"`):
+   - **Explicit UEBA / 30-Day Baselines / Risk Metrics**: Any request containing the terms `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, or `"risk score"` MUST immediately route to `secops-risk-metrics-multistage`. Statistical Hunter operates over short-horizon raw telemetry (typically 1h to 7d) without pre-computed 30-day behavioral metrics tables.
    - **Web / HTTP Traffic**: Requests asking to baseline or compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`, `metrics.http_queries_success`, `metrics.http_queries_fail`).
    - **Authentication Volume**: Requests comparing logins/failures to an entity's 30-day normal/typical baseline (`metrics.auth_attempts_*`).
    - **Network Bytes/Flows**: Outbound/inbound data transfer baselines (`metrics.network_bytes_*`, `metrics.network_flows_*`).
@@ -79,8 +80,8 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
    - **File Executions**: Process execution baselines (`metrics.file_executions_*`).
    - **Workspace / Cloud Activity**: Administrative settings changes, file downloads, email volume (`metrics.workspace_*`).
    - **Peer Cohorts & Entity Risk Scores**: Inquiries comparing an entity to their department/role peer group, or referencing omnibus entity risk scores (`graph.risk_score`) / 360° health checks.
-   👉 **Routing Action**: If ANY of the above conditions apply, **DO NOT** attempt to construct an ad-hoc query or Cartesian approximation in `secops-statistical-hunter`. Immediately emit the **Skill Delegation Card** and instruct the user to pick up the query in `secops-risk-metrics-multistage`.
-1. **Interactive Scoping Protocol**: Reserve Turn 1 for configuration, scoping, and confirmation. Full historical search execution begins after analyst clearance.
+   👉 **Routing Action**: If ANY of the above conditions apply, **DO NOT** execute any telemetry search tools (`udm_search`) or attempt to construct an ad-hoc query in `secops-statistical-hunter`. Immediately emit the **Skill Delegation Card** and instruct the user to pick up the query in `secops-risk-metrics-multistage`.
+1. **Interactive Scoping Protocol & Zero Execution on Turn 1**: Reserve Turn 1 strictly for approach overview, operational analogy, pre-flight specification card, and candidate query preview. Full historical telemetry search execution (`udm_search` with multi-stage queries, queries with `stage` or `match:`, or queries without `maxEvents=1`) is STRICTLY PROHIBITED on Turn 1. Only a single 1-event probe (`maxEvents=1`) is permitted on Turn 1 to verify schema connectivity.
 2. **Consultative Support & Expert Bypass Rule**:
    * *Consultative Discovery*: If the analyst's request is open-ended, inspect `references/consultative-worksheet.md` to classify the objective across the 5 Raw Behavioral Telemetry Deformations and present 2–3 targeted Summary View options.
    * *Expert Bypass Rule*: If the analyst specifies both the target telemetry (e.g. `PROCESS_LAUNCH`) and statistical model (e.g. `MAD` or `Z-score`), proceed directly to emitting the Pre-Flight Card.
@@ -110,7 +111,8 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
    * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative offsets like 'now-10m' are invalid). The Turn 1 probe uses the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`) because its purpose is fast schema and time-boundary verification, not analysis. Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED.
    * *Turn 2 Execution Contract (Full Multi-Stage Submission)*: `secops-gus:udm_search` natively accepts multi-stage YARA-L (`stage ... { ... }` + root stage) and returns aggregated `stats` rows. After clearance, submit the **complete multi-stage query verbatim** as the `query` argument over the cleared horizon. NEVER substitute a single-event filter at execution time: an unaggregated `events` response is not evidence for a triage report (see Section 1, *Statistical Aggregation Integrity*).
    * *Single-Cycle Self-Healing Ceiling*: Limit compiler probes on Turn 1 to at most **ONE initial probe + ONE retry (maximum 2 probes total)**. Never enter runaway retry loops. Even if the probe returns 0 events (`{}`), zero results reflect nominal baseline activity, not an error—proceed directly to present the Pre-Flight Card and candidate query preview.
-6. **Explicit Clearance Question & Turn Termination**: Solicit analyst confirmation to execute across the full historical horizon: *"Would you like me to proceed with executing this search in **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Timeline)**?"*. Conclude the turn immediately and await approval.
+6. **Explicit Clearance Question & Immediate Turn Termination**: Solicit analyst confirmation to execute across the full historical horizon: *"Would you like me to proceed with executing this search in **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Timeline)**?"*.
+   **Turn 1 MUST end immediately here.** Do NOT call any more tools after presenting the candidate query preview. Stop calling tools and await explicit analyst clearance before executing the multi-stage query or searching historical data.
 
 ---
 
@@ -146,6 +148,12 @@ When formatting hunting results for ANY client (CLI, Chat UI, or Web UI), the ag
 | **6. Variety of Programs** | `42 unique` | Distinct binaries or IPs involved |
 
 [Potential Attack Scenarios | Legitimate Business Explanations | Step-by-Step SOC Action Plan]
+
+---
+> [!NOTE]
+> **Zero Outliers (Nominal Baseline)**: When no entities breach the statistical threshold ($N=0$ outliers), all 5 sections remain mandatory. Format Section 3 as:
+> `#### 🔍 Top Outlier Spotlight: Nominal Baseline (0 Outliers Detected)` or `#### 🔍 Nominal Baseline Spotlight: All Entities Within Expected Tolerances`
+> retaining the 6 Forensic Evidence Pillars reflecting normal baseline metrics and confirming clean status.
 
 ---
 #### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)
