@@ -51,9 +51,21 @@ SYNTAX_TRAPS = [
     (r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR (INVALID_DETECTION_RULE_SYNTAX): Multi-stage queries are Search/Dashboard-only ('stage ... { ... }' + root stage). Do NOT wrap in 'rule ... { ... }'."),
     (r"(?:stage\s+[a-zA-Z0-9_]+\s*\{.*?\}\s*)+\s*events\s*:", "SYNTAX ERROR (INVALID_EVENTS_SECTION_IN_ROOT): Root stage of a multi-stage query must not contain an 'events:' header block. Stage bindings must be declared directly before match:."),
     (r"match:\s*[^;\n]*\$[a-zA-Z0-9_]+\.[a-zA-Z0-9_.]+", "SYNTAX ERROR (INVALID_MATCH_DOT_NOTATION): Match blocks accept ONLY simple bound variable identifiers (e.g. '$host by 1d'), not member dot-notation. Bind variables in event predicates before match:."),
+    (r"\$dummy\s*=\s*\d+", "SYNTAX ERROR (CARTESIAN_DUMMY_JOIN): Multi-stage YARA-L queries do not support artificial Cartesian joins via '$dummy = 1'. Align stages using real partition keys (e.g. '$token by 1d') across stages."),
+    (r"match:\s*[^;\n]*\$dummy\b", "SYNTAX ERROR (CARTESIAN_DUMMY_JOIN): Multi-stage YARA-L queries do not support artificial Cartesian joins via '$dummy'. Align stages using real partition keys (e.g. '$token by 1d') across stages."),
 ]
 
 SENSITIVITY_MAP = {
+    "CATEGORICAL_FLEET_PREVALENCE": {
+        "CONSERVATIVE": {"max_adopters": 1, "min_events": 10, "min_active_hours": 12},
+        "BALANCED": {"max_adopters": 2, "min_events": 5, "min_active_hours": 6},
+        "AGGRESSIVE": {"max_adopters": 3, "min_events": 2, "min_active_hours": 1},
+    },
+    "DISCRETE_ENTITY_RARITY": {
+        "CONSERVATIVE": {"max_adopters": 1, "min_events": 10, "min_active_hours": 12},
+        "BALANCED": {"max_adopters": 2, "min_events": 5, "min_active_hours": 6},
+        "AGGRESSIVE": {"max_adopters": 3, "min_events": 2, "min_active_hours": 1},
+    },
     "ZSCORE_PROCESS_SURGE": {
         "CONSERVATIVE": {"z_score": 3.0, "min_count": 50, "min_sd": 10.0, "min_active_samples": 120},
         "BALANCED": {"z_score": 2.0, "min_count": 25, "min_sd": 5.0, "min_active_samples": 60},

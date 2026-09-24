@@ -373,6 +373,47 @@ class TestCompilerGrammar(unittest.TestCase):
     self.assertTrue(any("STAGE COUNT LIMIT EXCEEDED" in e for e in errors),
                     f"Expected STAGE COUNT LIMIT EXCEEDED rejection for 4 named stages, got: {errors}")
 
+  def test_reject_cartesian_dummy_join(self):
+    """Cartesian joins via $dummy = 1 or match: $dummy must be rejected."""
+    bad_query = """
+    stage ua_counts {
+      metadata.event_type = "NETWORK_HTTP"
+      network.http.user_agent = $ua
+      principal.ip = $ip
+      match: $ua by 1h
+      outcome: $devs = count_distinct(principal.ip)
+    }
+    stage fleet_stats {
+      $ua = $ua_counts.ua
+      $dummy = 1
+      match: $dummy
+      outcome: $avg = avg($ua_counts.devs)
+    }
+    $ua = $ua_counts.ua
+    $dummy = 1
+    $dummy = $fleet_stats.dummy
+    match: $ua by 1h
+    outcome:
+      $out = max($ua_counts.devs)
+    condition:
+      $out > 0
+    """
+    errors = validate_multistage_syntax(bad_query)
+    self.assertTrue(any("CARTESIAN_DUMMY_JOIN" in e for e in errors),
+                    f"Expected CARTESIAN_DUMMY_JOIN error, got: {errors}")
+
+  def test_golden_rare_user_agent_prevalence_passes(self):
+    """Golden example rare_user_agent_prevalence.yara must pass grammar and scope validation."""
+    golden_path = os.path.join(os.path.dirname(__file__), "..", "examples", "rare_user_agent_prevalence.yara")
+    self.assertTrue(os.path.exists(golden_path), f"Golden file must exist: {golden_path}")
+    with open(golden_path, "r", encoding="utf-8") as f:
+      content = f.read()
+    violations = check_scope_exclusions(content)
+    self.assertEqual(violations, [], f"Scope exclusions violated in rare_user_agent_prevalence.yara: {violations}")
+    syntax_errors = validate_multistage_syntax(content)
+    fatal_errors = [e for e in syntax_errors if not e.startswith("MISSING METHODOLOGY HEADER")]
+    self.assertEqual(fatal_errors, [], f"Syntax errors in rare_user_agent_prevalence.yara: {fatal_errors}")
+
 
 if __name__ == "__main__":
   unittest.main()

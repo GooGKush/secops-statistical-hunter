@@ -85,8 +85,39 @@ condition:
    - Every upstream stage referenced in root outcome must be bound in root events (`$host = $stage1.host`).
 8. **Scope Restrictions**:
    - Queries must execute raw UDM telemetry only (`UDM_EVENTS`). Forbidden scopes include `metrics.*`, `risk_score`, and detection rule syntax (`rule <name>`).
-9. **Template-First Formulation**:
-   - Inspect `templates/pipelines/*.yl2` for complete, verified reference implementations:
+9. **Zero Artificial Cartesian Joins (`$dummy = 1` Prohibited)**:
+   - Multi-stage YARA-L queries do NOT support artificial unwindowed Cartesian joins via `$dummy = 1` or `match: $dummy`.
+   - Stages must align using real partition keys (e.g. `$token by 1d`, or `$ws by 1h` with `$ws = $stage.window_start`) across all stages.
+10. **Categorical Outlier & Entity Rarity Architecture**:
+   - When detecting rare or outlier categorical strings across endpoints (e.g. browser user-agent strings, rare domains, JA3 hashes, commands):
+     - **High-Performance Single-Stage Rarity Hunt**: For direct rarity filtering without multi-stage joining, use a single-stage windowed query:
+       ```yara
+       metadata.event_type = "NETWORK_HTTP"
+       network.http.user_agent = $user_agent
+       $user_agent != ""
+       principal.ip = $device_ip
+
+       match:
+         $user_agent by 1h
+
+       outcome:
+         $event_count = count(metadata.id)
+         $device_count = count_distinct(principal.ip)
+         $sample_devices = array_distinct(principal.ip)
+         $sample_uris = array_distinct(target.url)
+
+       condition:
+         $device_count <= 2
+         and $event_count >= 5
+
+       order:
+         $event_count desc
+       ```
+     - **2-Stage Token-Centric Fleet Adoption Pipeline**: If combining entity-level surges with enterprise adoption breadth, match across stages using the categorical token (`$user_agent by 1d`), as shown in `examples/rare_user_agent_prevalence.yara`.
+11. **Template-First Formulation**:
+   - Inspect `templates/pipelines/*.yl2` and `examples/*.yara` for complete, verified reference implementations:
+     - `rare_user_agent_prevalence.yara` (Categorical Fleet Prevalence & Rarity)
+     - `fleet_zscore_process_outliers.yara` (Peer Fleet Z-Score Normalization)
      - `zscore_process_surge_2stage.yl2` (Z-Score)
      - `poisson_rare_surge_2stage.yl2` (Discrete Poisson Rarity)
      - `mad_exfiltration_2stage.yl2` (Median Absolute Deviation)
