@@ -228,14 +228,8 @@ When generating Vega-Lite or Chart.js charts:
 
 ## 🔍 Post-Query Intent & Architecture Verification
 
-Before finalizing execution, verify that the executed query matches the promised architecture and narrative:
-```bash
-python3 scripts/multistage_query_builder.py \
-  --query_file hunt_query.yara \
-  --audit_intent DUAL_BASELINE_3STAGE \
-  --audit_model DELTA_Z
-```
-* **Concordance & Anti-Degradation**: `PostFlightExecutionAuditor` validates that when a multi-stage pipeline is explained to the analyst, the executed query actually runs as a multi-stage DAG with named stages, preventing silent degradation into single-stage stats searches.
+Ensure that the executed query matches the promised architecture and narrative directly within chat before finalizing execution:
+* **Concordance & Anti-Degradation**: Validate that the executed query runs as a true multi-stage DAG with named stages and root aggregation, matching the architecture presented in the pre-flight card and preventing degradation into single-stage stats searches. All verification is conducted natively in chat.
 
 ---
 
@@ -258,10 +252,10 @@ python3 scripts/multistage_query_builder.py \
 * **CRI Normalization**: The Calibrated Risk Index maps raw statistical deviations ($Z$-scores, $\text{MAD } Z$, Poisson deviance, $\text{CV}$) onto a standardized [0–100] S-Curve:
   $$\text{CRI}(Z) = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$$
 * **Anchoring Invariant**: Strictly anchors the 3-Sigma alertable boundary ($Z = 3.0\sigma$) at exactly $\text{CRI} = 50$.
-* **CRI Derivation Standard**: Derive the CRI either via the standardized sigmoid formula in post-processing presentation scripts (`scripts/multistage_query_builder.py`) or via piecewise outcome tiers in the query root stage.
+* **CRI Derivation Standard**: Derive the CRI either via the standardized sigmoid formula or via piecewise outcome tiers in the query root stage, formatting the normalized [0–100] score directly into the Markdown triage report.
 
 ### 3. Clean Hand-Off (CH) Protocol (Synthetic UDM Event Ingestion vs. Active Case Wall)
-Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill analyst requests to alert, notify, or escalate findings (*"create a UDM alert"*, *"alert on this"*, *"send this in"*, *"escalate"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off. Always load `references/clean-handoff-udm-schema.md` or helper `scripts/clean_handoff.py`:
+Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill analyst requests to alert, notify, or escalate findings (*"create a UDM alert"*, *"alert on this"*, *"send this in"*, *"escalate"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off. Always consult `references/clean-handoff-udm-schema.md` for synthetic event definitions:
 * **Path A (Standard Escalation Default — Synthetic Event Ingestion)**: Map outliers to enriched synthetic UDM events (`product_name: "SecOps Statistical Hunter"`, `resource_type: "RESOURCE_TYPE_UNSPECIFIED"`, batching multiple findings under a shared `Hunt Campaign ID`). Preview the Pre-Ingestion Clearance Card to the analyst (yield turn, 0 tools). Upon approval, perform direct Chronicle API ingestion via `secops-gus:import_logs` (logType: `CUSTOM_SECURITY_DATA_ANALYTICS`; forwarders are strictly fallback).
 * **Path B (Explicit Active Case Attachment)**: When the analyst is actively reviewing a specific case and explicitly instructs findings to be attached (e.g. *"Attach this finding to Case 11075"*), call `create_case_comment(case_id="<ID>", comment=...)` targeting that designated case.
 * **Case Attachment Targeting**: Call `create_case_comment` exclusively when provided with an explicit, analyst-confirmed `case_id`. Arbitrary case hijacking is strictly forbidden.

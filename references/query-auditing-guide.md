@@ -18,9 +18,11 @@ This guide describes how to verify that executed YARA-L threat hunting queries m
 
 ---
 
-## 2. Automated CLI Verification
+## 2. Automated Developer / CI CLI Verification
 
-To audit a query file against promised architecture:
+*(For offline developer and CI test bed verification; the LLM agent verifies these invariants natively in chat).*
+
+To audit a query file against promised architecture in developer workflows:
 
 ```bash
 python3 scripts/multistage_query_builder.py \
