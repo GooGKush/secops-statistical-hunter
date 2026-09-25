@@ -8,7 +8,7 @@
 //     This produces a low Coefficient of Variation (CV <= 0.20), whereas human browsing exhibits wide, random time variance (CV > 0.50).
 //   - Noise protection: Enforces a volume floor of >= 25 connections over the window, a sample density floor (>= 6 active hours),
 //     and restricts destination IP prevalence to <= 2 internal hosts to eliminate widespread cloud infrastructure (CDNs, NTP, OS updates).
-// Sensitivity Boundary: BALANCED (CV <= 0.20, Total Conns >= 25, Prevalence <= 2 hosts, Active Hours >= 6)
+// Sensitivity Boundary: BALANCED (CV <= 0.2, Total Conns >= 25, Prevalence <= 2 hosts, Active Hours >= 6)
 // ============================================================================
 
 // Stage 1: Measure hourly timing stamps per (src_ip, dst_ip) pair
@@ -28,7 +28,7 @@ stage host_intervals {
     $first_seen = min($ts)
     $last_seen = max($ts)
     $conn_count = count(metadata.id)
-    $avg_gap = (max($ts) - min($ts)) / (count(metadata.id) - 0.999)
+    $avg_gap = (max($ts) - min($ts)) / (count(metadata.id) + 1.0)
 }
 
 // Stage 2: Aggregate historical timing stats across the window
@@ -46,20 +46,19 @@ stage timing_stats {
 }
 
 // Stage 3: Measure enterprise-wide prevalence of the destination IP
-stage fleet_prevalence {
+stage dst_prevalence {
     $dst_ip = $host_intervals.dst_ip
 
   match:
     $dst_ip
   outcome:
-    // How many distinct internal hosts communicated with this external IP?
-    $prevalence = count_distinct($host_intervals.src_ip)
+    $src_breadth = count_distinct($host_intervals.src_ip)
 }
 
 // Root Stage: Combine timing stats, compute CV, and emit standardized 6 Evidence Pillars
 $src_ip = $timing_stats.src_ip
 $dst_ip = $timing_stats.dst_ip
-$dst_ip = $fleet_prevalence.dst_ip
+$dst_ip = $dst_prevalence.dst_ip
 
 match:
   $src_ip, $dst_ip
@@ -69,24 +68,21 @@ outcome:
   $baseline_active_samples = max($timing_stats.active_hours)
   $baseline_mean = max($timing_stats.mean_gap)
   $baseline_dispersion = max($timing_stats.stddev_gap)
-  $fleet_prevalence = max($fleet_prevalence.prevalence)
+  $fleet_prevalence = max($dst_prevalence.src_breadth)
   $distinct_binaries = max($timing_stats.total_conns)
   
   // Aggregate Coefficient of Variation (CV = σ / μ)
-  $cv = max($timing_stats.stddev_gap) / (max($timing_stats.mean_gap) + 0.001)
+  $raw_mean = max($timing_stats.mean_gap)
+  $safe_mean = if($raw_mean > 0, $raw_mean, 1.0)
+  $raw_stddev = max($timing_stats.stddev_gap)
+  $cv = $raw_stddev / ($safe_mean + 1.0)
 
 condition:
-  // Small-Sample Protection: Require at least 6 active hourly beaconing buckets
   $baseline_active_samples >= 6
-  // Volume Floor: at least 25 connections over window
   and $observation_count >= 25
-  // Prevalence Constraint: rare external destination (<= 2 hosts in enterprise)
+  and $baseline_mean >= 1.0
   and $fleet_prevalence <= 2
-  // Timing Constraint: beacon interval between 30s and 3600s (1h)
-  and $baseline_mean >= 30.0 and $baseline_mean <= 3600.0
-  // Sensitivity Tier: BALANCED (CV <= 0.20 tolerates up to 20% random sleep jitter)
-  and $cv <= 0.20
+  and $cv <= 0.2
 
 order:
   $cv asc
-

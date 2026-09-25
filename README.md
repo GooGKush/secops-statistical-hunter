@@ -14,18 +14,25 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
 
 ## Core Capabilities
 
-1. **Non-Statistician Consultative Routing & Intent Catalog**:
-   * Translates operational security questions into optimal statistical models (`POISSON_BURST_CLUSTERING`, `POISSON_RARE_SURGE`, `ZSCORE_PROCESS_SURGE`, `C2_BEACONING_JITTER`, `DATA_EXFILTRATION_SPIKE`, `HEAVY_TAIL_OUTLIERS`, `VELOCITY_SURGE_RATIO`, `LATERAL_RECON_DISPERSION`, `IMPOSSIBLE_TRAVEL_SPEED`).
-2. **Cyber-First 4-Tier Structured Triage Reports**:
-   * Renders executive anomaly verdicts, ranked outlier tables with Unicode visual magnitude bars (`█████`), and standard SOC severity badges (🚨 `[CRITICAL OUTLIER]`, ⚠️ `[HIGH SUSPICION]`, 🟡 `[ELEVATED WATCH]`).
-   * Appends **Threat Translation Cards**, **Common False Positive Reality Checks** (e.g. MSBuild, SCCM, NTP), and **3-step SOC Triage Playbooks** directly beneath hunt results.
-3. **Multi-Dimensional Threat Visualizations**:
-   * Generates client-agnostic Vega-Lite and Chart.js JSON specifications for **4D Threat Bubble Plots** (Volume $\times$ Timing $\times$ Cardinality $\times$ Severity), **3D Temporal Density Heatmaps**, and **Control Chart Tolerance Bands**.
-4. **Strict Scope Exclusions Guardrail**:
-   * Actively rejects and strips **UEBA Metric Functions (`metrics.*`)** and **Entity Risk Scores (`graph.risk_score`)**, ensuring ad-hoc time slices (`start_time` / `end_time`) execute cleanly without compilation errors.
-5. **Asynchronous LRO Polling Watchdog (`schedule` Wakeup Pattern)**:
-   * Uses non-blocking background timers via Jetski's `schedule` tool (`get_operation`).
-   * Diagnoses frozen progress (`events_searched`) and quota starvation, offering prescriptive query refactoring tips.
+1. **Native-Chat Option A Architecture**:
+   * Operates hermetically inside conversational chat sessions using native Google SecOps MCP tools (`secops-gus:udm_search`, `secops-gus:import_logs`, `secops-gus:create_case_comment`) and Markdown exclusively. Python helper scripts (`scripts/`) are reserved strictly for offline CI and developer unit testing (`pytest tests/`).
+2. **The 3-State Active Threat Hunt Lifecycle**:
+   * **State 1 (Pre-Flight Clearance & Specification)**: Universal entry gate for all inquiries. Verifies schema via a 1-shot compiler probe (`maxEvents=1`, 10-minute window), renders the structured Pre-Flight Specification Card, displays the candidate multi-stage YARA-L query preview with 6 mandatory root outcome variables, and solicits analyst clearance (Mode A vs Mode B).
+   * **State 2 (Deterministic Multi-Stage Execution & 5-Section Triage)**: Immediately executes the full multi-stage query via `udm_search(query=...)` upon receiving user clearance, and synthesizes aggregated `stats` evidence into the mandatory 5-Section CommonMark Triage Report.
+   * **State 3 (Dynamic Follow-Up & SOC Action Execution)**: Executes authorized post-hunt workflows including Clean Hand-Off synthetic UDM alert generation (`import_logs`), case wall attachment (`create_case_comment`), or client-agnostic visualization schemas.
+3. **6 Mandatory Root Outcome Variables & Forensic Evidence Pillars**:
+   * Guarantees 6 standardized root outcome columns across all multi-stage pipelines: `$observation_count`, `$baseline_active_samples`, `$baseline_mean`, `$baseline_dispersion`, `$fleet_prevalence`, and `$distinct_binaries` (aliasing distinct programs, IPs, or targets).
+   * Maps directly to the 6 Forensic Evidence Pillars in Section 3 of the triage report: `1. Activity Spike`, `2. Baseline History`, `3. Typical Normal Level`, `4. Normal Daily Spread`, `5. Company-Wide Breadth`, and `6. Variety of Programs`.
+4. **Chronicle SIEM Compiler Grammar & Bare Identifier Match Binding**:
+   * Formats all `match:` expressions with bare identifiers bound in stage event predicates (e.g. `$entity by 1h`, `$entity, $window_start by 1h`), completely eliminating match dot-notation syntax errors.
+   * Enforces Target Entity Scoping directly in primary stage predicates (`principal.hostname = "dev-ub22-1"`) to anchor baselines cleanly to the requested entity.
+   * Uses linearized math and squared deviance (`$poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)`) with additive dispersion floors (`+ 1.0`) to avoid zero-division crashes.
+5. **Strict Pre-Flight Routing Interceptor**:
+   * Evaluates incoming requests against pre-computed baseline indicators (UEBA keywords, 30-day rolling baselines, `metrics.*`, peer cohorts, and omnibus risk scores), immediately emitting the Markdown Skill Delegation Card routing to `secops-risk-metrics-multistage` (0 tools called). Sub-second timing, rarity, and raw UDM outlier hunts remain inline under the Expert Bypass Rule.
+6. **Entity Context Graph (ECG) Enrichment**:
+   * Correlates raw telemetry bursts with Chronicle's persistent Entity Context Graph: `GLOBAL_CONTEXT` (GCTI threat intelligence, WHOIS Newly Registered Domains) and `DERIVED_CONTEXT` (enterprise entity prevalence, first-seen/last-seen asset age).
+7. **Automated Clean Hand-Off Protocol**:
+   * Generates schema-compliant synthetic UDM security analytics events (`CUSTOM_SECURITY_DATA_ANALYTICS`) under a unique `Hunt Campaign ID`, caught by tenant rule `secops_statistical_hunter_alert_catchall` for seamless alert escalation without case wall pollution.
 
 ---
 
@@ -33,9 +40,9 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
 
 ```
 secops-statistical-hunter/
-├── SKILL.md                                 # Main skill specification, routing & execution contracts
-├── README.md                                # Overview & architecture reference
-├── RELEASE_NOTES.md                         # Detailed version changelog & feature notes
+├── SKILL.md                                 # Canonical skill specification, routing & execution lifecycle
+├── README.md                                # Overview & architectural reference
+├── RELEASE_NOTES.md                         # Detailed version changelog & release history
 ├── LICENSE                                  # Apache 2.0 open-source license
 ├── llms.txt                                 # Token-efficient AI agent summary file
 ├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (14)
@@ -66,35 +73,52 @@ secops-statistical-hunter/
 │   ├── poisson_rare_event_surge.yara        # Discrete Poisson score for sensitive administrative binaries
 │   ├── rolling_ratio_spike.yara             # 1-day vs 7-day vs 30-day moving ratio
 │   └── zscore_process_execution_surges.yara # Historical 3-Sigma Z-Score process surges per host
-├── references/                              # Deep-dive engineering guides (8)
+├── references/                              # Deep-dive engineering guides (13)
+│   ├── calibrated-risk-index-guide.md       # Sigmoid normalization (CRI 0–100) formulas
 │   ├── chart-specifications-guide.md        # Vega-Lite and Chart.js dual-Y visualization schemas
+│   ├── clean-handoff-udm-schema.md          # Synthetic UDM schemas & Chronicle API forwarder contracts
+│   ├── consultative-worksheet.md            # Mapping security intent to 5 behavioral deformations
 │   ├── cyber-practitioner-glossary.md       # Field manual translating statistics to SOC operations
 │   ├── dynamic-windowing-matrix.md          # Adaptive window bucketing & sample floor matrix
+│   ├── entity-context-graph-guide.md        # GLOBAL_CONTEXT & DERIVED_CONTEXT YARA-L architecture
 │   ├── multi-stage-query-guide.md           # 4-Stage DAG grammar rules & compiler invariants
 │   ├── query-auditing-guide.md              # Pre-flight and post-flight payload intent auditing
 │   ├── scope-exclusions-guardrail.md        # Why UEBA metrics.* are excluded from ad-hoc searches
+│   ├── statistical-hunting-cooperative-framework.md # Bilateral micro/macro hunting boundary
 │   ├── statistical-models-taxonomy.md       # Mathematical curves, Poisson dispersion, & 4D plots
 │   └── watchdog-polling-architecture.md     # LRO watchdog mechanics & F1 optimization
-├── scripts/
+├── scripts/                                 # Offline CI/testing helper scripts (Option A developer tooling)
 │   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & schema validator
 │   └── multistage_query_builder.py          # Python linter, AST validator, & report/chart generator
-└── tests/                                   # Automated test suite (93 tests, 100% pass rate)
+└── tests/                                   # Automated test suite (116 tests, 100% pass rate)
     ├── __init__.py
+    ├── test_chart_specifications.py         # Dual-axis visualization spec tests
     ├── test_clean_handoff.py                # Clean Hand-Off UDM schema validation & batching tests
-    ├── __init__.py
-    ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, 20-var limit, and syntax trap tests
+    ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, bare match identifiers
+    ├── test_cri_and_math.py                 # Sigmoid CRI normalization and mathematical derivations
     ├── test_global_context_syntax.py        # Entity Context Graph (GLOBAL_CONTEXT/DERIVED_CONTEXT) syntax tests
     ├── test_guardrail_contracts.py          # Golden pipeline validation, session lock, and guardrail contracts
     ├── test_handoff_endpoint.py             # Federated handoff ingestion and protocol ACK tests
     ├── test_math_models.py                  # Bayesian, Beta-Binomial, Fano, and norm unit tests
     ├── test_query_auditor.py                # Post-flight intent and raw log dump detection tests
-    ├── test_triage_reporting.py             # CommonMark 5-section triage schema tests
+    ├── test_routing_interceptor.py          # Pre-flight routing interceptor and delegation tests
+    ├── test_triage_reporting.py             # CommonMark 5-section triage schema & pillar tests
+    ├── test_verified_compiler_facts.py      # Chronicle Malachite compiler grammar facts
     └── test_window_adaptation.py            # Dynamic windowing and sample floor adaptation tests
 ```
 
 ---
 
 ## Release Notes
+
+### v2.6.0 (September 25, 2026)
+* **Option A Affirmative Native-Chat Runtime**: Enforced strict Option A architecture—scripts in `scripts/` are reserved for offline CI testing (`pytest tests/`), while the runtime conversational agent operates natively through Google SecOps MCP tools (`secops-gus:udm_search`, `secops-gus:import_logs`, `secops-gus:create_case_comment`) and Markdown exclusively.
+* **Universal Pre-Flight Gate & Interactive Scoping Protocol**: Unified all analytical entries into State 1, presenting operational analogies, standardized Pre-Flight Specification Cards, candidate query previews with 6 root outcome variables, and 1-shot schema validation probes (`maxEvents=1`, 10m window) with probe-then-yield transitions.
+* **6 Mandatory Root Outcome Variables**: Standardized `$observation_count`, `$baseline_active_samples`, `$baseline_mean`, `$baseline_dispersion`, `$fleet_prevalence`, and `$distinct_binaries` across all telemetry archetypes, mapping directly to the 6 Forensic Evidence Pillars in Section 3 of the triage report.
+* **Chronicle SIEM Compiler Grammar Hardening**: Codified bare identifier match headers (`match: $entity by 1h`), Target Entity Scoping in primary stage predicates (`principal.hostname = "dev-ub22-1"`), implicit `window_start` column bindings, and non-linear function alternatives (squared Poisson deviance and Euclidean distance).
+* **Immediate Turn 2 Execution & 5-Section Triage Report**: Established deterministic execution upon analyst clearance without secondary clarification stalls, delivering the standardized 5-Section CommonMark Triage Report (with nominal baseline support and single-line `text` UI pivot).
+* **Pre-Flight Routing Interceptor**: Strict precedence interceptor delegating UEBA keywords, 30-day baselines, and `metrics.*` to `secops-risk-metrics-multistage` (0 tools called).
+* **100% Dual-Engine Regression Parity (15 / 15 Passed)**: Evaluated across all 15 regression invariants in dual-engine mode (`agentapi` + `direct-mcp`) with 9 workers, achieving 100% invariant parity without coaching mandates or coached personas (116/116 automated unit tests passing).
 
 ### v2.5.1 (September 10, 2026)
 * **Automated Clean Hand-Off Protocol Engine (`scripts/clean_handoff.py`)**: Implemented dedicated helper for generating, validating, batching, and dispatching synthetic UDM events (`CUSTOM_SECURITY_DATA_ANALYTICS`) to Chronicle Event Store, caught by tenant rule `secops_statistical_hunter_alert_catchall` for seamless alert escalation without case comment pollution.

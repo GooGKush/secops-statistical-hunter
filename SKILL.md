@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.5.0
+version: 2.6.0
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   outlier hunting, and Entity Context Graph (GLOBAL_CONTEXT and DERIVED_CONTEXT) enrichment in Google Security
@@ -70,31 +70,128 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Interactive Verification Gate)
 
 When an analyst initiates a threat hunt or selects an archetype, proceed through the interactive pre-flight gate:
-1. **Interactive Scoping Protocol**: Reserve Turn 1 for configuration, scoping, and confirmation. Full historical search execution begins after analyst clearance.
+0. **Pre-Flight Routing Interceptor (Risk Metrics Delegation Gate - Strict Precedence)**:
+   Always evaluate this routing interceptor first. It strictly supersedes both Consultative Discovery (Step 2) and Pre-Flight Specification (Step 4).
+   When the analyst request matches any pre-computed baseline or UEBA indicators below, immediately present the Markdown **Skill Delegation Card** and conclude your response (0 tool calls):
+   - **Explicit UEBA / 30-Day Baselines / Risk Metrics**: Any request containing the terms `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, or `"risk score"`. Statistical Hunter operates over short-horizon raw telemetry (typically 1h to 7d); rolling 30-day baselines belong to `secops-risk-metrics-multistage`.
+   - **Web / HTTP Traffic**: Requests asking to baseline or compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`, `metrics.http_queries_success`, `metrics.http_queries_fail`).
+   - **Authentication Volume**: Requests comparing logins/failures to an entity's 30-day normal/typical baseline (`metrics.auth_attempts_*`).
+   - **Network Bytes/Flows**: Outbound/inbound data transfer baselines (`metrics.network_bytes_*`, `metrics.network_flows_*`).
+   - **DNS Queries**: DNS resolution volume or payload bytes over 30 days (`metrics.dns_*`).
+   - **File Executions**: Process execution baselines (`metrics.file_executions_*`).
+   - **Workspace / Cloud Activity**: Administrative settings changes, file downloads, email volume (`metrics.workspace_*`).
+   - **Peer Cohorts & Entity Risk Scores**: Inquiries comparing an entity to their department/role peer group, or referencing omnibus entity risk scores (`graph.risk_score`) / 360° health checks.
+
+   **Affirmative Delegation Output**:
+   When any indicator above matches, output the canonical delegation card directly in Markdown and yield the turn:
+   ```markdown
+   ### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`
+
+   > [!NOTE]
+   > **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**
+   > • **Routing Rationale**: Rolling 30-day behavioral baselines and UEBA metric functions are pre-computed in Google SecOps and exclusively maintained in secops-risk-metrics-multistage.
+   > • **Target Skill**: `secops-risk-metrics-multistage`
+   > • **Recommended Metric / Function**: `metrics.*`
+   > • **Target Dimension**: `[target user, host, or metric]`
+
+   > [!IMPORTANT]
+   > **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the behavioral baseline query.
+   > *Please switch to the `secops-risk-metrics-multistage` skill to execute this behavioral baseline hunt.*
+   ```
+1. **Universal Pre-Flight Gate & Interactive Scoping Protocol**:
+   All analytical, investigative, and statistical inquiries (including direct operational requests such as *"Hunt for..."*, *"Check our servers for..."*, *"Evaluate spikes on server X and show the evidence pillars"*, or *"Detect anomalies..."*) enter State 1: Pre-Flight Clearance & Specification.
+   Turn 1 is reserved for formulating the hunting methodology: presenting the approach overview, operational analogy, structured pre-flight specification card, candidate query preview, and soliciting execution clearance. Tool execution on Turn 1 is limited strictly to a single 1-shot schema validation probe (`secops-gus:udm_search(..., maxEvents=1)`). Historical telemetry analysis and multi-stage query execution take place on Turn 2 upon receiving user clearance.
 2. **Consultative Support & Expert Bypass Rule**:
-   * *Consultative Discovery*: If the analyst's request is open-ended, inspect `references/consultative-worksheet.md` to classify the objective across the 5 Raw Behavioral Telemetry Deformations and present 2–3 targeted Summary View options.
+   * *Consultative Discovery*: For open-ended requests that remain within raw telemetry scope after clearing Step 0, inspect `references/consultative-worksheet.md` to classify the objective across the 5 Raw Behavioral Telemetry Deformations and present 2–3 targeted Summary View options.
    * *Expert Bypass Rule*: If the analyst specifies both the target telemetry (e.g. `PROCESS_LAUNCH`) and statistical model (e.g. `MAD` or `Z-score`), proceed directly to emitting the Pre-Flight Card.
 3. **Plain-English Operational Analogy**: Explain the detection mechanics in 1-2 intuitive sentences.
 4. **Structured Pre-Flight Hunting Specification Card & Candidate Query Preview**:
-   * *Template-First Formulation Directive*: Before formulating a candidate query, inspect the matching canonical pipeline template in `templates/pipelines/<model_name>.yl2` (or consult `references/multi-stage-query-guide.md`) to adopt verified variable bindings, match keys, and outcome formulas.
-   * *Hard Compiler Grammar Invariants*:
-     - **Zero `events:` Section Headers (CRITICAL SYNTAX ERROR)**: Multi-stage YARA-L queries do NOT use an `events:` header block anywhere. In named stages, declare event predicates directly inside the stage body (`stage <name> { $e.metadata.event_type = "..." ... }`). In the root stage, declare stage bindings directly before `match:`. Writing `events:` inside a stage or in root stage causes compiler error `INVALID_EVENTS_SECTION_IN_STAGE`.
-     - **Match Binding Invariant (ZERO DOTS IN MATCH)**: Match blocks accept ONLY simple bare identifiers (`$host by 1h`, `$src_ip, $dst_ip by 1h`, `$entity, $ws by 1h`), NEVER member expressions or dots (`$e.target.ip`, `$e.principal.asset.hostname`, `$stage1.host`, `$hourly.window_start` in `match:` is a fatal syntax error). Variables in `match:` MUST bind first in stage predicates or root bindings (`$host = $stage1.host; $ws = $stage1.window_start`).
-     - **Outcome `if()` Grammar**: The `then` clause of `if()` accepts ONLY simple placeholders or constants. Compound arithmetic inside `then` must be assigned to an intermediate variable first.
-     - **Additive Dispersion Floor**: Every outcome division must include a `+ 1.0` additive floor on the denominator (`/ ($dispersion + 1.0)`) to prevent division-by-zero on quiet accounts.
-     - **Zero Non-Linear Functions (No `sqrt()`)**: YARA-L 2.0 does not support `sqrt()` or `math.sqrt()`. For orthogonal distance, compute squared Euclidean distance (`$dist_sq = ($z1 * $z1) + ($z2 * $z2)`) and sort by `$dist_sq desc`. In Poisson rarity, compute squared Poisson deviance (`$diff = $obs - $lambda; $diff_sq = $diff * $diff; $poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)`) and condition on `$poisson_z_sq >= 12.25` ($3.5^2$).
-     - **Table Headers Plain Unicode**: In summary tables, format column headers with plain Unicode (`Mean (μ)`, `StdDev (σ)`, `Rate (λ)`), never raw KaTeX (`$\mu$`) in table headers.
+   * *Template-First Formulation Directive*: Before formulating a candidate query, inspect the matching canonical pipeline template using `view_file` on `templates/pipelines/<model_name>.yl2` (or consult `references/multi-stage-query-guide.md` via `view_file`) to adopt verified variable bindings, match keys, and outcome formulas:
+     - `MAD_EXFILTRATION` / `MAD`: `templates/pipelines/mad_exfiltration_2stage.yl2`
+     - `POISSON_BURST_CLUSTERING`: `templates/pipelines/poisson_burst_clustering_2stage.yl2`
+     - `POISSON_RARE_SURGE` / `POISSON_ORIGIN_RARITY`: `templates/pipelines/poisson_rare_surge_2stage.yl2`
+     - `C2_BEACONING_JITTER`: `templates/pipelines/c2_beaconing_jitter_2stage.yl2`
+     - `BAYESIAN_GAMMA_SHRINKAGE`: `templates/pipelines/bayesian_gamma_shrinkage_4stage.yl2`
+     - `BETA_BINOMIAL_FAILURE`: `templates/pipelines/beta_binomial_failure_4stage.yl2`
+     - `DUAL_BASELINE_DELTA_Z`: `templates/pipelines/dual_baseline_delta_z_3stage.yl2`
+     - `MULTI_SECTOR_THREAT_FUSION`: `templates/pipelines/multi_sector_threat_fusion_4stage.yl2`
+     - `PRIVILEGED_LATERAL_EXPANSION`: `templates/pipelines/privileged_lateral_expansion_2stage.yl2`
+     - `TWO_PART_HURDLE`: `templates/pipelines/two_part_hurdle_2stage.yl2`
+     - `HYBRID_ENTROPY_CONCENTRATION` / `DIVERSITY_DEFICIT`: `templates/pipelines/hybrid_entropy_concentration_2stage.yl2`
+     - `GLOBAL_THREAT_INTEL_ENRICHMENT` / `GLOBAL_CONTEXT`: `templates/pipelines/global_threat_intel_enrichment_3stage.yl2`
+     - `DERIVED_CONTEXT_PREVALENCE` / `DERIVED_CONTEXT`: `templates/pipelines/derived_context_prevalence_3stage.yl2`
+     - `ZSCORE_PROCESS_SURGE` / `Z_SCORE`: `templates/pipelines/zscore_process_surge_2stage.yl2`
+   * *Canonical Pre-Flight Specification Card Structure*: Present the hunting plan using the standard pre-flight specification card layout:
+     ```markdown
+     PRE-FLIGHT HUNTING SPECIFICATION:
+     • Target Entity / Scope:  `[Entity]` ([Entity Type])
+     • Threat Hypothesis:      [1-sentence specific threat hypothesis]
+     • Baseline Horizon Spine: Raw UDM Telemetry (`[EVENT_TYPE]`, 14-day horizon via `startTime`/`endTime`, canonical `by 1h`/`by 1d` buckets)
+     • Statistical Model:      [Canonical Mathematical Model Name]
+     • Significance Threshold: [Model-specific statistical threshold] | CRI >= 50
+     • Compiler Probe:         1-shot `udm_search(maxEvents=1)` over a 10-minute ISO 8601 window — schema verified.
+
+     ### Candidate Multi-Stage YARA-L Query Preview
+     ```
+   * *6 Mandatory Root Outcome Variables Protocol*:
+     Every candidate multi-stage YARA-L query emits the 6 standardized root outcome variables:
+     - `$observation_count` (observed window count, e.g. `max($host_hourly.hourly_count)`)
+     - `$baseline_active_samples` (active sample depth, e.g. `max($host_stats.active_samples)`)
+     - `$baseline_mean` (baseline central tendency, e.g. `max($host_stats.host_mean)`)
+     - `$baseline_dispersion` (baseline spread / deviation, e.g. `max($host_stats.host_stddev)`)
+     - `$fleet_prevalence` (fleet breadth active in window, e.g. `max($fleet_breadth.fleet_hosts)`)
+     - `$distinct_binaries` (distinct programs or destination targets, e.g. `max($host_hourly.distinct_procs)` for process activity or `max($host_hourly.distinct_destinations)` for network traffic)
+     Retain these 6 exact outcome variable names across all telemetry types (process launches, network connections, authentication, DNS, file events).
+   * *Target Entity Scoping & Bare Identifier Match Binding*:
+     When scoping to a specific entity (such as host `dev-ub22-1` or user `frank.kolzig`), filter directly in the primary stage predicates and bind the entity variable for matching:
+     ```yara
+     stage host_hourly {
+         metadata.event_type = "NETWORK_CONNECTION"
+         principal.hostname = "dev-ub22-1"
+         principal.hostname = $entity
+         $entity != ""
+
+       match:
+         $entity by 1h
+     ```
+     Format all `match:` expressions with bare identifiers bound in stage predicates (e.g. `$entity by 1h`, `$entity, $window_start by 1h`).
+   * *Affirmative Compiler Grammar Protocols*:
+     - **Stage and Root Declarations**: Multi-stage YARA-L queries place event predicates directly inside named stages (`stage <name> { $e.metadata.event_type = "..." ... }`) and declare cross-stage bindings directly before `match:` in the root stage.
+     - **Match Binding Structure**: Match blocks accept simple bare identifiers (`$host by 1h`, `$src_ip, $dst_ip by 1h`, `$entity, $ws by 1h`), keeping member expressions and dotted paths inside stage event filtering.
+     - **Outcome `if()` Grammar**: The `then` clause of `if()` accepts simple placeholders or constants. Compound arithmetic inside `then` assigns to an intermediate variable first.
+     - **Additive Dispersion Floor**: Outcome divisions include a `+ 1.0` additive floor on the denominator (`/ ($dispersion + 1.0)`) to maintain stability on quiet accounts.
+     - **Partition Alignment Keys**: Multi-stage queries align stages using real partition keys (e.g. `$token by 1d` or `$ws by 1h` with `$ws = $stage.window_start`) across all stages.
+     - **Stage Keying Architecture**: An intermediate stage keyed on a real entity without a window (`match: $host`) provides canonical per-entity baseline collapse (`avg`/`stddev` across an entity's hourly buckets). For fleet-wide breadth, key the stage on the window (`$ws = $stage1.window_start` … `match: $ws by 1h` … `count_distinct($stage1.host)`).
+     - **Implicit `window_start` Attribute**: Every windowed stage automatically exposes `$stage.window_start`. Reference this attribute directly in downstream stages and root (`$ws = $stage.window_start`).
+     - **Stage & Variable Namespace Separation**: Assign distinct names to stages and root outcome variables (for example, name the breadth stage `stage fleet_breadth` and name the root outcome variable `$fleet_prevalence = max($fleet_breadth.fleet_hosts)`).
+     - **Raw Stage Consolidation**: Structure multi-sector hunts with a unified raw stage using per-sector conditional sums (`sum(if($e.metadata.event_type = "USER_LOGIN" and $e.security_result.action = "BLOCK", 1, 0))`) or join at most two independent raw stages at root.
+     - **Canonical Match Windows**: Multi-stage queries use supported match windows (`by 5m`, `by 1h`, `by 2h`, `by 1d`). Extend observation horizons by widening `startTime`/`endTime`.
+     - **Equality Syntax**: Comparisons inside `if()` use single equals (`if($flag = 1.0, …)`).
+     - **Numeric Aggregation**: Functions `max()` and `min()` apply to numeric variables; categorical values project via `array_distinct(...)` or count via `count_distinct(...)`.
+     - **Categorical Outlier & Entity Rarity Architecture**: To detect rare categorical strings (e.g., browser user-agent strings, rare domains, JA3 hashes, commands):
+       * *Option 1 (High-Performance Single-Stage Rarity Hunt)*: `match: $token by 1h`, `outcome: $device_count = count_distinct(principal.ip)`, `condition: $device_count <= 2 and $event_count >= 5`.
+       * *Option 2 (2-Stage Token-Centric Fleet Adoption Pipeline)*: Stage 1 groups by `$host, $token by 1d`, Stage 2 groups by `$token by 1d`, and Root joins on `$token by 1d` (see `examples/rare_user_agent_prevalence.yara`).
+     - **Linear & Deviance Formulations**: Multi-stage YARA-L expresses distance and rarity through linear operations and squared deviance (for example, squared Euclidean distance `$dist_sq = ($z1 * $z1) + ($z2 * $z2)` and squared Poisson deviance `$poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)` with condition `$poisson_z_sq >= 12.25`).
+     - **Table Headers Plain Unicode**: In summary tables, format column headers with plain Unicode (`Mean (μ)`, `StdDev (σ)`, `Rate (λ)`).
    * *Noise Level & Significance Threshold Steering*: Analysts may adjust sensitivity thresholds or define sensitivity bands (e.g. `$z_score >= 2.0 and $z_score < 3.0` for investigative anomalies, or `$z_score >= 3.0` for critical outliers), enforced via root-stage `condition:`.
 5. **Compile-Time Verification Protocol & Single-Cycle Self-Healing Ceiling**:
-   * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative offsets like 'now-10m' are invalid). Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400). In multi-stage queries, probe the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED.
-   * *Single-Cycle Self-Healing Ceiling*: Limit compiler probes on Turn 1 to at most **ONE initial probe + ONE retry (maximum 2 probes total)**. Never enter runaway retry loops. Even if the probe returns 0 events (`{}`), zero results reflect nominal baseline activity, not an error—proceed directly to present the Pre-Flight Card and candidate query preview.
-6. **Explicit Clearance Question & Turn Termination**: Solicit analyst confirmation to execute across the full historical horizon: *"Would you like me to proceed with executing this search in **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Timeline)**?"*. Conclude the turn immediately and await approval.
+   * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Use absolute ISO 8601 timestamps; relative offsets like 'now-10m' are unsupported by the API). The Turn 1 probe uses the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`) because its purpose is fast schema and time-boundary verification, not analysis. Formulate candidate YARA-L queries following successful execution of this schema validation probe.
+   * *Turn 2 Execution Contract (Full Multi-Stage Submission)*: `secops-gus:udm_search` natively accepts multi-stage YARA-L (`stage ... { ... }` + root stage) and returns aggregated `stats` rows. After clearance, submit the **complete multi-stage query verbatim** as the `query` argument over the cleared horizon. Submitting the full multi-stage query produces aggregated statistical evidence for all 5 sections of the triage report (see Section 1, *Statistical Aggregation Integrity*).
+   * *Single-Cycle Self-Healing Ceiling & Probe-Then-Yield Transition*: Limit compiler probes on Turn 1 to at most **ONE initial probe + ONE retry (maximum 2 probes total)**. When the probe returns either an event or zero results (`{}`), treat the schema validation as complete—zero results reflect nominal baseline activity—and proceed immediately to formulate the Markdown response without additional tool calls.
+6. **Explicit Clearance Question & Turn 1 Yield Invariant**:
+   Conclude Turn 1 by presenting the clearance inquiry:
+   *"Would you like me to proceed with executing this search in **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Timeline)**?"*
+   Immediately upon outputting this clearance inquiry in Markdown, yield the turn to the analyst. Yielding after the candidate preview allows the analyst to verify the query plan and select their preferred time horizon before the multi-stage historical search executes in State 2.
 
 ---
 
 ### 📊 State 2: Deterministic Multi-Stage Execution & 5-Section Triage Report (After Clearance)
 
-When formatting hunting results for ANY client (CLI, Chat UI, or Web UI), the agent **MUST ALWAYS OUTPUT ALL 5 SECTIONS** in exact order:
+When receiving execution clearance from the analyst (such as "Clearance granted", "Proceed", "Go ahead", "Run the hunt", or selection of Mode A/Mode B):
+1. **Immediate Execution Turn**:
+   Submit the candidate multi-stage YARA-L query immediately via `secops-gus:udm_search(query=...)` on this turn. When the analyst approves execution without choosing between Mode A or Mode B, proceed using Mode A (24-Hour Snapshot, e.g. `startTime=<24_hours_ago>`, `endTime=<now>`) or the timeline matching the investigation hypothesis. Proceed directly to executing the query.
+2. **Mandatory 5-Section Triage Report Delivery**:
+   Synthesize the aggregated `stats` evidence returned by `udm_search` (or nominal baseline metrics if zero events are returned) into all 5 sections in exact order:
 
 ```markdown
 ### ⚡ Statistical Outlier Report: [Hunt Topic]
@@ -126,9 +223,15 @@ When formatting hunting results for ANY client (CLI, Chat UI, or Web UI), the ag
 [Potential Attack Scenarios | Legitimate Business Explanations | Step-by-Step SOC Action Plan]
 
 ---
+> [!NOTE]
+> **Zero Outliers (Nominal Baseline)**: When no entities breach the statistical threshold ($N=0$ outliers), all 5 sections remain mandatory. Format Section 3 as:
+> `#### 🔍 Top Outlier Spotlight: Nominal Baseline (0 Outliers Detected)`
+> retaining the 6 Forensic Evidence Pillars with their canonical labels (`1. Activity Spike`, `2. Baseline History`, `3. Typical Normal Level`, `4. Normal Daily Spread`, `5. Company-Wide Breadth`, `6. Variety of Programs`) reflecting normal baseline metrics and confirming clean status.
+
+---
 #### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)
-*(Passive UDM filter provided strictly as an analyst copy-paste reference for manual triage within the Chronicle SIEM console. Automated multi-turn agent execution is reserved for multi-stage statistical pipelines.)*
-```yara
+*(Passive UDM filter provided strictly as an analyst copy-paste reference for manual triage within the Chronicle SIEM console. Automated multi-turn agent execution is reserved for multi-stage statistical pipelines. Use a ```text fence here, never ```yara, so this single-line filter is never mistaken for the executed multi-stage query.)*
+```text
 principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 ```
 
@@ -142,6 +245,18 @@ principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 $$\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right) = \mathbf{100}$$
 ##### 🌐 Multiple-Comparison Fleet Correction ($Z_{\text{adj}} \approx \sqrt{2 \ln N}$)
 ##### 🛡️ Statistical Validity & Safeguard Verification
+##### 💻 Executed Multi-Stage Query (Verbatim Provenance)
+*(The exact literal multi-stage YARA-L string submitted to `secops-gus:udm_search(query=...)`, in a ```yara fence. This is the only ```yara block in the report.)*
+```yara
+stage host_hourly { ... }
+$host = $host_hourly.host
+match:
+  $host by 1h
+outcome:
+  ...
+order:
+  $z desc
+```
 </details>
 ```
 
@@ -169,14 +284,8 @@ When generating Vega-Lite or Chart.js charts:
 
 ## 🔍 Post-Query Intent & Architecture Verification
 
-Before finalizing execution, verify that the executed query matches the promised architecture and narrative:
-```bash
-python3 scripts/multistage_query_builder.py \
-  --query_file hunt_query.yara \
-  --audit_intent DUAL_BASELINE_3STAGE \
-  --audit_model DELTA_Z
-```
-* **Concordance & Anti-Degradation**: `PostFlightExecutionAuditor` validates that when a multi-stage pipeline is explained to the analyst, the executed query actually runs as a multi-stage DAG with named stages, preventing silent degradation into single-stage stats searches.
+Ensure that the executed query matches the promised architecture and narrative directly within chat before finalizing execution:
+* **Concordance & Anti-Degradation**: Validate that the executed query runs as a true multi-stage DAG with named stages and root aggregation, matching the architecture presented in the pre-flight card and preventing degradation into single-stage stats searches. All verification is conducted natively in chat.
 
 ---
 
@@ -190,19 +299,20 @@ python3 scripts/multistage_query_builder.py \
 ### 1. Native Execution & Truth in Reporting
 * **Empirical Metric Derivation Contract**: Derive all summary numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) directly from `secops-gus:udm_search` query outputs. When a search yields no outliers, report the normal baseline status accurately.
 * **Transparent Error Surfacing**: When an API query returns an error, surface the exact error response and diagnostic details directly to the analyst with proposed template adjustments.
-* **Native SIEM Engine Execution Guarantee**: Execute all multi-stage baseline aggregations, standard deviation calculations, and threshold evaluations natively within Google SecOps Chronicle SIEM via `secops-gus:udm_search`.
-* **Verbatim Query Provenance**: Display the exact literal multi-stage YARA-L query string submitted to `secops-gus:udm_search(query=...)` in Section 2 of the triage report.
-* **Statistical Aggregation Integrity**: Format the 5-Section Triage Report exclusively from aggregated `stats` buckets. If `udm_search` returns unaggregated raw events, present the auto-corrected multi-stage query (via `MultiStageTemplateRouter`) and solicit analyst clearance to execute the aggregated pipeline.
+* **Tool Orchestration Protocol**: Fulfill all threat hunting workflows exclusively through chat Markdown and SecOps GUS MCP tool calls (`secops-gus:udm_search`, `secops-gus:import_logs`, `secops-gus:create_case_comment`). Inspect canonical pipeline templates and reference guides using `view_file` on `templates/pipelines/*.yl2` and `references/*.md`. Formulate, validate, and compute all mathematical models, baseline statistics, and triage reports entirely within native chat reasoning and Chronicle SIEM execution. Reserve shell execution tools (`run_command`) and local filesystem modification tools (`write_to_file`, `replace_file_content`) exclusively for offline repository development and CI test suites (`pytest tests/`).
+* **Native SIEM Engine Execution Guarantee**: Execute all multi-stage baseline aggregations, standard deviation calculations, and threshold evaluations natively within Google SecOps Chronicle SIEM via `secops-gus:udm_search`. Conduct all hunting, query formulation, and report generation natively through SecOps GUS MCP tools and direct Markdown responses. Formulate all mathematical reasoning, syntax verification against references, and baseline derivations directly within the conversation turn using the canonical `.yl2` pipeline templates and markdown references.
+* **Verbatim Query Provenance**: Display the exact literal multi-stage YARA-L query string submitted to `secops-gus:udm_search(query=...)` inside the Section 5 appendix (*Executed Multi-Stage Query*) in a ```yara fence. Section 4's manual pivot filter uses a ```text fence so the executed query is the report's only ```yara block.
+* **Statistical Aggregation Integrity**: Format the 5-Section Triage Report exclusively from aggregated `stats` buckets. If `udm_search` returns unaggregated raw events, present the auto-corrected multi-stage query (selected from `templates/pipelines/`) and solicit analyst clearance to execute the aggregated pipeline.
 * **Search Query Nomenclature**: Identify and structure all threat hunting artifacts as ad-hoc Multi-Stage Queries (`stage ... { ... }` + Root stage). Continuous detection rules (`rule ... { ... }`) are reserved for detection engineering workflows.
 
 ### 2. Calibrated Risk Index (CRI [0–100]) Standard
 * **CRI Normalization**: The Calibrated Risk Index maps raw statistical deviations ($Z$-scores, $\text{MAD } Z$, Poisson deviance, $\text{CV}$) onto a standardized [0–100] S-Curve:
   $$\text{CRI}(Z) = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$$
 * **Anchoring Invariant**: Strictly anchors the 3-Sigma alertable boundary ($Z = 3.0\sigma$) at exactly $\text{CRI} = 50$.
-* **CRI Derivation Standard**: Derive the CRI either via the standardized sigmoid formula in post-processing presentation scripts (`scripts/multistage_query_builder.py`) or via piecewise outcome tiers in the query root stage.
+* **CRI Derivation Standard**: Derive the CRI either via the standardized sigmoid formula or via piecewise outcome tiers in the query root stage, formatting the normalized [0–100] score directly into the Markdown triage report.
 
 ### 3. Clean Hand-Off (CH) Protocol (Synthetic UDM Event Ingestion vs. Active Case Wall)
-Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill analyst requests to alert, notify, or escalate findings (*"create a UDM alert"*, *"alert on this"*, *"send this in"*, *"escalate"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off. Always load `references/clean-handoff-udm-schema.md` or helper `scripts/clean_handoff.py`:
+Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill analyst requests to alert, notify, or escalate findings (*"create a UDM alert"*, *"alert on this"*, *"send this in"*, *"escalate"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off. Always consult `references/clean-handoff-udm-schema.md` for synthetic event definitions:
 * **Path A (Standard Escalation Default — Synthetic Event Ingestion)**: Map outliers to enriched synthetic UDM events (`product_name: "SecOps Statistical Hunter"`, `resource_type: "RESOURCE_TYPE_UNSPECIFIED"`, batching multiple findings under a shared `Hunt Campaign ID`). Preview the Pre-Ingestion Clearance Card to the analyst (yield turn, 0 tools). Upon approval, perform direct Chronicle API ingestion via `secops-gus:import_logs` (logType: `CUSTOM_SECURITY_DATA_ANALYTICS`; forwarders are strictly fallback).
 * **Path B (Explicit Active Case Attachment)**: When the analyst is actively reviewing a specific case and explicitly instructs findings to be attached (e.g. *"Attach this finding to Case 11075"*), call `create_case_comment(case_id="<ID>", comment=...)` targeting that designated case.
 * **Case Attachment Targeting**: Call `create_case_comment` exclusively when provided with an explicit, analyst-confirmed `case_id`. Arbitrary case hijacking is strictly forbidden.

@@ -39,20 +39,24 @@ stage dispersion_baseline {
     $active_hours = count($hourly_failures.window_start)
 }
 
-// Stage 3: Measure enterprise-wide prevalence of users experiencing authentication failures
-stage fleet_prevalence {
-    $entity = $hourly_failures.entity
+// Stage 3: Measure enterprise-wide prevalence of users experiencing authentication failures per window.
+// Keyed on the window (NOT the entity): grouping by $entity and counting distinct
+// entities always yields 1. A $dummy = 1 Cartesian key is rejected by the compiler.
+stage fleet_breadth {
+    $ws = $hourly_failures.window_start
 
   match:
-    $entity
+    $ws by {{bucket_size}}
   outcome:
     $fleet_users = count_distinct($hourly_failures.entity)
 }
 
 // Root Stage: Join stages, calculate Fano Factor in outcome section, and emit 6 Evidence Pillars
+// Root collapses each entity across all windows; fleet prevalence reports the peak per-window breadth.
 $entity = $hourly_failures.entity
 $entity = $dispersion_baseline.entity
-$entity = $fleet_prevalence.entity
+$ws = $hourly_failures.window_start
+$ws = $fleet_breadth.ws
 
 match:
   $entity
@@ -62,7 +66,7 @@ outcome:
   $baseline_active_samples = max($dispersion_baseline.active_hours)
   $baseline_mean = max($dispersion_baseline.mean_rate)
   $baseline_dispersion = max($dispersion_baseline.stddev_rate)
-  $fleet_prevalence = max($fleet_prevalence.fleet_users)
+  $fleet_prevalence = max($fleet_breadth.fleet_users)
   $distinct_binaries = max($dispersion_baseline.total_failures)
   $sample_commands = array_distinct($hourly_failures.sample_ip)
   

@@ -46,19 +46,19 @@ stage timing_stats {
 }
 
 // Stage 3: Measure enterprise-wide prevalence of the destination IP
-stage fleet_prevalence {
+stage dst_prevalence {
     $dst_ip = $host_intervals.dst_ip
 
   match:
     $dst_ip
   outcome:
-    $prevalence = count_distinct($host_intervals.src_ip)
+    $src_breadth = count_distinct($host_intervals.src_ip)
 }
 
 // Root Stage: Combine timing stats, compute CV, and emit standardized 6 Evidence Pillars
 $src_ip = $timing_stats.src_ip
 $dst_ip = $timing_stats.dst_ip
-$dst_ip = $fleet_prevalence.dst_ip
+$dst_ip = $dst_prevalence.dst_ip
 
 match:
   $src_ip, $dst_ip
@@ -68,9 +68,8 @@ outcome:
   $baseline_active_samples = max($timing_stats.active_hours)
   $baseline_mean = max($timing_stats.mean_gap)
   $baseline_dispersion = max($timing_stats.stddev_gap)
-  $fleet_prevalence = max($fleet_prevalence.prevalence)
-  $distinct_binaries = 1
-  $sample_commands = array_distinct($timing_stats.dst_ip)
+  $fleet_prevalence = max($dst_prevalence.src_breadth)
+  $distinct_binaries = max($timing_stats.total_conns)
   
   // Aggregate Coefficient of Variation (CV = σ / μ)
   $raw_mean = max($timing_stats.mean_gap)

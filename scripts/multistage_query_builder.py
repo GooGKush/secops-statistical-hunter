@@ -51,9 +51,26 @@ SYNTAX_TRAPS = [
     (r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR (INVALID_DETECTION_RULE_SYNTAX): Multi-stage queries are Search/Dashboard-only ('stage ... { ... }' + root stage). Do NOT wrap in 'rule ... { ... }'."),
     (r"(?:stage\s+[a-zA-Z0-9_]+\s*\{.*?\}\s*)+\s*events\s*:", "SYNTAX ERROR (INVALID_EVENTS_SECTION_IN_ROOT): Root stage of a multi-stage query must not contain an 'events:' header block. Stage bindings must be declared directly before match:."),
     (r"match:\s*[^;\n]*\$[a-zA-Z0-9_]+\.[a-zA-Z0-9_.]+", "SYNTAX ERROR (INVALID_MATCH_DOT_NOTATION): Match blocks accept ONLY simple bound variable identifiers (e.g. '$host by 1d'), not member dot-notation. Bind variables in event predicates before match:."),
+    (r"\$dummy\s*=\s*\d+", "SYNTAX ERROR (CARTESIAN_DUMMY_JOIN): Multi-stage YARA-L queries do not support artificial Cartesian joins via '$dummy = 1'. Align stages using real partition keys (e.g. '$token by 1d') across stages."),
+    (r"match:\s*[^;\n]*\$dummy\b", "SYNTAX ERROR (CARTESIAN_DUMMY_JOIN): Multi-stage YARA-L queries do not support artificial Cartesian joins via '$dummy'. Align stages using real partition keys (e.g. '$token by 1d') across stages."),
+    # --- Verified compiler facts (live udm_search probes, 2026-09-24) ---
+    (r"\bif\s*\([^)]*==", "SYNTAX ERROR (DOUBLE_EQUALS_IN_IF): '==' inside if() is rejected by the Chronicle compiler. Use a single '=' for equality inside if(cond, a, b), e.g. if($x = 1.0, 1, 0)."),
+    (r"\$window_start\s*=\s*(?:min|max|avg|sum|count)\s*\(", "SYNTAX ERROR (WINDOW_START_SHADOWED): '$window_start' is an implicit output of every windowed stage ('match: $k by <dur>'). Defining it in outcome: (e.g. '$window_start = min(metadata.event_timestamp.seconds)') is rejected. Remove the definition and bind '$ws = $stage.window_start' in the consuming stage instead."),
+    (r"\b(?:max|min)\s*\(\s*(?:\$?[a-zA-Z0-9_.]*\.(?:hostname|userid|user_agent|full_path|command_line|sha256|md5|sha1|domain|url|email_addresses|ip)|\$(?:host|hostname|user|userid|token|entity|domain|ip|src_ip|dst_ip|hash|sha256|url|cmd|command))\s*\)", "SYNTAX ERROR (INVALID_STRING_AGGREGATION_FUNCTION): max()/min() are numeric only (Int/Float); calling them on a string field or string placeholder is rejected. Project strings with array_distinct(...) or count them with count_distinct(...)."),
+    (r"match:\s*[^;\n]*\bby\s+(?!1d\b)\d+d\b", "SYNTAX ERROR (NONCANONICAL_MATCH_WINDOW): Multi-day tumbling windows ('by 2d', 'by 7d', 'by 14d') are rejected by the compiler. Verified windows: 'by 5m', 'by 1h', 'by 2h', 'by 1d'. Keep the bucket at <= 1d and widen startTime/endTime to cover longer horizons."),
 ]
 
 SENSITIVITY_MAP = {
+    "CATEGORICAL_FLEET_PREVALENCE": {
+        "CONSERVATIVE": {"max_adopters": 1, "min_events": 10, "min_active_hours": 12},
+        "BALANCED": {"max_adopters": 2, "min_events": 5, "min_active_hours": 6},
+        "AGGRESSIVE": {"max_adopters": 3, "min_events": 2, "min_active_hours": 1},
+    },
+    "DISCRETE_ENTITY_RARITY": {
+        "CONSERVATIVE": {"max_adopters": 1, "min_events": 10, "min_active_hours": 12},
+        "BALANCED": {"max_adopters": 2, "min_events": 5, "min_active_hours": 6},
+        "AGGRESSIVE": {"max_adopters": 3, "min_events": 2, "min_active_hours": 1},
+    },
     "ZSCORE_PROCESS_SURGE": {
         "CONSERVATIVE": {"z_score": 3.0, "min_count": 50, "min_sd": 10.0, "min_active_samples": 120},
         "BALANCED": {"z_score": 2.0, "min_count": 25, "min_sd": 5.0, "min_active_samples": 60},
@@ -373,23 +390,38 @@ EVENT_DOMAINS = {
 
 
 def check_multivector_cramming(query: str) -> List[str]:
-  """Detects single-stage multi-vector event cramming across distinct telemetry silos."""
+  """Detects single-stage multi-vector event cramming across distinct telemetry silos.
+
+  A stage that mixes telemetry domains is legal ONLY as a *fused sector-counting*
+  stage: an `or`-disjunction event_type filter whose outcome separates the
+  domains with conditional sums (`sum(if(metadata.event_type = "X", 1, 0))`).
+  That topology is required when fusing three or more sectors, because the
+  compiler rejects three independent raw stages joined at the root (verified
+  by live udm_search probes, 2026-09-24). Mixing domains without conditional
+  sums collapses them into one undifferentiated count and is flagged.
+  """
   errors = []
   stage_blocks = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", query, flags=re.DOTALL)
   for stage_name, stage_body in stage_blocks:
     event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))
     silos = set(EVENT_DOMAINS.get(et, et) for et in event_types)
     if len(silos) > 1:
+      is_fused_sector_stage = bool(re.search(r"\bsum\s*\(\s*if\s*\([^)]*metadata\.event_type\s*=", stage_body))
+      if is_fused_sector_stage:
+        continue
       errors.append(
-          f"MULTI-VECTOR CRAMMING in stage '{stage_name}': Stage mixes cross-domain telemetry silos {silos} ({event_types}). "
-          "In multi-sector hunting, each distinct telemetry domain must be isolated in its own named stage and fused in the Root stage."
+          f"MULTI-VECTOR CRAMMING in stage '{stage_name}': Stage mixes cross-domain telemetry silos {silos} ({event_types}) "
+          "without separating them. Either isolate each telemetry domain in its own named stage (the compiler accepts at most "
+          "TWO independent raw stages joined at the root) or, for three or more sectors, use ONE raw stage with an 'or' "
+          "event_type filter and per-sector conditional sums: sum(if(metadata.event_type = \"X\", 1, 0))."
       )
   if not stage_blocks:
     event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", query))
     silos = set(EVENT_DOMAINS.get(et, et) for et in event_types)
     if len(silos) > 1 and "MULTI_SECTOR" in query.upper():
       errors.append(
-          "MULTI-VECTOR CRAMMING: Multi-sector threat fusion requires separate 'stage' blocks for each telemetry domain."
+          "MULTI-VECTOR CRAMMING: Multi-sector threat fusion requires a multi-stage pipeline (one fused sector-counting "
+          "stage with conditional sums, a per-entity baseline stage, and a root fusion stage), not a single-stage search."
       )
   return errors
 
@@ -516,6 +548,67 @@ def check_match_placeholders_bound(query: str) -> List[str]:
   return errors
 
 
+def check_stage_name_collisions(query: str) -> List[str]:
+  """Flags outcome variables whose identifier equals a declared stage name.
+
+  Verified compiler fact (live udm_search probes, 2026-09-24): a stage named
+  `fleet_prevalence` combined with an outcome variable `$fleet_prevalence` in
+  ANY outcome block (intermediate or root) is rejected as an invalid argument.
+  """
+  errors: List[str] = []
+  code_only = re.sub(r"//.*", "", query)
+  stage_names = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", code_only)
+  if not stage_names:
+    return errors
+
+  outcome_vars = set()
+  for om in re.finditer(r"\boutcome\s*:(.*?)(?=\n\s*(?:condition|order|match)\s*:|\}|\Z)", code_only, flags=re.DOTALL):
+    outcome_vars.update(re.findall(r"^\s*\$([a-zA-Z0-9_]+)\s*=", om.group(1), flags=re.MULTILINE))
+
+  for name in stage_names:
+    if name in outcome_vars:
+      errors.append(
+          f"SYNTAX ERROR (STAGE_OUTCOME_NAME_COLLISION): Stage 'stage {name} {{' and outcome variable "
+          f"'${name}' share the same identifier; the compiler rejects this. Rename one of them "
+          f"(e.g. stage '{name}' -> '{name}_stage', or '${name}' -> '${name}_value')."
+      )
+  return errors
+
+
+def check_independent_raw_stages(query: str) -> List[str]:
+  """Flags more than two independent raw-event stages.
+
+  Verified compiler fact (live udm_search probes, 2026-09-24): three named
+  stages that each read raw UDM events (no `$other_stage.` reference inside
+  the block) and are joined only in the root are rejected, regardless of the
+  event-variable names or the join key. Any two compile. Fuse sectors into one
+  raw stage using conditional sums (sum(if(cond, 1, 0))) instead.
+  """
+  errors: List[str] = []
+  code_only = re.sub(r"//.*", "", query)
+  blocks = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", code_only, flags=re.DOTALL)
+  if len(blocks) < 3:
+    return errors
+
+  names = [n for n, _ in blocks]
+  raw_stages = []
+  for name, body in blocks:
+    references_other_stage = any(
+        re.search(r"\$" + re.escape(other) + r"\.", body) for other in names if other != name
+    )
+    if not references_other_stage:
+      raw_stages.append(name)
+
+  if len(raw_stages) > 2:
+    errors.append(
+        f"SYNTAX ERROR (TOO_MANY_INDEPENDENT_RAW_STAGES): {len(raw_stages)} independent raw-event stages "
+        f"({', '.join(raw_stages)}) joined only at the root. The compiler accepts at most two. Collapse "
+        f"sector/event-type splits into ONE raw stage with conditional sums (sum(if(<predicate>, 1, 0))) "
+        f"and derive per-sector baselines in a chained stage."
+    )
+  return errors
+
+
 def validate_multistage_syntax(query: str) -> List[str]:
   """Performs structural validation on multi-stage YARA-L search queries."""
   errors = []
@@ -529,6 +622,8 @@ def validate_multistage_syntax(query: str) -> List[str]:
   errors.extend(check_ecg_limits(query))
   errors.extend(check_event_section_arithmetic(query))
   errors.extend(check_match_placeholders_bound(query))
+  errors.extend(check_stage_name_collisions(query))
+  errors.extend(check_independent_raw_stages(query))
 
   # Chronicle Common Compiler Grammar Invariants for if():
   for m in re.finditer(r"\bif\s*\(([^)]+)\)", code_only):
@@ -2109,9 +2204,143 @@ class HandoffEndpoint:
     }
 
 
+def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
+  """Inspects an analyst prompt to detect when the request is better routed to secops-risk-metrics-multistage.
+
+  Returns a recommendation dictionary if the prompt matches pre-computed risk metrics or UEBA baselines,
+  or None if secops-statistical-hunter is the authoritative skill.
+  """
+  prompt_clean = user_prompt.lower()
+
+  # 1. HTTP / Web User-Agent queries & baselines
+  if ("user-agent" in prompt_clean or "user_agent" in prompt_clean or "user agent" in prompt_clean) and \
+     any(kw in prompt_clean for kw in ["network", "http", "web", "traffic", "query", "queries", "compare", "comparison", "volume", "baseline"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.http_queries_total",
+        "recommended_pipeline": "hybrid_metric_fleet_prevalence_2stage.yl2",
+        "target_dimension": "network.http.user_agent",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "Web / HTTP request volume across user-agent strings is pre-computed in Google SecOps via "
+            "'metrics.http_queries_total' (with dimension 'network.http.user_agent'). "
+            "Evaluating user-agent surges against 30-day historical behavior belongs in secops-risk-metrics-multistage "
+            "to avoid expensive full-table scans over raw HTTP logs."
+        ),
+    }
+
+  # 2. Authentication baselines (30d normal / typical login behavior)
+  if any(kw in prompt_clean for kw in ["auth", "login", "logon", "password spray", "credential"]) and \
+     any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "historical baseline", "typical behavior", "normal behavior", "baseline"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.auth_attempts_total",
+        "recommended_pipeline": "standard_z_score_2stage.yl2",
+        "target_dimension": "target.user.userid",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "Entity authentication baselining against 30-day normal/typical behavior is pre-computed in Google SecOps via "
+            "'metrics.auth_attempts_*'. Risk Metrics provides O(1) 30-day mean and stddev lookups."
+        ),
+    }
+
+  # 3. Network byte / flow baselines
+  if any(kw in prompt_clean for kw in ["network byte", "network flow", "outbound byte", "inbound byte", "bandwidth"]) and \
+     any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "baseline", "typical", "normal"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.network_bytes_outbound",
+        "recommended_pipeline": "standard_z_score_2stage.yl2",
+        "target_dimension": "principal.asset.hostname",
+        "entity_dimension": "principal.user.userid",
+        "justification": (
+            "Network byte volume and connection flow baselining is pre-computed via "
+            "'metrics.network_bytes_*' and 'metrics.network_flows_*' in secops-risk-metrics-multistage."
+        ),
+    }
+
+  # 4. Peer group / cohort comparison
+  if any(kw in prompt_clean for kw in ["peer group", "cohort", "department", "colleagues", "peers", "peer baseline"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.auth_attempts_total",
+        "recommended_pipeline": "dual_baseline_delta_z_3stage.yl2",
+        "target_dimension": "target.user.userid",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "Comparing an entity's behavior against an organizational peer cohort or department baseline "
+            "requires pre-computed cohort metrics in secops-risk-metrics-multistage."
+        ),
+    }
+
+  # 5. Entity Risk Score / 360 Health Check
+  if any(kw in prompt_clean for kw in ["risk score", "risk_score", "graph.risk_score", "360 health", "omnibus risk"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "graph.risk_score",
+        "recommended_pipeline": "radar_360_decoupled_sector.yl2",
+        "target_dimension": "graph.entity",
+        "entity_dimension": "principal.user.userid",
+        "justification": (
+            "Entity risk score evaluations and 360° health checks query Google SecOps UEBA Risk Scoring tables "
+            "('graph.risk_score'), which are exclusively managed by secops-risk-metrics-multistage."
+        ),
+    }
+
+  # 6. Explicit 30-day UEBA baseline request
+  if "30-day baseline" in prompt_clean or "30 day baseline" in prompt_clean or "30d baseline" in prompt_clean or "ueba" in prompt_clean:
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "metrics.*",
+        "recommended_pipeline": "standard_z_score_2stage.yl2",
+        "target_dimension": "target.user.userid",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "Rolling 30-day behavioral baselines and UEBA metric functions are pre-computed in Google SecOps "
+            "and exclusively maintained in secops-risk-metrics-multistage."
+        ),
+    }
+
+  return None
+
+
+def format_routing_handoff_card(routing_info: Dict[str, Any]) -> str:
+  """Renders the user-facing routing delegation card when a query belongs in Risk Metrics."""
+  lines = [
+      "### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`",
+      "",
+      "> [!NOTE]",
+      "> **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**",
+      f"> • **Routing Rationale**: {routing_info['justification']}",
+      f"> • **Target Skill**: `{routing_info['target_skill']}`",
+      f"> • **Recommended Metric / Function**: `{routing_info.get('recommended_metric', 'metrics.*')}`",
+      f"> • **Recommended Pipeline**: `{routing_info.get('recommended_pipeline', 'standard_z_score_2stage.yl2')}`",
+  ]
+  if "target_dimension" in routing_info:
+    lines.append(f"> • **Target Dimension**: `{routing_info['target_dimension']}`")
+  lines.extend([
+      "",
+      "> [!IMPORTANT]",
+      "> **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the behavioral baseline query.",
+      "> *Please switch to the `secops-risk-metrics-multistage` skill to execute this behavioral baseline hunt.*",
+      "",
+  ])
+  return "\n".join(lines)
+
+
 def main():
   parser = argparse.ArgumentParser(
       description="secops-statistical-hunter Query Validation & Boundary Utility"
+  )
+  parser.add_argument(
+      "--check_routing",
+      help="Check an analyst prompt to see if it should be routed to secops-risk-metrics-multistage",
   )
   parser.add_argument(
       "--query_file", help="Path to YARA-L query file to validate"
@@ -2184,6 +2413,15 @@ def main():
   )
 
   args = parser.parse_args()
+
+  if args.check_routing:
+    routing_info = check_routing_recommendation(args.check_routing)
+    if routing_info:
+      print(format_routing_handoff_card(routing_info))
+      sys.exit(0)
+    else:
+      print("STAY_IN_STATISTICAL_HUNTER: Request is suited for ad-hoc raw telemetry statistical hunting.")
+      sys.exit(0)
 
   if args.ingest_handoff:
     ack_result = HandoffEndpoint.ingest(args.ingest_handoff)

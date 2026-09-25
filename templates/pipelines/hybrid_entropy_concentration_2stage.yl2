@@ -25,7 +25,6 @@ stage stage1_raw_baseline {
 
   outcome:
     $hourly_count = count(metadata.id)
-    $window_start = min(metadata.event_timestamp.seconds)
 }
 
 // Stage 2: Current Window Micro-Forensics & Destination Cardinality

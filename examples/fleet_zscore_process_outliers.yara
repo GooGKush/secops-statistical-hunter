@@ -26,50 +26,40 @@ stage host_hourly {
     $sample_cmd = array_distinct(target.process.command_line)
 }
 
-// Stage 2: Calculate fleet-wide peer baseline mean and standard deviation across all hosts
+// Stage 2: Calculate fleet-wide peer baseline mean and standard deviation across all hosts for each window
 stage fleet_stats {
     $host = $host_hourly.host
-    $dummy = 1
+    $ws = $host_hourly.window_start
 
   match:
-    $dummy
+    $ws by 1h
   outcome:
     $fleet_mean = avg($host_hourly.hourly_count)
     $fleet_stddev = stddev($host_hourly.hourly_count)
     $total_fleet_hosts = count_distinct($host_hourly.host)
 }
 
-// Stage 3: Measure peak hourly intensity and binary diversity per host
-stage host_summary {
-    $host = $host_hourly.host
-
-  match:
-    $host
-  outcome:
-    $peak_hourly = max($host_hourly.hourly_count)
-    $distinct_binaries = max($host_hourly.distinct_procs)
-    $sample_cmds = array_distinct($host_hourly.sample_cmd)
-}
-
-// Root Stage: Join host summary with fleet stats, calculate Fleet Z-Score, and emit 6 Evidence Pillars
-$host = $host_summary.host
-$dummy = 1
-$dummy = $fleet_stats.dummy
+// Root Stage: Join host hourly with fleet stats, calculate Fleet Z-Score, and emit 6 Evidence Pillars
+$host = $host_hourly.host
+$ws = $host_hourly.window_start
+$ws = $fleet_stats.ws
 
 match:
-  $host
+  $host, $ws by 1h
 outcome:
   // 6 Core Evidence Pillars
-  $observation_count = max($host_summary.peak_hourly)
+  $observation_count = max($host_hourly.hourly_count)
   $baseline_active_samples = max($fleet_stats.total_fleet_hosts)
   $baseline_mean = max($fleet_stats.fleet_mean)
   $baseline_dispersion = max($fleet_stats.fleet_stddev)
   $fleet_prevalence = max($fleet_stats.total_fleet_hosts)
-  $distinct_binaries = max($host_summary.distinct_binaries)
-  $sample_commands = array_distinct($host_summary.sample_cmds)
+  $distinct_binaries = max($host_hourly.distinct_procs)
+  $sample_commands = array_distinct($host_hourly.sample_cmd)
   
-  // Aggregate Fleet Z-Score
-  $fleet_z = (max($host_summary.peak_hourly) - max($fleet_stats.fleet_mean)) / (max($fleet_stats.fleet_stddev) + 0.001)
+  // Aggregate Fleet Z-Score (Linear AST)
+  $diff = $observation_count - $baseline_mean
+  $safe_stddev = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
+  $fleet_z = $diff / ($safe_stddev + 0.001)
 
 condition:
   // Small-Sample Protection: Require at least 15 active peer endpoints in comparison population

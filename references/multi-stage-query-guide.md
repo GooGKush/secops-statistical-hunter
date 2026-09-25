@@ -85,8 +85,39 @@ condition:
    - Every upstream stage referenced in root outcome must be bound in root events (`$host = $stage1.host`).
 8. **Scope Restrictions**:
    - Queries must execute raw UDM telemetry only (`UDM_EVENTS`). Forbidden scopes include `metrics.*`, `risk_score`, and detection rule syntax (`rule <name>`).
-9. **Template-First Formulation**:
-   - Inspect `templates/pipelines/*.yl2` for complete, verified reference implementations:
+9. **Zero Artificial Cartesian Joins (`$dummy = 1` Prohibited)**:
+   - Multi-stage YARA-L queries do NOT support artificial unwindowed Cartesian joins via `$dummy = 1` or `match: $dummy`.
+   - Stages must align using real partition keys (e.g. `$token by 1d`, or `$ws by 1h` with `$ws = $stage.window_start`) across all stages.
+10. **Categorical Outlier & Entity Rarity Architecture**:
+   - When detecting rare or outlier categorical strings across endpoints (e.g. browser user-agent strings, rare domains, JA3 hashes, commands):
+     - **High-Performance Single-Stage Rarity Hunt**: For direct rarity filtering without multi-stage joining, use a single-stage windowed query:
+       ```yara
+       metadata.event_type = "NETWORK_HTTP"
+       network.http.user_agent = $user_agent
+       $user_agent != ""
+       principal.ip = $device_ip
+
+       match:
+         $user_agent by 1h
+
+       outcome:
+         $event_count = count(metadata.id)
+         $device_count = count_distinct(principal.ip)
+         $sample_devices = array_distinct(principal.ip)
+         $sample_uris = array_distinct(target.url)
+
+       condition:
+         $device_count <= 2
+         and $event_count >= 5
+
+       order:
+         $event_count desc
+       ```
+     - **2-Stage Token-Centric Fleet Adoption Pipeline**: If combining entity-level surges with enterprise adoption breadth, match across stages using the categorical token (`$user_agent by 1d`), as shown in `examples/rare_user_agent_prevalence.yara`.
+11. **Template-First Formulation**:
+   - Inspect `templates/pipelines/*.yl2` and `examples/*.yara` for complete, verified reference implementations:
+     - `rare_user_agent_prevalence.yara` (Categorical Fleet Prevalence & Rarity)
+     - `fleet_zscore_process_outliers.yara` (Peer Fleet Z-Score Normalization)
      - `zscore_process_surge_2stage.yl2` (Z-Score)
      - `poisson_rare_surge_2stage.yl2` (Discrete Poisson Rarity)
      - `mad_exfiltration_2stage.yl2` (Median Absolute Deviation)
@@ -95,4 +126,21 @@ condition:
      - `two_part_hurdle_2stage.yl2` (Two-Part Hurdle)
      - `dual_baseline_delta_z_3stage.yl2` (Delta-Z)
      - `multi_sector_threat_fusion_4stage.yl2` (Multi-Sector Threat Fusion)
+12. **Verified Compiler Facts (live `udm_search` probes, 2026-09-24)**. Each row was established by submitting a minimal pair to the compiler; treat these as ground truth over folklore:
+   | Construct | Verdict |
+   | :--- | :--- |
+   | Full multi-stage query (`stage … { }` + root) as the `udm_search` `query` argument | **Compiles**; returns aggregated `stats` rows. The Turn 2 execution path. |
+   | Intermediate stage keyed on a real entity with no window (`match: $host`) | **Compiles**. Canonical per-entity baseline collapse. |
+   | Constant key (`$dummy = 1` … `match: $dummy`) | **Rejected**. Use a window key (`$ws by 1h`) for fleet-wide stages. |
+   | Referencing `$stage.window_start` without defining it | **Compiles**. It is an implicit column of every windowed stage. |
+   | Defining `$window_start = min(metadata.event_timestamp.seconds)` in a stage outcome | **Rejected**. Collides with the implicit column. |
+   | Root outcome variable named the same as a stage | **Rejected**. Rename the stage. |
+   | Three independent raw stages joined at the root | **Rejected** (any two compile). Fold sectors into one raw stage with conditional sums. |
+   | `match: … by 2d` / `by 7d` / `by 14d` / `by 24h` | **Rejected**. `by 5m`, `by 1h`, `by 2h`, `by 1d` verified to compile; any `by Nd` with N > 1 is rejected. Widen `startTime`/`endTime` for longer horizons. |
+   | `if($x == 1.0, …)` | **Rejected**. Use `=`. |
+   | Aggregator arithmetic inside a stage outcome (`(max($ts) - min($ts)) / (count(metadata.id) + 1.0)`, `avg(x) * avg(x)`) | **Compiles**. |
+   | `array_distinct($stage.array_col)` in root (re-aggregating a stage array) | **Compiles**. |
+   | Aggregator wrapping an outcome variable (`max($some_outcome_var)`) | **Rejected**: "aggregation cannot refer to outcome variables". |
+   | `max()` / `min()` on a string field or string placeholder (`max(target.process.file.full_path)`, `max($host)`) | **Rejected**: `max()`/`min()` are numeric only (Int/Float). Project strings with `array_distinct(...)` or count them with `count_distinct(...)`; the same field under `array_distinct()` compiles. |
+   | Reference list that does not exist in the tenant (`$x in %missing_list`) | **Rejected** as an invalid argument — tenant-dependent, not a grammar error. |
 
