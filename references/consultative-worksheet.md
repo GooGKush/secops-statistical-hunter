@@ -47,13 +47,16 @@ Every threat—known, emerging, or zero-day—physically deforms raw UDM event s
 * **Privileged Lateral Traversal**: Administrators or service accounts logging into unprecedented clusters of workstations/servers (`privileged_lateral_expansion_2stage.yl2`).
 * **Single-Trial Ratio Regularization**: High failure rates on low sample volumes regularized against population baselines (`beta_binomial_failure_4stage.yl2`).
 * **Low-Entropy Scripted Exfiltration**: Automated transfers touching many destinations with low distinct URI/IP diversity (`hybrid_entropy_concentration_2stage.yl2`).
+* **Enterprise-Unseen Binary Execution**: Local process execution spikes of binaries with zero or low enterprise-wide prevalence (`derived_context_file_prevalence_3stage.yl2`).
+* **First-Contact Domain Egress**: Outbound connections to domains never observed in enterprise history (`derived_context_domain_prevalence_3stage.yl2`).
+* **Unfamiliar Machine Logins**: Privileged accounts authenticating to newly commissioned assets (`derived_context_prevalence_3stage.yl2`).
 
 ### Tier 3: Unknown Unknowns (Complex Multi-Vector Discovery)
 * **Cross-Sector Multi-Vector Kill Chains**: Advanced campaigns where individual telemetry logs remain below single-point thresholds, but orthogonal Euclidean distance reveals compound anomaly (`multi_sector_threat_fusion_4stage.yl2`).
 
 ---
 
-## 📋 The 5 Canonical Raw Hunting Domains & Summary View Menus
+## 📋 The 6 Canonical Raw Hunting Domains & Summary View Menus
 
 When engaging the analyst during State 1, use the **Summary View** menus below to present 2–3 targeted hypotheses mapped to static rule failure modes:
 
@@ -89,6 +92,13 @@ When engaging the analyst during State 1, use the **Summary View** menus below t
 * **Summary View Options**:
   1. *Machine Radius Expansion*: Detect privileged users connecting to an unprecedented number of target hosts (**Privileged Lateral Expansion Z-Score** on `USER_LOGIN`).
   2. *Bipartite Host Origin Rarity*: Surface service accounts accessing repositories from unexpected source machines (**Poisson Origin Rarity** on `USER_RESOURCE_ACCESS`).
+
+### Domain 6: Persistent Context & Derived Prevalence Hunting
+* **Why Static Rules Miss It**: In-flight telemetry lacks historical enterprise perspective; an unknown binary executed 5 times might look benign in a 1-hour window, but is acutely alarming if it has never been seen in the enterprise before (`day_count <= 3`).
+* **Summary View Options**:
+  1. *Unseen Binary Execution Bursts*: Detect localized process execution spikes of binaries with low enterprise-wide prevalence (**Derived Context File Prevalence** on `PROCESS_LAUNCH`).
+  2. *First-Seen Domain Egress*: Identify high-volume outbound network transfers to domains never previously contacted by the enterprise (**Derived Context Domain Prevalence** on `NETWORK_CONNECTION`).
+  3. *Unfamiliar Machine Authentication*: Detect privileged accounts logging into newly commissioned or historically unseen endpoints (**Derived Context Asset Age** on `USER_LOGIN`).
 
 ---
 

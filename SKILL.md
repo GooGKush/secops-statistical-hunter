@@ -22,7 +22,8 @@ description: |
   "service account out of normal behavioral scope", "unexpected host origin or abnormal access patterns",
   "unusual data repository access", "service account origin rarity", "source code repository anomaly",
     "diversity deficit", "elephant flow concentration", "orthogonal threat space", "two-part hurdle", "privileged lateral expansion", "unseen endpoint login", "admin destination breadth",
-    "global threat intel enrichment", "gcti threat match", "whois newly registered domain surge", "derived context asset age", "unfamiliar machine login".
+    "global threat intel enrichment", "gcti threat match", "whois newly registered domain surge", "derived context asset age", "unfamiliar machine login",
+    "derived context file prevalence", "enterprise unseen binary burst", "derived context domain prevalence", "first seen domain egress", "binary enterprise prevalence".
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
 ---
 
@@ -62,6 +63,8 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 | *"Detect dormant accounts or service accounts suddenly awakening with unusual activity."* | **`TWO_PART_HURDLE`** ($H \ge 2.5$) | **The Sleeper Awakening**: Historically dormant accounts incur a discrete activation penalty; active accounts are evaluated on continuous baseline deviation with exact conditional zero-dispersion protection. |
 | *"Hunt for network exfiltration targeting newly registered domains or Google Cloud Threat Intelligence (GCTI) indicators."* | **`GLOBAL_THREAT_INTEL`** ($Z_{\text{threat}} \ge 3.0$) | **The Flash in the Dark**: Combines raw network burst velocity with Chronicle's persistent Entity Context Graph (WHOIS NRD age $< 30$d or GCTI feed matches) to boost threat severity on suspicious destinations. |
 | *"Find anomalous logins targeting brand-new, rare, or recently commissioned assets."* | **`DERIVED_CONTEXT_PREVALENCE`** ($Z_{\text{auth}} \ge 2.5$) | **The Unfamiliar Machine**: Uses Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to verify true enterprise first-seen age, separating routine logins from first-contact connections to unestablished endpoints. |
+| *"Hunt for anomalous execution bursts of rare or enterprise-unseen binaries."* | **`DERIVED_CONTEXT_FILE_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The Unprecedented Binary**: Uses Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to evaluate enterprise-wide file prevalence (`day_count <= 3`), applying a 2.5x threat score multiplier for rare binaries executing on local endpoints. |
+| *"Detect high-volume network egress bursts to enterprise-unseen or newly contacted domains."* | **`DERIVED_CONTEXT_DOMAIN_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The First-Contact Outbound Flow**: Employs Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to cross-reference domain history (`day_count <= 3`), prioritizing network surges targeting domains never previously accessed across the fleet. |
 
 ---
 
@@ -102,7 +105,7 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
    All analytical, investigative, and statistical inquiries (including direct operational requests such as *"Hunt for..."*, *"Check our servers for..."*, *"Evaluate spikes on server X and show the evidence pillars"*, or *"Detect anomalies..."*) enter State 1: Pre-Flight Clearance & Specification.
    Turn 1 is reserved for formulating the hunting methodology: presenting the approach overview, operational analogy, structured pre-flight specification card, candidate query preview, and soliciting execution clearance. Tool execution on Turn 1 is limited strictly to a single 1-shot schema validation probe (`secops-gus:udm_search(..., maxEvents=1)`). Historical telemetry analysis and multi-stage query execution take place on Turn 2 upon receiving user clearance.
 2. **Consultative Support & Expert Bypass Rule**:
-   * *Consultative Discovery*: For open-ended requests that remain within raw telemetry scope after clearing Step 0, inspect `references/consultative-worksheet.md` to classify the objective across the 5 Raw Behavioral Telemetry Deformations and present 2–3 targeted Summary View options.
+   * *Consultative Discovery*: For open-ended requests that remain within raw telemetry scope after clearing Step 0, inspect `references/consultative-worksheet.md` to classify the objective across the 5 Raw Behavioral Telemetry Deformations and 6 Raw Hunting Domains, presenting 2–3 targeted Summary View options.
    * *Expert Bypass Rule*: If the analyst specifies both the target telemetry (e.g. `PROCESS_LAUNCH`) and statistical model (e.g. `MAD` or `Z-score`), proceed directly to emitting the Pre-Flight Card.
 3. **Plain-English Operational Analogy**: Explain the detection mechanics in 1-2 intuitive sentences.
 4. **Structured Pre-Flight Hunting Specification Card & Candidate Query Preview**:
@@ -120,6 +123,8 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
      - `HYBRID_ENTROPY_CONCENTRATION` / `DIVERSITY_DEFICIT`: `templates/pipelines/hybrid_entropy_concentration_2stage.yl2`
      - `GLOBAL_THREAT_INTEL_ENRICHMENT` / `GLOBAL_CONTEXT`: `templates/pipelines/global_threat_intel_enrichment_3stage.yl2`
      - `DERIVED_CONTEXT_PREVALENCE` / `DERIVED_CONTEXT`: `templates/pipelines/derived_context_prevalence_3stage.yl2`
+     - `DERIVED_CONTEXT_FILE_PREVALENCE` / `FILE_PREVALENCE`: `templates/pipelines/derived_context_file_prevalence_3stage.yl2`
+     - `DERIVED_CONTEXT_DOMAIN_PREVALENCE` / `DOMAIN_PREVALENCE`: `templates/pipelines/derived_context_domain_prevalence_3stage.yl2`
      - `ZSCORE_PROCESS_SURGE` / `Z_SCORE`: `templates/pipelines/zscore_process_surge_2stage.yl2`
    * *Canonical Pre-Flight Specification Card Structure*: Present the hunting plan using the standard pre-flight specification card layout:
      ```markdown
@@ -175,7 +180,7 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
      - **Table Headers Plain Unicode**: In summary tables, format column headers with plain Unicode (`Mean (μ)`, `StdDev (σ)`, `Rate (λ)`).
    * *Noise Level & Significance Threshold Steering*: Analysts may adjust sensitivity thresholds or define sensitivity bands (e.g. `$z_score >= 2.0 and $z_score < 3.0` for investigative anomalies, or `$z_score >= 3.0` for critical outliers), enforced via root-stage `condition:`.
 5. **Compile-Time Verification Protocol & Single-Cycle Self-Healing Ceiling**:
-   * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Use absolute ISO 8601 timestamps; relative offsets like 'now-10m' are unsupported by the API). The Turn 1 probe uses the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`) because its purpose is fast schema and time-boundary verification, not analysis. Formulate candidate YARA-L queries following successful execution of this schema validation probe.
+   * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Use absolute ISO 8601 timestamps; relative offsets like 'now-10m' are unsupported by the API). The Turn 1 probe uses the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`) because its purpose is fast schema and time-boundary verification, not analysis. For Entity Context Graph inquiries, validate graph accessibility with a 1-shot probe (e.g. `graph.metadata.source_type = "DERIVED_CONTEXT" AND graph.metadata.entity_type = "FILE"`). Formulate candidate YARA-L queries following successful execution of this schema validation probe.
    * *Turn 2 Execution Contract (Full Multi-Stage Submission)*: `secops-gus:udm_search` natively accepts multi-stage YARA-L (`stage ... { ... }` + root stage) and returns aggregated `stats` rows. After clearance, submit the **complete multi-stage query verbatim** as the `query` argument over the cleared horizon. Submitting the full multi-stage query produces aggregated statistical evidence for all 5 sections of the triage report (see Section 1, *Statistical Aggregation Integrity*).
    * *Single-Cycle Self-Healing Ceiling & Probe-Then-Yield Transition*: Limit compiler probes on Turn 1 to at most **ONE initial probe + ONE retry (maximum 2 probes total)**. When the probe returns either an event or zero results (`{}`), treat the schema validation as complete—zero results reflect nominal baseline activity—and proceed immediately to formulate the Markdown response without additional tool calls.
 6. **Explicit Clearance Question & Turn 1 Yield Invariant**:
