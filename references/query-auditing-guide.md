@@ -40,6 +40,8 @@ python3 scripts/multistage_query_builder.py \
 
 ## 3. Post-Flight API Response Payload Auditing
 
+*(For offline developer and CI test bed verification; the LLM agent verifies response payloads directly via udm_search output inspection in chat).*
+
 To ensure that the SecOps backend executed the mathematical aggregation on the cluster and did not emit an un-aggregated raw log dump:
 
 ```bash

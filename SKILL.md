@@ -104,7 +104,21 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
    * *Expert Bypass Rule*: If the analyst specifies both the target telemetry (e.g. `PROCESS_LAUNCH`) and statistical model (e.g. `MAD` or `Z-score`), proceed directly to emitting the Pre-Flight Card.
 3. **Plain-English Operational Analogy**: Explain the detection mechanics in 1-2 intuitive sentences.
 4. **Structured Pre-Flight Hunting Specification Card & Candidate Query Preview**:
-   * *Template-First Formulation Directive*: Before formulating a candidate query, inspect the matching canonical pipeline template in `templates/pipelines/<model_name>.yl2` (or consult `references/multi-stage-query-guide.md`) to adopt verified variable bindings, match keys, and outcome formulas.
+   * *Template-First Formulation Directive*: Before formulating a candidate query, inspect the matching canonical pipeline template using `view_file` on `templates/pipelines/<model_name>.yl2` (or consult `references/multi-stage-query-guide.md` via `view_file`) to adopt verified variable bindings, match keys, and outcome formulas:
+     - `MAD_EXFILTRATION` / `MAD`: `templates/pipelines/mad_exfiltration_2stage.yl2`
+     - `POISSON_BURST_CLUSTERING`: `templates/pipelines/poisson_burst_clustering_2stage.yl2`
+     - `POISSON_RARE_SURGE` / `POISSON_ORIGIN_RARITY`: `templates/pipelines/poisson_rare_surge_2stage.yl2`
+     - `C2_BEACONING_JITTER`: `templates/pipelines/c2_beaconing_jitter_2stage.yl2`
+     - `BAYESIAN_GAMMA_SHRINKAGE`: `templates/pipelines/bayesian_gamma_shrinkage_4stage.yl2`
+     - `BETA_BINOMIAL_FAILURE`: `templates/pipelines/beta_binomial_failure_4stage.yl2`
+     - `DUAL_BASELINE_DELTA_Z`: `templates/pipelines/dual_baseline_delta_z_3stage.yl2`
+     - `MULTI_SECTOR_THREAT_FUSION`: `templates/pipelines/multi_sector_threat_fusion_4stage.yl2`
+     - `PRIVILEGED_LATERAL_EXPANSION`: `templates/pipelines/privileged_lateral_expansion_2stage.yl2`
+     - `TWO_PART_HURDLE`: `templates/pipelines/two_part_hurdle_2stage.yl2`
+     - `HYBRID_ENTROPY_CONCENTRATION` / `DIVERSITY_DEFICIT`: `templates/pipelines/hybrid_entropy_concentration_2stage.yl2`
+     - `GLOBAL_THREAT_INTEL_ENRICHMENT` / `GLOBAL_CONTEXT`: `templates/pipelines/global_threat_intel_enrichment_3stage.yl2`
+     - `DERIVED_CONTEXT_PREVALENCE` / `DERIVED_CONTEXT`: `templates/pipelines/derived_context_prevalence_3stage.yl2`
+     - `ZSCORE_PROCESS_SURGE` / `Z_SCORE`: `templates/pipelines/zscore_process_surge_2stage.yl2`
    * *Target Entity Scoping Protocol*: When the analyst specifies a target entity (such as a hostname, IP address, or user ID), bind that literal string directly to its UDM field within the primary extraction stage (for example, `principal.hostname = "activedir.stackedpads.local"` or `target.user.userid = "frank.kolzig"`). Scoping the literal entity at the extraction layer anchors the historical baseline strictly to the requested asset and ensures clean, targeted detection.
    * *Hard Compiler Grammar Invariants*:
      - **Zero `events:` Section Headers (CRITICAL SYNTAX ERROR)**: Multi-stage YARA-L queries do NOT use an `events:` header block anywhere. In named stages, declare event predicates directly inside the stage body (`stage <name> { $e.metadata.event_type = "..." ... }`). In the root stage, declare stage bindings directly before `match:`. Writing `events:` inside a stage or in root stage causes compiler error `INVALID_EVENTS_SECTION_IN_STAGE`.
@@ -244,9 +258,10 @@ Ensure that the executed query matches the promised architecture and narrative d
 ### 1. Native Execution & Truth in Reporting
 * **Empirical Metric Derivation Contract**: Derive all summary numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) directly from `secops-gus:udm_search` query outputs. When a search yields no outliers, report the normal baseline status accurately.
 * **Transparent Error Surfacing**: When an API query returns an error, surface the exact error response and diagnostic details directly to the analyst with proposed template adjustments.
+* **Tool Orchestration Protocol**: Fulfill all threat hunting workflows exclusively through chat Markdown and SecOps GUS MCP tool calls (`secops-gus:udm_search`, `secops-gus:import_logs`, `secops-gus:create_case_comment`). Inspect canonical pipeline templates and reference guides using `view_file` on `templates/pipelines/*.yl2` and `references/*.md`. Formulate, validate, and compute all mathematical models, baseline statistics, and triage reports entirely within native chat reasoning and Chronicle SIEM execution. Reserve shell execution tools (`run_command`) and local filesystem modification tools (`write_to_file`, `replace_file_content`) exclusively for offline repository development and CI test suites (`pytest tests/`).
 * **Native SIEM Engine Execution Guarantee**: Execute all multi-stage baseline aggregations, standard deviation calculations, and threshold evaluations natively within Google SecOps Chronicle SIEM via `secops-gus:udm_search`. Conduct all hunting, query formulation, and report generation natively through SecOps GUS MCP tools and direct Markdown responses. Formulate all mathematical reasoning, syntax verification against references, and baseline derivations directly within the conversation turn using the canonical `.yl2` pipeline templates and markdown references.
 * **Verbatim Query Provenance**: Display the exact literal multi-stage YARA-L query string submitted to `secops-gus:udm_search(query=...)` inside the Section 5 appendix (*Executed Multi-Stage Query*) in a ```yara fence. Section 4's manual pivot filter uses a ```text fence so the executed query is the report's only ```yara block.
-* **Statistical Aggregation Integrity**: Format the 5-Section Triage Report exclusively from aggregated `stats` buckets. If `udm_search` returns unaggregated raw events, present the auto-corrected multi-stage query (via `MultiStageTemplateRouter`) and solicit analyst clearance to execute the aggregated pipeline.
+* **Statistical Aggregation Integrity**: Format the 5-Section Triage Report exclusively from aggregated `stats` buckets. If `udm_search` returns unaggregated raw events, present the auto-corrected multi-stage query (selected from `templates/pipelines/`) and solicit analyst clearance to execute the aggregated pipeline.
 * **Search Query Nomenclature**: Identify and structure all threat hunting artifacts as ad-hoc Multi-Stage Queries (`stage ... { ... }` + Root stage). Continuous detection rules (`rule ... { ... }`) are reserved for detection engineering workflows.
 
 ### 2. Calibrated Risk Index (CRI [0–100]) Standard
