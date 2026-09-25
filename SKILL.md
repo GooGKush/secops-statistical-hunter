@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.5.0
+version: 2.6.0
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   outlier hunting, and Entity Context Graph (GLOBAL_CONTEXT and DERIVED_CONTEXT) enrichment in Google Security

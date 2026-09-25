@@ -1,5 +1,46 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.6.0 (September 25, 2026) — Affirmative Native-Chat Runtime, Universal Pre-Flight Gate, 6 Root Outcome Variables & 15/15 Dual-Engine Regression Parity
+
+* **Option A Affirmative Native-Chat Runtime Architecture**:
+  * Established strict architectural separation: Python helper scripts (`scripts/`) are reserved exclusively for offline developer tooling and automated CI testing (`pytest tests/`), while the runtime conversational agent operates natively through Google SecOps MCP tools (`secops-gus:udm_search`, `secops-gus:import_logs`, `secops-gus:create_case_comment`) and Markdown presentations.
+  * Purged all agent-facing script execution instructions and CLI invocation examples (`python scripts/...`) from `SKILL.md` and runtime references, ensuring hermetic, native execution within conversational chat environments.
+* **Universal Pre-Flight Gate & Interactive Scoping Protocol**:
+  * Unified all threat hunting entry points under State 1: all analytical, investigative, and statistical inquiries (whether explicit or open-ended) first formulate the hunting methodology, explain the operational analogy, render a structured Pre-Flight Specification Card, display a candidate query preview, and solicit execution clearance.
+  * Standardized the **Pre-Flight Hunting Specification Card** layout in Markdown across six core parameters: Target Entity / Scope, Threat Hypothesis, Baseline Horizon Spine, Statistical Model, Significance Threshold, and Compiler Probe.
+  * Enforced the **Single-Cycle Schema Validation Probe**: Turn 1 probes are limited to a 1-shot `udm_search(maxEvents=1)` over a 10-minute ISO 8601 window (capped at 1 initial probe + 1 retry) for schema validation, with an immediate probe-then-yield transition to prevent turn exhaustion.
+* **6 Mandatory Root Outcome Variables Protocol**:
+  * Codified the standardized 6 root-stage outcome columns across all multi-stage YARA-L pipelines:
+    * `$observation_count`: Observed count in the spike window.
+    * `$baseline_active_samples`: Historical active baseline sample depth.
+    * `$baseline_mean`: Baseline central tendency.
+    * `$baseline_dispersion`: Baseline spread / deviation.
+    * `$fleet_prevalence`: Enterprise-wide breadth in the window.
+    * `$distinct_binaries`: Distinct programs, processes, destination IPs, or targets involved.
+  * Generalized `$distinct_binaries` across all telemetry sectors (process launches, network connections, authentication, DNS, file events), cleanly mapping each root outcome variable to its corresponding pillar in the forensic evidence table.
+* **Chronicle SIEM Compiler Grammar & Bare Identifier Match Invariants**:
+  * Standardized all `match:` expressions to use simple bare identifiers exclusively (`$entity by 1h`, `$entity, $window_start by 1h`), completely eliminating dotted paths in match headers.
+  * Enforced **Target Entity Scoping Protocol**: literal entities (`principal.hostname = "dev-ub22-1"`) are bound directly in primary stage event predicates before match binding, anchoring the historical baseline cleanly.
+  * Codified linear and deviance formulations (squared Euclidean distance and squared Poisson deviance `$poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)`) complying with Chronicle Malachite compiler grammar without `sqrt()`.
+* **Immediate Turn 2 Execution Contract & 5-Section CommonMark Triage Report**:
+  * Established deterministic Turn 2 clearance handling: receiving analyst clearance ("Clearance granted", "Proceed", "Go ahead") triggers immediate submission of the full multi-stage YARA-L query via `secops-gus:udm_search(query=...)` over Mode A (24-Hour Snapshot) or the cleared horizon, eliminating secondary clarification stalls.
+  * Standardized the 5-Section CommonMark Triage Report layout across all surfaces:
+    1. Executive Outlier Report (`### ⚡ Statistical Outlier Report: ...`)
+    2. Ranked Outlier Summary table (`#### 📊 Ranked Outlier Summary`)
+    3. Top Outlier Spotlight (`#### 🔍 Top Outlier Spotlight: ...`) featuring the 6 Mandatory Forensic Evidence Pillars table (with standard handling for nominal baselines: `#### 🔍 Top Outlier Spotlight: Nominal Baseline (0 Outliers Detected)`)
+    4. Chronicle UI Manual Pivot (`#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)` in a single-line `text` code fence)
+    5. Statistical & Mathematical Appendix (`<details><summary>🔬 <b>Statistical & Mathematical Appendix</b></summary>` containing the verbatim executed multi-stage query in the report's sole `yara` fence).
+* **Pre-Flight Routing Interceptor & Federated Delegation**:
+  * Formalized strict-precedence routing interceptor: UEBA keywords, 30-day rolling baselines, pre-computed `metrics.*`, and peer cohorts emit the Markdown Skill Delegation Card routing to `secops-risk-metrics-multistage` (0 tools, immediate turn yield).
+  * Sub-second timing jitter, discrete rarity, and raw UDM outlier hunts stay inline under the Expert Bypass Rule.
+* **100% Invariant Parity Across Dual-Engine Regression Suite (15 / 15 Tests Passed)**:
+  * Evaluated across the complete 15-test regression matrix spanning P0 (Critical Invariants), P1 (Domain Boundaries), and P2 (Surface Integrity) in dual-engine mode (`agentapi` + `direct-mcp`) with 9 concurrent workers against tenant `gus-sdl`.
+  * Achieved **15 / 15 Passed (100% Invariant Parity)** with zero regressions and zero persistent defects.
+  * De-coached test harness and engine: completely eliminated legacy coaching mandates and coached personas, ensuring rigorous, symmetric testing.
+  * Automated offline unit test suite expanded to **116 unit tests** (13 test modules, 100% pass rate).
+
+---
+
 ## 📦 Version 2.5.1 (September 10, 2026) — Clean Hand-Off Synthetic UDM Ingestion, Correlated Multi-Finding Batching & Chronicle Specification Conformance
 
 * **Automated Clean Hand-Off (CH) Protocol Engine (`scripts/clean_handoff.py`)**:
