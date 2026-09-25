@@ -121,25 +121,58 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
      - `GLOBAL_THREAT_INTEL_ENRICHMENT` / `GLOBAL_CONTEXT`: `templates/pipelines/global_threat_intel_enrichment_3stage.yl2`
      - `DERIVED_CONTEXT_PREVALENCE` / `DERIVED_CONTEXT`: `templates/pipelines/derived_context_prevalence_3stage.yl2`
      - `ZSCORE_PROCESS_SURGE` / `Z_SCORE`: `templates/pipelines/zscore_process_surge_2stage.yl2`
-   * *Target Entity Scoping Protocol*: When the analyst specifies a target entity (such as a hostname, IP address, or user ID), bind that literal string directly to its UDM field within the primary extraction stage (for example, `principal.hostname = "activedir.stackedpads.local"` or `target.user.userid = "frank.kolzig"`). Scoping the literal entity at the extraction layer anchors the historical baseline strictly to the requested asset and ensures clean, targeted detection.
-   * *Hard Compiler Grammar Invariants*:
-     - **Zero `events:` Section Headers (CRITICAL SYNTAX ERROR)**: Multi-stage YARA-L queries do NOT use an `events:` header block anywhere. In named stages, declare event predicates directly inside the stage body (`stage <name> { $e.metadata.event_type = "..." ... }`). In the root stage, declare stage bindings directly before `match:`. Writing `events:` inside a stage or in root stage causes compiler error `INVALID_EVENTS_SECTION_IN_STAGE`.
-     - **Match Binding Invariant (ZERO DOTS IN MATCH)**: Match blocks accept ONLY simple bare identifiers (`$host by 1h`, `$src_ip, $dst_ip by 1h`, `$entity, $ws by 1h`), NEVER member expressions or dots (`$e.target.ip`, `$e.principal.asset.hostname`, `$stage1.host`, `$hourly.window_start` in `match:` is a fatal syntax error). Variables in `match:` MUST bind first in stage predicates or root bindings (`$host = $stage1.host; $ws = $stage1.window_start`).
-     - **Outcome `if()` Grammar**: The `then` clause of `if()` accepts ONLY simple placeholders or constants. Compound arithmetic inside `then` must be assigned to an intermediate variable first.
-     - **Additive Dispersion Floor**: Every outcome division must include a `+ 1.0` additive floor on the denominator (`/ ($dispersion + 1.0)`) to prevent division-by-zero on quiet accounts.
-     - **Zero Artificial Cartesian Joins (`$dummy = 1` PROHIBITED)**: Multi-stage YARA-L queries do NOT support artificial unwindowed Cartesian joins via `$dummy = 1` or `match: $dummy`. Stages must align using real partition keys (e.g. `$token by 1d` or `$ws by 1h` with `$ws = $stage.window_start`) across all stages.
-     - **Stage Keying (Verified Compiler Facts)**: An intermediate stage keyed on a real entity WITHOUT a window (`match: $host`) is legal and is the canonical per-entity baseline collapse (`avg`/`stddev` across an entity's hourly buckets). What is rejected is a *constant* key (`$dummy`). For fleet-wide breadth, key the stage on the window instead (`$ws = $stage1.window_start` … `match: $ws by 1h` … `count_distinct($stage1.host)`); keying on the entity and counting distinct entities always yields 1.
-     - **Implicit `window_start` Column**: Every windowed stage exposes `$stage.window_start` implicitly. NEVER define `$window_start = min(metadata.event_timestamp.seconds)` in a stage outcome — it collides with the implicit column and fails compilation. Binding it in a later stage or root (`$ws = $stage.window_start`) is correct.
-     - **No Stage / Outcome Name Collision**: A root outcome variable may not share a name with a stage (`stage fleet_prevalence { … }` + `$fleet_prevalence = max($fleet_prevalence.x)` fails). Name the stage `fleet_breadth` and keep the pillar variable `$fleet_prevalence`.
-     - **At Most Two Independent Raw Stages**: A root may join two independent raw-telemetry stages, not three (verified: any pair compiles, all three do not). For multi-sector fusion, use ONE raw stage with per-sector conditional sums (`sum(if($e.metadata.event_type = "USER_LOGIN" and $e.security_result.action = "BLOCK", 1, 0))`) — see `multi_sector_threat_fusion_4stage.yl2`.
-     - **Canonical Match Windows Only**: `by 5m`, `by 1h`, `by 2h`, `by 1d` compile; multi-day windows (`by 2d`, `by 7d`, `by 14d`) and `by 24h` are rejected. Compare against longer horizons by widening `startTime`/`endTime`, not the match window.
-     - **Equality Inside `if()` Uses `=`**: `if($flag == 1.0, …)` is rejected; write `if($flag = 1.0, …)`.
-     - **`max()` / `min()` Numeric Only**: `max(principal.hostname)`, `max($host)`, `min($token)` are rejected; strings are projected with `array_distinct(...)` or counted with `count_distinct(...)`.
+   * *Canonical Pre-Flight Specification Card Structure*: Present the hunting plan using the standard pre-flight specification card layout:
+     ```markdown
+     PRE-FLIGHT HUNTING SPECIFICATION:
+     • Target Entity / Scope:  `[Entity]` ([Entity Type])
+     • Threat Hypothesis:      [1-sentence specific threat hypothesis]
+     • Baseline Horizon Spine: Raw UDM Telemetry (`[EVENT_TYPE]`, 14-day horizon via `startTime`/`endTime`, canonical `by 1h`/`by 1d` buckets)
+     • Statistical Model:      [Canonical Mathematical Model Name]
+     • Significance Threshold: [Model-specific statistical threshold] | CRI >= 50
+     • Compiler Probe:         1-shot `udm_search(maxEvents=1)` over a 10-minute ISO 8601 window — schema verified.
+
+     ### Candidate Multi-Stage YARA-L Query Preview
+     ```
+   * *6 Mandatory Root Outcome Variables Protocol*:
+     Every candidate multi-stage YARA-L query emits the 6 standardized root outcome variables:
+     - `$observation_count` (observed window count, e.g. `max($host_hourly.hourly_count)`)
+     - `$baseline_active_samples` (active sample depth, e.g. `max($host_stats.active_samples)`)
+     - `$baseline_mean` (baseline central tendency, e.g. `max($host_stats.host_mean)`)
+     - `$baseline_dispersion` (baseline spread / deviation, e.g. `max($host_stats.host_stddev)`)
+     - `$fleet_prevalence` (fleet breadth active in window, e.g. `max($fleet_breadth.fleet_hosts)`)
+     - `$distinct_binaries` (distinct programs or destination targets, e.g. `max($host_hourly.distinct_procs)` for process activity or `max($host_hourly.distinct_destinations)` for network traffic)
+     Retain these 6 exact outcome variable names across all telemetry types (process launches, network connections, authentication, DNS, file events).
+   * *Target Entity Scoping & Bare Identifier Match Binding*:
+     When scoping to a specific entity (such as host `dev-ub22-1` or user `frank.kolzig`), filter directly in the primary stage predicates and bind the entity variable for matching:
+     ```yara
+     stage host_hourly {
+         metadata.event_type = "NETWORK_CONNECTION"
+         principal.hostname = "dev-ub22-1"
+         principal.hostname = $entity
+         $entity != ""
+
+       match:
+         $entity by 1h
+     ```
+     Format all `match:` expressions with bare identifiers bound in stage predicates (e.g. `$entity by 1h`, `$entity, $window_start by 1h`).
+   * *Affirmative Compiler Grammar Protocols*:
+     - **Stage and Root Declarations**: Multi-stage YARA-L queries place event predicates directly inside named stages (`stage <name> { $e.metadata.event_type = "..." ... }`) and declare cross-stage bindings directly before `match:` in the root stage.
+     - **Match Binding Structure**: Match blocks accept simple bare identifiers (`$host by 1h`, `$src_ip, $dst_ip by 1h`, `$entity, $ws by 1h`), keeping member expressions and dotted paths inside stage event filtering.
+     - **Outcome `if()` Grammar**: The `then` clause of `if()` accepts simple placeholders or constants. Compound arithmetic inside `then` assigns to an intermediate variable first.
+     - **Additive Dispersion Floor**: Outcome divisions include a `+ 1.0` additive floor on the denominator (`/ ($dispersion + 1.0)`) to maintain stability on quiet accounts.
+     - **Partition Alignment Keys**: Multi-stage queries align stages using real partition keys (e.g. `$token by 1d` or `$ws by 1h` with `$ws = $stage.window_start`) across all stages.
+     - **Stage Keying Architecture**: An intermediate stage keyed on a real entity without a window (`match: $host`) provides canonical per-entity baseline collapse (`avg`/`stddev` across an entity's hourly buckets). For fleet-wide breadth, key the stage on the window (`$ws = $stage1.window_start` … `match: $ws by 1h` … `count_distinct($stage1.host)`).
+     - **Implicit `window_start` Attribute**: Every windowed stage automatically exposes `$stage.window_start`. Reference this attribute directly in downstream stages and root (`$ws = $stage.window_start`).
+     - **Stage & Variable Namespace Separation**: Assign distinct names to stages and root outcome variables (for example, name the breadth stage `stage fleet_breadth` and name the root outcome variable `$fleet_prevalence = max($fleet_breadth.fleet_hosts)`).
+     - **Raw Stage Consolidation**: Structure multi-sector hunts with a unified raw stage using per-sector conditional sums (`sum(if($e.metadata.event_type = "USER_LOGIN" and $e.security_result.action = "BLOCK", 1, 0))`) or join at most two independent raw stages at root.
+     - **Canonical Match Windows**: Multi-stage queries use supported match windows (`by 5m`, `by 1h`, `by 2h`, `by 1d`). Extend observation horizons by widening `startTime`/`endTime`.
+     - **Equality Syntax**: Comparisons inside `if()` use single equals (`if($flag = 1.0, …)`).
+     - **Numeric Aggregation**: Functions `max()` and `min()` apply to numeric variables; categorical values project via `array_distinct(...)` or count via `count_distinct(...)`.
      - **Categorical Outlier & Entity Rarity Architecture**: To detect rare categorical strings (e.g., browser user-agent strings, rare domains, JA3 hashes, commands):
        * *Option 1 (High-Performance Single-Stage Rarity Hunt)*: `match: $token by 1h`, `outcome: $device_count = count_distinct(principal.ip)`, `condition: $device_count <= 2 and $event_count >= 5`.
        * *Option 2 (2-Stage Token-Centric Fleet Adoption Pipeline)*: Stage 1 groups by `$host, $token by 1d`, Stage 2 groups by `$token by 1d`, and Root joins on `$token by 1d` (see `examples/rare_user_agent_prevalence.yara`).
-     - **Zero Non-Linear Functions (No `sqrt()`)**: YARA-L 2.0 does not support `sqrt()` or `math.sqrt()`. For orthogonal distance, compute squared Euclidean distance (`$dist_sq = ($z1 * $z1) + ($z2 * $z2)`) and sort by `$dist_sq desc`. In Poisson rarity, compute squared Poisson deviance (`$diff = $obs - $lambda; $diff_sq = $diff * $diff; $poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)`) and condition on `$poisson_z_sq >= 12.25` ($3.5^2$).
-     - **Table Headers Plain Unicode**: In summary tables, format column headers with plain Unicode (`Mean (μ)`, `StdDev (σ)`, `Rate (λ)`), never raw KaTeX (`$\mu$`) in table headers.
+     - **Linear & Deviance Formulations**: Multi-stage YARA-L expresses distance and rarity through linear operations and squared deviance (for example, squared Euclidean distance `$dist_sq = ($z1 * $z1) + ($z2 * $z2)` and squared Poisson deviance `$poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)` with condition `$poisson_z_sq >= 12.25`).
+     - **Table Headers Plain Unicode**: In summary tables, format column headers with plain Unicode (`Mean (μ)`, `StdDev (σ)`, `Rate (λ)`).
    * *Noise Level & Significance Threshold Steering*: Analysts may adjust sensitivity thresholds or define sensitivity bands (e.g. `$z_score >= 2.0 and $z_score < 3.0` for investigative anomalies, or `$z_score >= 3.0` for critical outliers), enforced via root-stage `condition:`.
 5. **Compile-Time Verification Protocol & Single-Cycle Self-Healing Ceiling**:
    * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Use absolute ISO 8601 timestamps; relative offsets like 'now-10m' are unsupported by the API). The Turn 1 probe uses the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`) because its purpose is fast schema and time-boundary verification, not analysis. Formulate candidate YARA-L queries following successful execution of this schema validation probe.
@@ -154,7 +187,11 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
 
 ### 📊 State 2: Deterministic Multi-Stage Execution & 5-Section Triage Report (After Clearance)
 
-When formatting hunting results for ANY client (CLI, Chat UI, or Web UI), the agent **MUST ALWAYS OUTPUT ALL 5 SECTIONS** in exact order:
+When receiving execution clearance from the analyst (such as "Clearance granted", "Proceed", "Go ahead", "Run the hunt", or selection of Mode A/Mode B):
+1. **Immediate Execution Turn**:
+   Submit the candidate multi-stage YARA-L query immediately via `secops-gus:udm_search(query=...)` on this turn. When the analyst approves execution without choosing between Mode A or Mode B, proceed using Mode A (24-Hour Snapshot, e.g. `startTime=<24_hours_ago>`, `endTime=<now>`) or the timeline matching the investigation hypothesis. Proceed directly to executing the query.
+2. **Mandatory 5-Section Triage Report Delivery**:
+   Synthesize the aggregated `stats` evidence returned by `udm_search` (or nominal baseline metrics if zero events are returned) into all 5 sections in exact order:
 
 ```markdown
 ### ⚡ Statistical Outlier Report: [Hunt Topic]
@@ -188,8 +225,8 @@ When formatting hunting results for ANY client (CLI, Chat UI, or Web UI), the ag
 ---
 > [!NOTE]
 > **Zero Outliers (Nominal Baseline)**: When no entities breach the statistical threshold ($N=0$ outliers), all 5 sections remain mandatory. Format Section 3 as:
-> `#### 🔍 Top Outlier Spotlight: Nominal Baseline (0 Outliers Detected)` or `#### 🔍 Nominal Baseline Spotlight: All Entities Within Expected Tolerances`
-> retaining the 6 Forensic Evidence Pillars reflecting normal baseline metrics and confirming clean status.
+> `#### 🔍 Top Outlier Spotlight: Nominal Baseline (0 Outliers Detected)`
+> retaining the 6 Forensic Evidence Pillars with their canonical labels (`1. Activity Spike`, `2. Baseline History`, `3. Typical Normal Level`, `4. Normal Daily Spread`, `5. Company-Wide Breadth`, `6. Variety of Programs`) reflecting normal baseline metrics and confirming clean status.
 
 ---
 #### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)
