@@ -1,0 +1,89 @@
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
+// Goal: Hunt for anomalous network egress bursts to enterprise-unseen or low-prevalence domains using Derived Context
+// Statistical Model: Z-Score with Derived Context (Domain Day Count & First Seen) Prevalence Multiplier
+
+// --- STAGE 1: Event-Plane Network Egress Extraction ---
+stage raw_network {
+  $net.metadata.event_type = "NETWORK_CONNECTION"
+  $host = $net.principal.asset.hostname
+  $domain = $net.target.hostname
+  $host != ""
+  $domain != ""
+
+  match:
+    $host, $domain by 1h
+
+  outcome:
+    $hourly_bytes = sum($net.network.sent_bytes)
+    $conn_count = count($net.metadata.id)
+}
+
+// --- STAGE 2: Chronicle Derived Context Graph Lookup (Domain Prevalence & Age) ---
+stage domain_derived_context {
+  $dom.graph.entity.domain.name = $domain
+  $dom.graph.metadata.entity_type = "DOMAIN_NAME"
+  $dom.graph.metadata.source_type = "DERIVED_CONTEXT"
+  $domain != ""
+
+  match:
+    $domain
+
+  outcome:
+    $day_count = min($dom.graph.entity.domain.prevalence.day_count)
+    $rolling_max = max($dom.graph.entity.domain.prevalence.rolling_max)
+    $first_seen_ts = min($dom.graph.entity.domain.first_seen_time.seconds)
+}
+
+// --- STAGE 3: Host Egress Baseline Parameter Estimation ---
+stage host_baseline {
+  $host = $raw_network.host
+
+  match:
+    $host
+
+  outcome:
+    $hist_mean_bytes = avg($raw_network.hourly_bytes)
+    $hist_sd_bytes = stddev($raw_network.hourly_bytes)
+    $active_hours = count($raw_network.window_start)
+}
+
+// --- ROOT STAGE (UNWRAPPED): Joint Egress & Enterprise Domain Prevalence Fusion ---
+$host = $raw_network.host
+$domain = $raw_network.domain
+$domain = $domain_derived_context.domain
+$host = $host_baseline.host
+
+match:
+  $host, $domain by 1h
+
+outcome:
+  $obs_bytes = max($raw_network.hourly_bytes)
+  $mean_bytes = max($host_baseline.hist_mean_bytes)
+  $sd_bytes = max($host_baseline.hist_sd_bytes)
+  $safe_sd = if($sd_bytes > 0, $sd_bytes, 1.0)
+  $z_score = ($obs_bytes - $mean_bytes) / ($safe_sd + 1.0)
+
+  $enterprise_day_count = min($domain_derived_context.day_count)
+  $enterprise_first_seen = min($domain_derived_context.first_seen_ts)
+  $domain_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
+
+  // Rare Domain Multiplier: 2.5x threat score boost for domains observed enterprise-wide on <= 3 days
+  $is_rare_domain = if($enterprise_day_count <= 3 and $enterprise_day_count >= 0, 1.0, 0.0)
+  $multiplier = if($is_rare_domain = 1.0, 2.5, 1.0)
+  $threat_score = $z_score * $multiplier
+
+  // 6 Standardized Evidence Pillars
+  $observation_count = $obs_bytes
+  $baseline_active_samples = max($host_baseline.active_hours)
+  $baseline_mean = $mean_bytes
+  $baseline_dispersion = $sd_bytes
+  $fleet_prevalence = max($domain_derived_context.rolling_max)
+  $distinct_binaries = 1
+
+condition:
+  $baseline_active_samples >= 12
+  and $threat_score >= 2.5
+
+order:
+  $threat_score desc

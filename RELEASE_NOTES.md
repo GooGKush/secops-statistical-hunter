@@ -1,5 +1,31 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.6.1 (September 26, 2026) — DERIVED_CONTEXT File & Domain Prevalence Pipelines, Enterprise-Grounded Consultative Pattern & 100% Dual-Engine Parity
+
+* **`DERIVED_CONTEXT` File & Domain Prevalence Multi-Stage Pipelines**:
+  * Added golden pipeline templates:
+    * `templates/pipelines/derived_context_file_prevalence_3stage.yl2`: Correlates endpoint `PROCESS_LAUNCH` execution bursts with Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT` on `FILE` via `target.process.file.sha256 = graph.entity.file.sha256`).
+    * `templates/pipelines/derived_context_domain_prevalence_3stage.yl2`: Correlates network outbound flows and DNS queries with `DERIVED_CONTEXT` on `DOMAIN_NAME` (`target.hostname = graph.entity.hostname`).
+  * Employs dual-sided enterprise prevalence filtering: suppresses ubiquitous corporate software and domains while applying a 2.5x threat score boost for rare/novel entities with `day_count <= 3`.
+* **Enterprise-Grounded Consultative Discovery Pattern**:
+  * Expanded `references/consultative-worksheet.md` with the 6th Raw Behavioral Telemetry Deformation: **Enterprise Novelty (First-Contact / Unprecedented Telemetry)**.
+  * Cross-pollinated Domains 1 (Endpoint), 3 (Network Egress), and 5 (Identity & Auth) with persistent context and novelty options.
+  * Added Section *"The Enterprise-Grounded Hunt & Dual-Sided Prevalence Filtering Pattern"* to provide consultative structure for combining local statistical volume deviations with enterprise-wide novelty.
+  * Updated `SKILL.md` (State 1 §2) to proactively offer the two-tier scoping choice: **Tier A (Pure Local Baseline)** vs **Tier B (Enterprise-Grounded Hunt)**.
+* **Comprehensive Entity Context Graph Architectural Guide**:
+  * Updated `references/entity-context-graph-guide.md` with complete UDM schemas for `FILE`, `DOMAIN_NAME`, `USER`, and `ASSET` graph entities.
+  * Documented verified Malachite compiler invariants: `ECG_LIMIT = 1` (at most one graph stage per pipeline), 3-stage + root maximum ceiling, and strict separation of raw event math from graph metadata joins.
+  * Updated `scripts/multistage_query_builder.py` with archetype mapping and handoff endpoints for `DERIVED_CONTEXT_FILE_PREVALENCE` and `DERIVED_CONTEXT_DOMAIN_PREVALENCE`.
+* **State 1 Protocol Resilience & Single-Tool Ceiling**:
+  * Preserved the canonical State 1 header: `### 🚦 State 1: Pre-Flight Clearance & Specification (Interactive Verification Gate)` intact for complete compatibility with frontend parsers, UI widgets, and hybrid interfaces.
+  * Reinforced Turn 1 single-tool ceiling in body invariants: strictly capped at at most one 1-shot schema validation probe (`udm_search(..., maxEvents=1)`), maintaining an absolute code embargo on executing multi-stage queries prior to explicit Turn 2 clearance.
+  * Corrected Direct MCP harness persona (`direct_mcp_engine.py`) to scope query invariants dynamically and eliminate cross-project `metrics.*` leakage into `stats-hunter`.
+* **100% Invariant Parity Across Dual-Engine Regression Suite (15 / 15 Tests Passed)**:
+  * Expanded unit tests to **120 passing tests** across 13 test suites (`pytest tests/`).
+  * Validated against production tenant `gus-sdl` (`8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5`) across both execution engines (`agentapi` + `direct-mcp`), achieving **15 / 15 Passed (100% Invariant Parity)**.
+
+---
+
 ## 📦 Version 2.6.0 (September 25, 2026) — Affirmative Native-Chat Runtime, Universal Pre-Flight Gate, 6 Root Outcome Variables & 15/15 Dual-Engine Regression Parity
 
 * **Option A Affirmative Native-Chat Runtime Architecture**:

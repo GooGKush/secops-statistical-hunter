@@ -141,6 +141,16 @@ SENSITIVITY_MAP = {
         "BALANCED": {"threat_score": 2.5, "min_logins": 5, "min_active_days": 7, "new_asset_multiplier": 2.0},
         "AGGRESSIVE": {"threat_score": 1.5, "min_logins": 2, "min_active_days": 3, "new_asset_multiplier": 1.5},
     },
+    "DERIVED_CONTEXT_FILE_PREVALENCE": {
+        "CONSERVATIVE": {"threat_score": 3.5, "min_execs": 10, "min_active_hours": 24, "rare_multiplier": 2.5},
+        "BALANCED": {"threat_score": 2.5, "min_execs": 5, "min_active_hours": 12, "rare_multiplier": 2.5},
+        "AGGRESSIVE": {"threat_score": 1.5, "min_execs": 2, "min_active_hours": 6, "rare_multiplier": 2.0},
+    },
+    "DERIVED_CONTEXT_DOMAIN_PREVALENCE": {
+        "CONSERVATIVE": {"threat_score": 3.5, "min_obs_bytes": 1000000.0, "min_active_hours": 24, "rare_multiplier": 2.5},
+        "BALANCED": {"threat_score": 2.5, "min_obs_bytes": 100000.0, "min_active_hours": 12, "rare_multiplier": 2.5},
+        "AGGRESSIVE": {"threat_score": 1.5, "min_obs_bytes": 10000.0, "min_active_hours": 6, "rare_multiplier": 2.0},
+    },
 }
 
 
@@ -1868,6 +1878,12 @@ class MultiStageTemplateRouter:
       "DERIVED_CONTEXT": "derived_context_prevalence_3stage.yl2",
       "ASSET_AGE_PREVALENCE": "derived_context_prevalence_3stage.yl2",
       "NEW_ASSET_AUTHENTICATION": "derived_context_prevalence_3stage.yl2",
+      "DERIVED_CONTEXT_FILE_PREVALENCE": "derived_context_file_prevalence_3stage.yl2",
+      "FILE_PREVALENCE": "derived_context_file_prevalence_3stage.yl2",
+      "UNSEEN_BINARY_BURST": "derived_context_file_prevalence_3stage.yl2",
+      "DERIVED_CONTEXT_DOMAIN_PREVALENCE": "derived_context_domain_prevalence_3stage.yl2",
+      "DOMAIN_PREVALENCE": "derived_context_domain_prevalence_3stage.yl2",
+      "FIRST_SEEN_DOMAIN_EGRESS": "derived_context_domain_prevalence_3stage.yl2",
   }
 
   def __init__(self, template_dir: Optional[Path] = None):
@@ -2070,6 +2086,12 @@ class HandoffEndpoint:
       "DERIVED_CONTEXT": "DERIVED_CONTEXT_PREVALENCE",
       "ASSET_AGE_PREVALENCE": "DERIVED_CONTEXT_PREVALENCE",
       "NEW_ASSET_AUTHENTICATION": "DERIVED_CONTEXT_PREVALENCE",
+      "DERIVED_CONTEXT_FILE_PREVALENCE": "DERIVED_CONTEXT_FILE_PREVALENCE",
+      "FILE_PREVALENCE": "DERIVED_CONTEXT_FILE_PREVALENCE",
+      "UNSEEN_BINARY_BURST": "DERIVED_CONTEXT_FILE_PREVALENCE",
+      "DERIVED_CONTEXT_DOMAIN_PREVALENCE": "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
+      "DOMAIN_PREVALENCE": "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
+      "FIRST_SEEN_DOMAIN_EGRESS": "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
   }
 
   @classmethod

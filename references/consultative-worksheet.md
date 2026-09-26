@@ -7,9 +7,9 @@
 
 ---
 
-## 🧭 First Principles: The 5 Raw Behavioral Telemetry Deformations
+## 🧭 First Principles: The 6 Raw Behavioral Telemetry Deformations
 
-Every threat—known, emerging, or zero-day—physically deforms raw UDM event streams in one of five distinct ways. When an analyst describes a scenario over raw logs, classify the underlying deformation to select the optimal statistical model:
+Every threat—known, emerging, or zero-day—physically deforms raw UDM event streams in one of six distinct ways. When an analyst describes a scenario over raw logs, classify the underlying deformation to select the optimal statistical model:
 
 ```
 ┌─────────────────────────────┬───────────────────────────────┬──────────────────────────────────────┐
@@ -29,6 +29,10 @@ Every threat—known, emerging, or zero-day—physically deforms raw UDM event s
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 5. Orthogonal Dispersion    │ Mild elevations across Auth,  │ Multi-Sector Threat Fusion           │
 │    ("The Multi-Vector Fog") │ Endpoint, and Network silos   │ with Euclidean Norm (D >= 3.0σ)      │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 6. Enterprise Novelty       │ Activity involving entities   │ Z-Score with Derived Context         │
+│    ("The Unseen Intruder")  │ with near-zero enterprise     │ Prevalence Multiplier                │
+│                             │ presence (day_count <= 3)     │ (File / Domain 3-stage DAG)          │
 └─────────────────────────────┴───────────────────────────────┴──────────────────────────────────────┘
 ```
 
@@ -47,13 +51,16 @@ Every threat—known, emerging, or zero-day—physically deforms raw UDM event s
 * **Privileged Lateral Traversal**: Administrators or service accounts logging into unprecedented clusters of workstations/servers (`privileged_lateral_expansion_2stage.yl2`).
 * **Single-Trial Ratio Regularization**: High failure rates on low sample volumes regularized against population baselines (`beta_binomial_failure_4stage.yl2`).
 * **Low-Entropy Scripted Exfiltration**: Automated transfers touching many destinations with low distinct URI/IP diversity (`hybrid_entropy_concentration_2stage.yl2`).
+* **Enterprise-Unseen Binary Execution**: Local process execution spikes of binaries with zero or low enterprise-wide prevalence (`derived_context_file_prevalence_3stage.yl2`).
+* **First-Contact Domain Egress**: Outbound connections to domains never observed in enterprise history (`derived_context_domain_prevalence_3stage.yl2`).
+* **Unfamiliar Machine Logins**: Privileged accounts authenticating to newly commissioned assets (`derived_context_prevalence_3stage.yl2`).
 
 ### Tier 3: Unknown Unknowns (Complex Multi-Vector Discovery)
 * **Cross-Sector Multi-Vector Kill Chains**: Advanced campaigns where individual telemetry logs remain below single-point thresholds, but orthogonal Euclidean distance reveals compound anomaly (`multi_sector_threat_fusion_4stage.yl2`).
 
 ---
 
-## 📋 The 5 Canonical Raw Hunting Domains & Summary View Menus
+## 📋 The 6 Canonical Raw Hunting Domains & Summary View Menus
 
 When engaging the analyst during State 1, use the **Summary View** menus below to present 2–3 targeted hypotheses mapped to static rule failure modes:
 
@@ -63,6 +70,7 @@ When engaging the analyst during State 1, use the **Summary View** menus below t
   1. *Clockwork Beaconing with Jitter*: Evaluate inter-arrival timing consistency on outbound connections (**Coefficient of Variation CV <= 0.20** on `NETWORK_CONNECTION`).
   2. *Low-Entropy Scripted Staging*: Detect high-volume elephant flows to external destinations (**Elephant Flow Concentration** on `NETWORK_HTTP`).
   3. *DNS Tunneling & Chunked Egress*: Isolate anomalous payload sizes over port 53 (**Modified Z-Score via MAD** on `NETWORK_DNS`).
+  4. *Beaconing to Enterprise-Unseen Domains*: Prioritize clockwork timing regularity targeting destinations contacted on $\le 5$ calendar days enterprise-wide (**C2 Jitter with Domain Prevalence** on `NETWORK_CONNECTION`).
 
 ### Domain 2: Identity, Credential Stuffing & Dormancy
 * **Why Static Rules Miss It**: Attackers rotate IPs to stay below lockout thresholds, and dormant accounts lack active baseline variance.
@@ -77,6 +85,7 @@ When engaging the analyst during State 1, use the **Summary View** menus below t
   1. *Parametric Host Surge*: Detect endpoints executing binaries at > 3 standard deviations above baseline (**Standard Z-Score** on `PROCESS_LAUNCH`).
   2. *Quiet Server Command Rarity*: Surface rarely executed tools on historically quiet infrastructure (**Discrete Poisson Rarity** on `PROCESS_LAUNCH`).
   3. *Fleet Prevalence Shielding*: Isolate targeted malware execution from company-wide software deployments (**Dual-Baseline Delta-Z** on `PROCESS_LAUNCH`).
+  4. *Unseen Staged Binary Bursts*: Isolate localized execution spikes while using enterprise day count to separate unseen binaries from ubiquitous administrative utilities (**Derived Context File Prevalence** on `PROCESS_LAUNCH`).
 
 ### Domain 4: Scripted Staging & Bulk Data Exfiltration
 * **Why Static Rules Miss It**: Attackers fragment data into sub-threshold uploads or exfiltrate across non-standard protocols.
@@ -89,6 +98,35 @@ When engaging the analyst during State 1, use the **Summary View** menus below t
 * **Summary View Options**:
   1. *Machine Radius Expansion*: Detect privileged users connecting to an unprecedented number of target hosts (**Privileged Lateral Expansion Z-Score** on `USER_LOGIN`).
   2. *Bipartite Host Origin Rarity*: Surface service accounts accessing repositories from unexpected source machines (**Poisson Origin Rarity** on `USER_RESOURCE_ACCESS`).
+  3. *Traversal to Newly Commissioned Assets*: Detect privileged accounts expanding laterally into machines seen for the first time within the last 7 days (**Derived Context Asset Age** on `USER_LOGIN`).
+
+### Domain 6: Persistent Context & Derived Prevalence Hunting
+* **Why Static Rules Miss It**: In-flight telemetry lacks historical enterprise perspective; an unknown binary executed 5 times might look benign in a 1-hour window, but is acutely alarming if it has never been seen in the enterprise before (`day_count <= 3`).
+* **Summary View Options**:
+  1. *Unseen Binary Execution Bursts*: Detect localized process execution spikes of binaries with low enterprise-wide prevalence (**Derived Context File Prevalence** on `PROCESS_LAUNCH`).
+  2. *First-Seen Domain Egress*: Identify high-volume outbound network transfers to domains never previously contacted by the enterprise (**Derived Context Domain Prevalence** on `NETWORK_CONNECTION`).
+  3. *Unfamiliar Machine Authentication*: Detect privileged accounts logging into newly commissioned or historically unseen endpoints (**Derived Context Asset Age** on `USER_LOGIN`).
+
+---
+
+## 🛡️ The Enterprise-Grounded Hunt & Dual-Sided Prevalence Filtering Pattern
+
+When scoping hunts with analysts, present `DERIVED_CONTEXT` as a dual-sided intelligence instrument that both **escalates genuine zero-days** and **suppresses alert fatigue**:
+
+### 1. The Cold-Start Blindspot
+Short-horizon raw telemetry searches (e.g. 24h or 7d) are blind to enterprise history:
+- An attacker executing a newly compiled dropper 3 times on a single quiet host looks like a minor statistical fluctuation ($Z \approx 1.5\sigma$).
+- A legitimate monitoring agent executing 500 times an hour looks like a catastrophic statistical surge ($Z > 10.0\sigma$).
+Chronicle's Entity Context Graph (`DERIVED_CONTEXT`) bridges this gap by persisting multi-year enterprise observation counts (`day_count`, `first_seen_time`, `rolling_max`).
+
+### 2. The Two-Tier Scoping Choice
+When discussing candidate queries with an analyst exploring endpoint or network anomalies, offer the two-tier scoping choice:
+* **Tier A (Pure Local Baseline)**: Evaluates spikes strictly against that endpoint's local historical mean and standard deviation.
+* **Tier B (Enterprise-Grounded Hunt)**: Joins Chronicle `DERIVED_CONTEXT` to cross-reference enterprise prevalence, boosting rare tools and suppressing ubiquitous fleet software.
+
+### 3. Dual-Sided Prevalence Filtering Mechanics
+* **Upward Escalation ($2.5\times$ Boost)**: Applies a multiplier to threat scores when the entity has executed on $\le 3$ calendar days enterprise-wide (`day_count <= 3`), ensuring rare tools break through alerting thresholds.
+* **Downward Suppression (Allowlisting via Prevalence)**: Down-ranks or filters out binaries and domains that exhibit extensive enterprise history (`day_count > 60` or `rolling_max > 500` hosts), protecting the SOC from Patch Tuesday and corporate software deployments.
 
 ---
 

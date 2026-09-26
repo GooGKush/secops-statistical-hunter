@@ -29,8 +29,9 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
    * Uses linearized math and squared deviance (`$poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)`) with additive dispersion floors (`+ 1.0`) to avoid zero-division crashes.
 5. **Strict Pre-Flight Routing Interceptor**:
    * Evaluates incoming requests against pre-computed baseline indicators (UEBA keywords, 30-day rolling baselines, `metrics.*`, peer cohorts, and omnibus risk scores), immediately emitting the Markdown Skill Delegation Card routing to `secops-risk-metrics-multistage` (0 tools called). Sub-second timing, rarity, and raw UDM outlier hunts remain inline under the Expert Bypass Rule.
-6. **Entity Context Graph (ECG) Enrichment**:
-   * Correlates raw telemetry bursts with Chronicle's persistent Entity Context Graph: `GLOBAL_CONTEXT` (GCTI threat intelligence, WHOIS Newly Registered Domains) and `DERIVED_CONTEXT` (enterprise entity prevalence, first-seen/last-seen asset age).
+6. **Entity Context Graph (ECG) & Enterprise-Grounded Novelty Enrichment**:
+   * Correlates raw telemetry bursts with Chronicle's persistent Entity Context Graph: `GLOBAL_CONTEXT` (GCTI threat intelligence, WHOIS Newly Registered Domains) and `DERIVED_CONTEXT` (enterprise binary prevalence `FILE`, domain prevalence `DOMAIN_NAME`, entity prevalence `USER`, and asset first-seen/last-seen age `ASSET`).
+   * Supports the Enterprise-Grounded Hunt consultative pattern: offers analysts Tier A (Pure Local Baseline) vs. Tier B (Enterprise-Grounded Hunt) with 2.5x threat score boost for rare/novel binaries or domains (`day_count <= 3`).
 7. **Automated Clean Hand-Off Protocol**:
    * Generates schema-compliant synthetic UDM security analytics events (`CUSTOM_SECURITY_DATA_ANALYTICS`) under a unique `Hunt Campaign ID`, caught by tenant rule `secops_statistical_hunter_alert_catchall` for seamless alert escalation without case wall pollution.
 
@@ -45,8 +46,10 @@ secops-statistical-hunter/
 ├── RELEASE_NOTES.md                         # Detailed version changelog & release history
 ├── LICENSE                                  # Apache 2.0 open-source license
 ├── llms.txt                                 # Token-efficient AI agent summary file
-├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (14)
-│   ├── derived_context_prevalence_3stage.yl2 # Derived Context enterprise prevalence & asset age
+├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (16)
+│   ├── derived_context_file_prevalence_3stage.yl2 # Derived Context binary SHA-256 enterprise prevalence
+│   ├── derived_context_domain_prevalence_3stage.yl2 # Derived Context domain egress enterprise prevalence
+│   ├── derived_context_prevalence_3stage.yl2 # Derived Context enterprise user prevalence & asset age
 │   ├── global_threat_intel_enrichment_3stage.yl2 # GCTI Threat Intel & WHOIS NRD egress correlation
 │   ├── privileged_lateral_expansion_2stage.yl2 # Privileged lateral movement & destination expansion
 │   ├── two_part_hurdle_2stage.yl2           # Two-Part Hurdle model for zero-inflated dormant entities
