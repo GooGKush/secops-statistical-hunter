@@ -39,9 +39,8 @@ SYNTAX_TRAPS = [
     (r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\bevents\s*:", "SYNTAX ERROR (INVALID_EVENTS_SECTION_IN_STAGE): Multi-stage named stages do NOT use an 'events:' header. Place event filters directly inside the stage block."),
     (r"\$\w+\s+in\s+\$?[a-zA-Z0-9_]+", "SYNTAX ERROR (INVALID_STAGE_IN_SYNTAX): Do NOT use '$var in stage_name'. Access stage outputs directly via '$stage_name.variable_name' or '$var = $stage_name.variable_name'."),
     (r"\b[a-zA-Z0-9_]+\.\$[a-zA-Z0-9_]+", "SYNTAX ERROR (INVALID_STAGE_VARIABLE_SYNTAX): Multi-stage variable references must use '$stage.var', not 'stage.$var' (placing '$' after the dot causes an ANTLR syntax crash)."),
-    (r"\bmath\.(max|min)\b", "SYNTAX ERROR: 'math.max' and 'math.min' do NOT exist in YARA-L. Use aggregate max()/min(), condition floors, or if(cond, val1, val2)."),
     (r"\bcount\s*\(\s*if\s*\(", "SYNTAX ERROR: 'count(if(...))' is invalid syntax. Use 'sum(if(condition, 1, 0))' for conditional event counting."),
-    (r"\bsqrt\s*\(", "SYNTAX ERROR (INVALID_SQRT_FUNCTION): 'sqrt(...)' is invalid in YARA-L outcome expressions. Compute squared norm ($norm_sq = $z1_sq + $z2_sq) and order by '$norm_sq desc'."),
+    (r"(?<!math\.)\bsqrt\s*\(", "SYNTAX ERROR (INVALID_SQRT_FUNCTION): Bare 'sqrt(...)' is invalid in YARA-L outcome expressions. Use namespaced 'math.sqrt(...)' or compute squared norm ($norm_sq = $z1_sq + $z2_sq) and order by '$norm_sq desc'."),
     (r"^\s*options\s*:", "SYNTAX ERROR: 'options:' blocks are Rule-Engine only and rejected in Search/Dashboard queries. Searches terminate after 'condition:' or 'order:'."),
     (r"match:\s*[^;\n]+\bby\b[^;\n]+\b(hop|over)\b", "SYNTAX ERROR: Compound 'by X hop Y' or 'by X over Y' is invalid syntax in YARA-L. Use 'match: $var by <duration>' for tumbling buckets, 'match: $var over <duration>' for sliding windows, or 'match: $var' for unwindowed baseline stages."),
     (r"\^", "SYNTAX ERROR (INVALID_EXPONENT_OPERATOR): '^' is invalid in YARA-L outcome expressions. Use '$var * $var' for squared terms ($z_sq = $z * $z)."),
@@ -151,6 +150,26 @@ SENSITIVITY_MAP = {
         "BALANCED": {"threat_score": 2.5, "min_obs_bytes": 100000.0, "min_active_hours": 12, "rare_multiplier": 2.5},
         "AGGRESSIVE": {"threat_score": 1.5, "min_obs_bytes": 10000.0, "min_active_hours": 6, "rare_multiplier": 2.0},
     },
+    "MULTI_SECTOR_FUSION": {
+        "CONSERVATIVE": {"threat_distance": 4.0, "min_active_samples": 14, "min_events": 10},
+        "BALANCED": {"threat_distance": 3.0, "min_active_samples": 7, "min_events": 5},
+        "AGGRESSIVE": {"threat_distance": 2.0, "min_active_samples": 3, "min_events": 2},
+    },
+    "MULTI_SECTOR_THREAT_FUSION": {
+        "CONSERVATIVE": {"threat_distance": 4.0, "min_active_samples": 14, "min_events": 10},
+        "BALANCED": {"threat_distance": 3.0, "min_active_samples": 7, "min_events": 5},
+        "AGGRESSIVE": {"threat_distance": 2.0, "min_active_samples": 3, "min_events": 2},
+    },
+    "LOG_NORMAL_VOLUME": {
+        "CONSERVATIVE": {"z_score": 3.5, "min_bytes": 100000000.0, "min_sd": 1.0, "min_active_samples": 14},
+        "BALANCED": {"z_score": 2.5, "min_bytes": 10000000.0, "min_sd": 0.5, "min_active_samples": 7},
+        "AGGRESSIVE": {"z_score": 1.8, "min_bytes": 1000000.0, "min_sd": 0.2, "min_active_samples": 3},
+    },
+    "LOG_NORMAL_VOLUME_SURGE": {
+        "CONSERVATIVE": {"z_score": 3.5, "min_bytes": 100000000.0, "min_sd": 1.0, "min_active_samples": 14},
+        "BALANCED": {"z_score": 2.5, "min_bytes": 10000000.0, "min_sd": 0.5, "min_active_samples": 7},
+        "AGGRESSIVE": {"z_score": 1.8, "min_bytes": 1000000.0, "min_sd": 0.2, "min_active_samples": 3},
+    },
 }
 
 
@@ -164,7 +183,15 @@ def get_adaptive_window_parameters(
   tier_up = tier.upper()
   base_thresh = SENSITIVITY_MAP.get(archetype_up, {}).get(tier_up, {})
 
-  # Determine optimal bucket granularity based on total window duration
+  # Macro-aligned daily models that benefit from a 1d temporal spine on extended horizons (>= 7 days)
+  daily_macro_archetypes = {
+      "DATA_EXFILTRATION_SPIKE", "HEAVY_TAIL_OUTLIERS", "TWO_PART_HURDLE",
+      "DORMANT_ACCOUNT_AWAKENING", "DERIVED_CONTEXT_PREVALENCE",
+      "MULTI_SECTOR_FUSION", "MULTI_SECTOR_THREAT_FUSION", "LOG_NORMAL_VOLUME",
+      "FLEET_PEER_ZSCORE", "BAYESIAN_GAMMA_SHRINKAGE", "BETA_BINOMIAL_REGULARIZATION"
+  }
+
+  # Determine optimal bucket granularity based on total window duration & analytical archetype
   if duration_hours <= 12.0:
     bucket_size = "10m"
     bucket_seconds = 600
@@ -175,12 +202,17 @@ def get_adaptive_window_parameters(
     bucket_seconds = 900
     total_buckets = int(duration_hours * 3600 / bucket_seconds)
     sample_unit = "15-minute intervals"
-  elif duration_hours <= 168.0:  # <= 7 days / "past week" / "this week so far"
+  elif duration_hours < 168.0:  # < 7 days / "past week"
     bucket_size = "1h"
     bucket_seconds = 3600
     total_buckets = int(duration_hours)
     sample_unit = "hourly intervals"
-  else:  # 7 to 30 days / "this month so far" / "past 30 days"
+  elif archetype_up in daily_macro_archetypes:  # >= 7 days for macro-aligned daily models (reconciles with Risk Metrics)
+    bucket_size = "1d"
+    bucket_seconds = 86400
+    total_buckets = max(1, int(duration_hours / 24.0))
+    sample_unit = "daily intervals"
+  else:  # >= 7 days for high-frequency jitter/burst models (e.g. C2_BEACONING_JITTER, POISSON_BURST_CLUSTERING)
     bucket_size = "1h"
     bucket_seconds = 3600
     total_buckets = int(duration_hours)
@@ -194,8 +226,7 @@ def get_adaptive_window_parameters(
       or 30
   )
   
-  if "days" in sample_unit or duration_hours > 168.0 and archetype_up in ["DATA_EXFILTRATION_SPIKE", "HEAVY_TAIL_OUTLIERS"]:
-    # For daily models in extended windows
+  if "daily" in sample_unit or "days" in sample_unit or (duration_hours >= 168.0 and archetype_up in daily_macro_archetypes):
     total_days = max(1, int(duration_hours / 24.0))
     proportional_sample_floor = max(3, min(default_sample_floor, int(total_days * 0.4)))
   else:
@@ -619,6 +650,66 @@ def check_independent_raw_stages(query: str) -> List[str]:
   return errors
 
 
+def _extract_if_calls(code: str) -> List[Tuple[str, List[str]]]:
+  """Extracts if(...) calls and their top-level comma-separated arguments, respecting nested parentheses and strings."""
+  results = []
+  pos = 0
+  n = len(code)
+  pattern = re.compile(r"\bif\s*\(")
+  while pos < n:
+    m = pattern.search(code, pos)
+    if not m:
+      break
+    start_call = m.start()
+    paren_start = m.end() - 1
+    depth = 0
+    in_single = False
+    in_double = False
+    args = []
+    current_arg = []
+    i = paren_start
+    while i < n:
+      ch = code[i]
+      if in_single:
+        current_arg.append(ch)
+        if ch == "'" and code[i - 1] != "\\":
+          in_single = False
+      elif in_double:
+        current_arg.append(ch)
+        if ch == '"' and code[i - 1] != "\\":
+          in_double = False
+      else:
+        if ch == "'":
+          in_single = True
+          current_arg.append(ch)
+        elif ch == '"':
+          in_double = True
+          current_arg.append(ch)
+        elif ch in "([{":
+          depth += 1
+          if depth > 1:
+            current_arg.append(ch)
+        elif ch in ")]}":
+          depth -= 1
+          if depth == 0:
+            args.append("".join(current_arg).strip())
+            full_call = code[start_call : i + 1]
+            results.append((full_call, args))
+            pos = i + 1
+            break
+          else:
+            current_arg.append(ch)
+        elif ch == "," and depth == 1:
+          args.append("".join(current_arg).strip())
+          current_arg = []
+        else:
+          current_arg.append(ch)
+      i += 1
+    else:
+      pos = paren_start + 1
+  return results
+
+
 def validate_multistage_syntax(query: str) -> List[str]:
   """Performs structural validation on multi-stage YARA-L search queries."""
   errors = []
@@ -636,14 +727,14 @@ def validate_multistage_syntax(query: str) -> List[str]:
   errors.extend(check_independent_raw_stages(query))
 
   # Chronicle Common Compiler Grammar Invariants for if():
-  for m in re.finditer(r"\bif\s*\(([^)]+)\)", code_only):
-    args = [a.strip() for a in m.group(1).split(",")]
+  for full_call, args in _extract_if_calls(code_only):
     if len(args) < 3:
-      errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' is missing required else-clause: {m.group(0)}")
+      errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' is missing required else-clause: {full_call}")
     else:
       then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
-      if re.search(r"[\+\-\*\/]", then_clause):
-        errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {m.group(0)}")
+      then_clean = re.sub(r"\([^)]*\)", "", then_clause)
+      if re.search(r"[\+\-\*\/]", then_clean):
+        errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {full_call}")
 
   stages = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{", code_only)
   is_multistage = bool(stages)
@@ -1846,6 +1937,9 @@ class MultiStageTemplateRouter:
       "FUSION": "multi_sector_threat_fusion_4stage.yl2",
       "THREAT_FUSION": "multi_sector_threat_fusion_4stage.yl2",
       "MULTI_SECTOR": "multi_sector_threat_fusion_4stage.yl2",
+      "LOG_NORMAL_VOLUME_SURGE": "log_normal_volume_surge_2stage.yl2",
+      "LOG_NORMAL_VOLUME": "log_normal_volume_surge_2stage.yl2",
+      "LOG_NORMAL": "log_normal_volume_surge_2stage.yl2",
       "RAW_TELEMETRY_ENRICHMENT": "mad_exfiltration_2stage.yl2",
       "TELEMETRY_ENRICHMENT": "mad_exfiltration_2stage.yl2",
       "DUAL_PLANE_CORRELATION": "mad_exfiltration_2stage.yl2",

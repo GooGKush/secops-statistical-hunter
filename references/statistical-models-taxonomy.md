@@ -94,19 +94,56 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 10. Sensitivity & Anomaly Threshold Map
+## 10. Multi-Sector Orthogonal Euclidean Threat Distance ($D$)
+* **Goal**: Synthesize multi-stage kill chains across Authentication, Endpoint, and Network into a single orthogonal Euclidean distance norm using Malachite Function Factory `math.sqrt()`.
+* **Formula**:
+  $$D = \sqrt{\sum_{i=1}^{k} Z_i^2} = \text{math.sqrt}(Z_{\text{auth}}^2 + Z_{\text{proc}}^2 + Z_{\text{net}}^2)$$
+* **Interpretation**:
+  - Replaces squared-distance workarounds ($D^2$) with true Euclidean metric distance $D \ge 3.0\sigma$.
+
+---
+
+## 11. Log-Normal Volumetric Standardization ($Z_{\log}$)
+* **Goal**: Isolate extreme byte bursts over heavy-tailed, skewed network and data exfiltration streams without parametric Gaussian distortion.
+* **Formula**:
+  $$Y = \text{math.log}(\text{bytes} + 1.0), \quad Z_{\log} = \frac{Y - \mu_Y}{\sigma_Y}$$
+* **Interpretation**:
+  - Log-transform stabilizes variance across several orders of magnitude, isolating true exfiltration anomalies.
+
+---
+
+## 12. Continuous Calibrated Risk Index (CRI [0–100]) In-Stage Translation
+* **Goal**: Translate raw multi-stage $Z$-scores or threat distances into a bounded [0, 100] triage score directly inside YARA-L query outcomes.
+* **Formula**:
+  $$\text{CRI} = \text{math.round}\left(\frac{100.0}{1.0 + \text{math.exp}(-0.6 \cdot (Z - 3.0))}\right)$$
+
+---
+
+## 13. Sensitivity & Anomaly Threshold Map
 
 | Archetype | Tier | Thresholds & Parameters |
 | :--- | :--- | :--- |
 | `C2_BEACONING_JITTER` | **CONSERVATIVE** | `cv=0.05`, `min_conns=50`, `prevalence=1`, `min_active_hours=12` |
 | `C2_BEACONING_JITTER` | **BALANCED** | `cv=0.2`, `min_conns=25`, `prevalence=2`, `min_active_hours=6` |
 | `C2_BEACONING_JITTER` | **AGGRESSIVE** | `cv=0.4`, `min_conns=15`, `prevalence=1`, `min_active_hours=3` |
+| `CATEGORICAL_FLEET_PREVALENCE` | **CONSERVATIVE** | `max_adopters=1`, `min_events=10`, `min_active_hours=12` |
+| `CATEGORICAL_FLEET_PREVALENCE` | **BALANCED** | `max_adopters=2`, `min_events=5`, `min_active_hours=6` |
+| `CATEGORICAL_FLEET_PREVALENCE` | **AGGRESSIVE** | `max_adopters=3`, `min_events=2`, `min_active_hours=1` |
 | `DATA_EXFILTRATION_SPIKE` | **CONSERVATIVE** | `m_z=3.5`, `min_mb=500.0`, `min_mad=20.0`, `min_baseline_days=14` |
 | `DATA_EXFILTRATION_SPIKE` | **BALANCED** | `m_z=2.5`, `min_mb=100.0`, `min_mad=10.0`, `min_baseline_days=7` |
 | `DATA_EXFILTRATION_SPIKE` | **AGGRESSIVE** | `m_z=2.0`, `min_mb=25.0`, `min_mad=5.0`, `min_baseline_days=3` |
+| `DERIVED_CONTEXT_DOMAIN_PREVALENCE` | **CONSERVATIVE** | `threat_score=3.5`, `min_obs_bytes=1000000.0`, `min_active_hours=24`, `rare_multiplier=2.5` |
+| `DERIVED_CONTEXT_DOMAIN_PREVALENCE` | **BALANCED** | `threat_score=2.5`, `min_obs_bytes=100000.0`, `min_active_hours=12`, `rare_multiplier=2.5` |
+| `DERIVED_CONTEXT_DOMAIN_PREVALENCE` | **AGGRESSIVE** | `threat_score=1.5`, `min_obs_bytes=10000.0`, `min_active_hours=6`, `rare_multiplier=2.0` |
+| `DERIVED_CONTEXT_FILE_PREVALENCE` | **CONSERVATIVE** | `threat_score=3.5`, `min_execs=10`, `min_active_hours=24`, `rare_multiplier=2.5` |
+| `DERIVED_CONTEXT_FILE_PREVALENCE` | **BALANCED** | `threat_score=2.5`, `min_execs=5`, `min_active_hours=12`, `rare_multiplier=2.5` |
+| `DERIVED_CONTEXT_FILE_PREVALENCE` | **AGGRESSIVE** | `threat_score=1.5`, `min_execs=2`, `min_active_hours=6`, `rare_multiplier=2.0` |
 | `DERIVED_CONTEXT_PREVALENCE` | **CONSERVATIVE** | `threat_score=3.5`, `min_logins=10`, `min_active_days=14`, `new_asset_multiplier=2.0` |
 | `DERIVED_CONTEXT_PREVALENCE` | **BALANCED** | `threat_score=2.5`, `min_logins=5`, `min_active_days=7`, `new_asset_multiplier=2.0` |
 | `DERIVED_CONTEXT_PREVALENCE` | **AGGRESSIVE** | `threat_score=1.5`, `min_logins=2`, `min_active_days=3`, `new_asset_multiplier=1.5` |
+| `DISCRETE_ENTITY_RARITY` | **CONSERVATIVE** | `max_adopters=1`, `min_events=10`, `min_active_hours=12` |
+| `DISCRETE_ENTITY_RARITY` | **BALANCED** | `max_adopters=2`, `min_events=5`, `min_active_hours=6` |
+| `DISCRETE_ENTITY_RARITY` | **AGGRESSIVE** | `max_adopters=3`, `min_events=2`, `min_active_hours=1` |
 | `DORMANT_ACCOUNT_AWAKENING` | **CONSERVATIVE** | `z_score=3.5`, `min_count=10`, `dormant_weight=3.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `DORMANT_ACCOUNT_AWAKENING` | **BALANCED** | `z_score=2.5`, `min_count=5`, `dormant_weight=2.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `DORMANT_ACCOUNT_AWAKENING` | **AGGRESSIVE** | `z_score=1.5`, `min_count=2`, `dormant_weight=1.5`, `min_sd=0.2`, `min_active_samples=3` |
@@ -122,6 +159,18 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `HEAVY_TAIL_OUTLIERS` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_iqr=50.0`, `min_baseline_days=14` |
 | `HEAVY_TAIL_OUTLIERS` | **BALANCED** | `surge_ratio=2.0`, `min_iqr=10.0`, `min_baseline_days=7` |
 | `HEAVY_TAIL_OUTLIERS` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_iqr=5.0`, `min_baseline_days=3` |
+| `LOG_NORMAL_VOLUME` | **CONSERVATIVE** | `z_score=3.5`, `min_bytes=100000000.0`, `min_sd=1.0`, `min_active_samples=14` |
+| `LOG_NORMAL_VOLUME` | **BALANCED** | `z_score=2.5`, `min_bytes=10000000.0`, `min_sd=0.5`, `min_active_samples=7` |
+| `LOG_NORMAL_VOLUME` | **AGGRESSIVE** | `z_score=1.8`, `min_bytes=1000000.0`, `min_sd=0.2`, `min_active_samples=3` |
+| `LOG_NORMAL_VOLUME_SURGE` | **CONSERVATIVE** | `z_score=3.5`, `min_bytes=100000000.0`, `min_sd=1.0`, `min_active_samples=14` |
+| `LOG_NORMAL_VOLUME_SURGE` | **BALANCED** | `z_score=2.5`, `min_bytes=10000000.0`, `min_sd=0.5`, `min_active_samples=7` |
+| `LOG_NORMAL_VOLUME_SURGE` | **AGGRESSIVE** | `z_score=1.8`, `min_bytes=1000000.0`, `min_sd=0.2`, `min_active_samples=3` |
+| `MULTI_SECTOR_FUSION` | **CONSERVATIVE** | `threat_distance=4.0`, `min_active_samples=14`, `min_events=10` |
+| `MULTI_SECTOR_FUSION` | **BALANCED** | `threat_distance=3.0`, `min_active_samples=7`, `min_events=5` |
+| `MULTI_SECTOR_FUSION` | **AGGRESSIVE** | `threat_distance=2.0`, `min_active_samples=3`, `min_events=2` |
+| `MULTI_SECTOR_THREAT_FUSION` | **CONSERVATIVE** | `threat_distance=4.0`, `min_active_samples=14`, `min_events=10` |
+| `MULTI_SECTOR_THREAT_FUSION` | **BALANCED** | `threat_distance=3.0`, `min_active_samples=7`, `min_events=5` |
+| `MULTI_SECTOR_THREAT_FUSION` | **AGGRESSIVE** | `threat_distance=2.0`, `min_active_samples=3`, `min_events=2` |
 | `POISSON_BURST_CLUSTERING` | **CONSERVATIVE** | `fano_factor=8.0`, `min_fails=30`, `min_mu=2.0`, `min_active_samples=60` |
 | `POISSON_BURST_CLUSTERING` | **BALANCED** | `fano_factor=4.0`, `min_fails=15`, `min_mu=1.0`, `min_active_samples=30` |
 | `POISSON_BURST_CLUSTERING` | **AGGRESSIVE** | `fano_factor=2.5`, `min_fails=10`, `min_mu=0.5`, `min_active_samples=15` |

@@ -30,11 +30,33 @@ class TestWindowAdaptation(unittest.TestCase):
     self.assertEqual(p_48h["total_available_buckets"], 48)
     self.assertEqual(p_48h["proportional_sample_floor"], 12)
 
-    # 168-hour window (7 days) -> 1h bins, 168 buckets, proportional floor = 42
+    # 168-hour window (7 days) -> 1h bins, 168 buckets, proportional floor = 42 for intraday surge
     p_7d = get_adaptive_window_parameters(168.0, "ZSCORE_PROCESS_SURGE", "BALANCED")
     self.assertEqual(p_7d["recommended_bucket"], "1h")
     self.assertEqual(p_7d["total_available_buckets"], 168)
     self.assertEqual(p_7d["proportional_sample_floor"], 42)
+
+  def test_daily_temporal_spine_macro_models(self):
+    """Macro models on horizons >= 7d must select '1d' buckets and scale proportional sample floors."""
+    macro_models = [
+        "MULTI_SECTOR_FUSION",
+        "MULTI_SECTOR_THREAT_FUSION",
+        "LOG_NORMAL_VOLUME",
+        "DATA_EXFILTRATION_SPIKE",
+        "TWO_PART_HURDLE",
+        "DERIVED_CONTEXT_PREVALENCE",
+    ]
+    for model in macro_models:
+      p_7d = get_adaptive_window_parameters(168.0, model, "BALANCED")
+      self.assertEqual(p_7d["recommended_bucket"], "1d", f"Model {model} must select '1d' at 7d horizon")
+      self.assertEqual(p_7d["total_available_buckets"], 7)
+      self.assertEqual(p_7d["sample_unit"], "daily intervals")
+      self.assertGreaterEqual(p_7d["proportional_sample_floor"], 3)
+
+      p_14d = get_adaptive_window_parameters(336.0, model, "BALANCED")
+      self.assertEqual(p_14d["recommended_bucket"], "1d", f"Model {model} must select '1d' at 14d horizon")
+      self.assertEqual(p_14d["total_available_buckets"], 14)
+      self.assertGreaterEqual(p_14d["proportional_sample_floor"], 5)
 
   def test_search_window_ceilings(self):
     # Valid 7-day multi-stage window -> No errors

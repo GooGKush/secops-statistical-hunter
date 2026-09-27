@@ -75,7 +75,7 @@ outcome:
   $raw_mean = max($timing_stats.mean_gap)
   $safe_mean = if($raw_mean > 0, $raw_mean, 1.0)
   $raw_stddev = max($timing_stats.stddev_gap)
-  $cv = $raw_stddev / ($safe_mean + 1.0)
+  $cv = $raw_stddev / $safe_mean
 
 condition:
   $baseline_active_samples >= {{min_active_hours}}

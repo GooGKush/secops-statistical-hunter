@@ -51,7 +51,7 @@ stage host_sector_baseline {
     $active_hours = count($sector_counts.window_start)
 }
 
-// --- ROOT STAGE: Orthogonal Threat-Space Fusion (squared Euclidean norm; no sqrt in YARA-L) ---
+// --- ROOT STAGE: Orthogonal Threat-Space Fusion & Euclidean Vector Norm ---
 $host = $sector_counts.host
 $host = $host_sector_baseline.host
 $ws = $sector_counts.window_start
@@ -67,13 +67,18 @@ outcome:
   $baseline_active_samples = max($host_sector_baseline.active_hours)
   $observation_count = max($sector_counts.auth_fails) + max($sector_counts.proc_launches) + max($sector_counts.net_flows)
 
-  // Per-sector Z with +1.0 additive dispersion floor
-  $sector_z_auth = (max($sector_counts.auth_fails) - max($host_sector_baseline.auth_mean)) / (max($host_sector_baseline.auth_sd) + 1.0)
-  $sector_z_proc = (max($sector_counts.proc_launches) - max($host_sector_baseline.proc_mean)) / (max($host_sector_baseline.proc_sd) + 1.0)
-  $sector_z_net = (max($sector_counts.net_flows) - max($host_sector_baseline.net_mean)) / (max($host_sector_baseline.net_sd) + 1.0)
+  // Per-sector Z with safe dispersion floor
+  $safe_auth_sd = if(max($host_sector_baseline.auth_sd) > 0, max($host_sector_baseline.auth_sd), 1.0)
+  $safe_proc_sd = if(max($host_sector_baseline.proc_sd) > 0, max($host_sector_baseline.proc_sd), 1.0)
+  $safe_net_sd = if(max($host_sector_baseline.net_sd) > 0, max($host_sector_baseline.net_sd), 1.0)
 
-  // D^2 = Z_auth^2 + Z_proc^2 + Z_net^2 ; sort by D^2 (monotone in D)
+  $sector_z_auth = (max($sector_counts.auth_fails) - max($host_sector_baseline.auth_mean)) / $safe_auth_sd
+  $sector_z_proc = (max($sector_counts.proc_launches) - max($host_sector_baseline.proc_mean)) / $safe_proc_sd
+  $sector_z_net = (max($sector_counts.net_flows) - max($host_sector_baseline.net_mean)) / $safe_net_sd
+
+  // Orthogonal Euclidean Threat Distance: D = math.sqrt(Z_auth^2 + Z_proc^2 + Z_net^2)
   $threat_vector_norm_sq = $sector_z_auth * $sector_z_auth + $sector_z_proc * $sector_z_proc + $sector_z_net * $sector_z_net
+  $threat_distance = math.sqrt($threat_vector_norm_sq)
 
 condition:
   $baseline_active_samples >= {{min_active_samples}}

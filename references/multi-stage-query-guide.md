@@ -67,15 +67,21 @@ condition:
 1. **Common Compiler Grammar Invariant (Zero Event Arithmetic & Explicit Match Binding)**:
    - **Above `match:` (Event Sections)**: Binary arithmetic (`+`, `-`, `*`, `/`) between variables or literals is prohibited. Placeholders must bind directly to UDM fields, stage variables (`$host = $stage1.host`), or scalar functions (`timestamp.as_unix_seconds`). Performing binary arithmetic above `match:` causes Google SecOps Common Compiler to fail with `missing type info for placeholder`.
    - **Explicit Match Variable Binding (ZERO DOTS IN MATCH)**: Every placeholder appearing in `match:` must be explicitly assigned before `match:` (`$host = $e.principal.hostname` or `$host = $stage1.host`). Match blocks accept ONLY simple bare identifiers without dots (`$host by 1h`, `$src_ip, $dst_ip by 1h`, `$entity, $ws by 1h`), NEVER member dot-notation (`$e.target.ip`, `$stage1.host`, `$stage1.target_ip`, or `$stage.window_start` in `match:` is a fatal syntax violation). Always bind stage attributes to simple variables first: `$host = $stage1.host; $dst_ip = $stage1.target_ip; $ws = $stage1.window_start` then `match: $host, $dst_ip, $ws by 1h`.
-2. **Outcome Mathematical Expressions & Safe Divisors**:
-   - Binary arithmetic, subtraction, ratios, parentheses, and scalar math (`math.abs`, `math.log`) are natively supported in `outcome:`.
-   - **Mandatory Additive Dispersion Floor (`+ 1.0`)**: Every outcome division must include a `+ 1.0` additive floor on the denominator (e.g. `($obs - $avg) / ($std + 1.0)`) or safe non-zero wrapper. Quiet accounts with zero historical variance will cause division-by-zero crashes without this floor.
-   - Avoid intra-stage race conditions: within an outcome block, do not reference an outcome variable defined on an earlier line in the same outcome block. Instead, compose aggregations directly or compute intermediate values in an upstream stage.
+2. **Outcome Mathematical Expressions, OIO & Safe Divisors**:
+   - Binary arithmetic, subtraction, ratios, parentheses, and Function Factory math (`math.abs`, `math.log`, `math.exp`, `math.sqrt`, `math.pow`, `math.floor`, `math.ceil`, `math.round`, `math.min`, `math.max`) are natively supported in `outcome:`.
+   - **Outcomes-in-Outcomes (OIO) In-Stage Dependency Inlining**: Chronicle Malachite natively evaluates in-stage outcome variable dependencies (`$diff = $obs - $avg`, `$z = $diff / $safe_sd`). Dependencies are inlined at compile time as long as definition precedes reference and the dependency graph is acyclic.
+   - **Safe Non-Zero Dispersion Floors**: Every outcome division by standard deviation or dispersion must include a safe non-zero divisor guard (`$safe_sd = if($sd > 0, $sd, 1.0)`) or additive floor (`($obs - $avg) / ($sd + 1.0)`) to prevent division-by-zero crashes on zero-variance baselines.
 3. **Outcome `if(condition, then_expr, else_expr)` Rules**:
    - The second argument (`then_expr`) of `if()` accepts ONLY placeholders, event fields, and constants. Compound arithmetic inside `then_expr` (e.g. `if($std > 0, ($obs - $mean) / $std, 0.0)`) is rejected by the Chronicle Malachite compiler.
    - Assign compound arithmetic to intermediate outcome variables first, then pass the placeholder into `if()`.
-4. **Zero Non-Linear Functions (No `sqrt()`)**:
-   - YARA-L 2.0 does NOT support `sqrt()`. For orthogonal distance, compute squared Euclidean distance (`$dist_sq = ($z1 * $z1) + ($z2 * $z2)`) and sort by `$dist_sq desc`.
+4. **Malachite Function Factory Non-Linear Functions (`math.sqrt()`, `math.log()`, `math.exp()`)**:
+   - YARA-L 2.0 supports non-linear mathematical built-ins under the `math.` namespace:
+     - `math.sqrt($val)`: Computes square roots for true Euclidean Threat Distance ($D$). Bare `sqrt()` without the `math.` prefix is strictly rejected.
+     - `math.log($val)`: Computes natural logarithms for Log-Normal volumetric transforms.
+     - `math.exp($val)`: Computes exponentials for continuous Calibrated Risk Index (CRI) sigmoids and burst decay.
+     - `math.pow($base, $exp)`: Native power function (replaces `$x * $x`).
+     - `math.min($a, $b)` and `math.max($a, $b)`: 2-argument scalar clamps.
+   - See [`references/malachite-function-factory-matrix.md`](malachite-function-factory-matrix.md) for the complete signature matrix.
 5. **Outcome Variable Limit (`OutcomeLimit = 20`)**:
    - No stage may declare more than 20 outcome variables.
 6. **Unwrapped Final Stage & Root Condition**:
@@ -88,7 +94,10 @@ condition:
 9. **Zero Artificial Cartesian Joins (`$dummy = 1` Prohibited)**:
    - Multi-stage YARA-L queries do NOT support artificial unwindowed Cartesian joins via `$dummy = 1` or `match: $dummy`.
    - Stages must align using real partition keys (e.g. `$token by 1d`, or `$ws by 1h` with `$ws = $stage.window_start`) across all stages.
-10. **Categorical Outlier & Entity Rarity Architecture**:
+10. **Dual Temporal Spines Architecture (`by 1d` vs `by 1h`)**:
+    - **Daily Temporal Spine (`by 1d`)**: Used for multi-day horizons ($\ge 7\text{d}$) on macro-aligned models (`MULTI_SECTOR_FUSION`, `LOG_NORMAL_VOLUME`, `DATA_EXFILTRATION_SPIKE`). Provides 1:1 mathematical reconciliation with `secops-risk-metrics-multistage` and a 24× reduction in row cardinality.
+    - **Micro Temporal Spine (`10m`, `15m`, `1h`)**: Used for short horizons (6h–72h) to uncover intra-day timing variance (C2 beaconing jitter, clustered brute force bursts).
+11. **Categorical Outlier & Entity Rarity Architecture**:
    - When detecting rare or outlier categorical strings across endpoints (e.g. browser user-agent strings, rare domains, JA3 hashes, commands):
      - **High-Performance Single-Stage Rarity Hunt**: For direct rarity filtering without multi-stage joining, use a single-stage windowed query:
        ```yara

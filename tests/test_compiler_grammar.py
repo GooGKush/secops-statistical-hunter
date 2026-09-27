@@ -414,8 +414,97 @@ class TestCompilerGrammar(unittest.TestCase):
     fatal_errors = [e for e in syntax_errors if not e.startswith("MISSING METHODOLOGY HEADER")]
     self.assertEqual(fatal_errors, [], f"Syntax errors in rare_user_agent_prevalence.yara: {fatal_errors}")
 
+  def test_function_factory_math_builtins_permitted(self):
+    """Namespaced math.* built-ins (math.sqrt, math.log, math.exp, math.min, math.max) must pass syntax validation."""
+    query = """
+    stage s1 {
+      metadata.event_type = "NETWORK_CONNECTION"
+      principal.hostname = $host
+      match: $host by 1h
+      outcome:
+        $bytes = sum(network.sent_bytes)
+    }
+    $host = $s1.host
+    match: $host by 1h
+    outcome:
+      $log_b = math.log(max($s1.bytes) + 1.0)
+      $dist = math.sqrt($log_b * $log_b)
+      $clamped = math.min(math.max($dist, 0.0), 100.0)
+      $calibrated = 100.0 / (1.0 + math.exp(-0.5 * ($clamped - 3.0)))
+    condition:
+      $calibrated >= 50.0
+    """
+    errors = validate_multistage_syntax(query)
+    fatal_errors = [e for e in errors if not e.startswith("MISSING METHODOLOGY HEADER")]
+    self.assertEqual(fatal_errors, [], f"Unexpected syntax errors for math built-ins: {fatal_errors}")
+
+  def test_bare_sqrt_rejected_but_math_sqrt_allowed(self):
+    """Bare sqrt(...) must be rejected while math.sqrt(...) is permitted."""
+    bare_sqrt_query = """
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      match: $host by 1h
+      outcome: $cnt = count(metadata.id)
+    }
+    $host = $s1.host
+    match: $host by 1h
+    outcome:
+      $val = sqrt(max($s1.cnt))
+    condition:
+      $val > 0
+    """
+    errors = validate_multistage_syntax(bare_sqrt_query)
+    self.assertTrue(any("INVALID_SQRT_FUNCTION" in e for e in errors), f"Must flag bare sqrt() as invalid, got: {errors}")
+
+    math_sqrt_query = """
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      match: $host by 1h
+      outcome: $cnt = count(metadata.id)
+    }
+    $host = $s1.host
+    match: $host by 1h
+    outcome:
+      $val = math.sqrt(max($s1.cnt))
+    condition:
+      $val > 0
+    """
+    errors_valid = validate_multistage_syntax(math_sqrt_query)
+    fatal_valid = [e for e in errors_valid if not e.startswith("MISSING METHODOLOGY HEADER")]
+    self.assertEqual(fatal_valid, [], f"math.sqrt() must be accepted, got: {fatal_valid}")
+
+  def test_nested_if_conditionals_with_aggregations_pass(self):
+    """if() conditionals containing nested aggregation calls (e.g. max(...)) must balance cleanly."""
+    nested_if_query = """
+    stage s1 {
+      metadata.event_type = "USER_LOGIN"
+      target.user.userid = $user
+      match: $user by 1d
+      outcome: $fails = count(metadata.id)
+    }
+    stage s2 {
+      $user = $s1.user
+      match: $user
+      outcome: $sd = stddev($s1.fails)
+    }
+    $user = $s1.user
+    $user = $s2.user
+    match: $user by 1d
+    outcome:
+      $safe_sd = if(max($s2.sd) > 0, max($s2.sd), 1.0)
+      $z = max($s1.fails) / $safe_sd
+    condition:
+      $z >= 3.0
+    """
+    errors = validate_multistage_syntax(nested_if_query)
+    fatal_errors = [e for e in errors if not e.startswith("MISSING METHODOLOGY HEADER")]
+    self.assertEqual(fatal_errors, [], f"Nested if() with aggregations should pass cleanly, got: {fatal_errors}")
+
 
 if __name__ == "__main__":
   unittest.main()
+
 
 

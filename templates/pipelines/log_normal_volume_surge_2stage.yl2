@@ -1,0 +1,72 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect extreme volumetric byte surges over heavy-tailed, skewed raw network egress (Log-Normal Standardization)
+// Target Telemetry: UDM_EVENTS (NETWORK_CONNECTION)
+// Statistical Model: Log-Normal Parametric Z-Score (Z_log = (ln(B + 1) - μ_ln) / σ_ln) & Continuous CRI
+// Mathematical Rationale:
+//   - Network egress bytes follow a highly skewed, log-normal distribution across enterprise endpoints.
+//   - Taking differences of raw bytes produces severe distortions and false alarms from routine high-volume transfers.
+//   - Natural log transformation (math.log(sent_bytes + 1.0)) stabilizes variance, enabling standard Gaussian outlier isolation.
+// Sensitivity Boundary: {{tier}} (Log-Z >= {{z_score}}, Min Observed Bytes >= {{min_bytes}}, Min Active Intervals >= {{min_active_samples}})
+// ============================================================================
+
+// --- STAGE 1: Period byte aggregation & log-transformation per host ---
+stage host_bytes {
+  metadata.event_type = "NETWORK_CONNECTION"
+  principal.hostname = $host
+  $host != ""
+  network.sent_bytes > 0
+
+match:
+  $host by {{bucket_size}}
+
+outcome:
+  $total_bytes = sum(network.sent_bytes)
+  $event_count = count(metadata.id)
+  $log_bytes = math.log(sum(network.sent_bytes) + 1.0)
+}
+
+// --- STAGE 2: Historical mean and standard deviation of log-transformed bytes ---
+stage host_log_stats {
+  $host = $host_bytes.host
+
+match:
+  $host
+
+outcome:
+  $mean_log = avg($host_bytes.log_bytes)
+  $stddev_log = stddev($host_bytes.log_bytes)
+  $active_samples = count($host_bytes.window_start)
+}
+
+// --- ROOT STAGE: Log-Normal Z-Score Evaluation & Continuous CRI Translation ---
+$host = $host_bytes.host
+$host = $host_log_stats.host
+$ws = $host_bytes.window_start
+
+match:
+  $host, $ws by {{bucket_size}}
+
+outcome:
+  $observation_count = max($host_bytes.event_count)
+  $observed_bytes = max($host_bytes.total_bytes)
+  $baseline_active_samples = max($host_log_stats.active_samples)
+  $baseline_mean_log = max($host_log_stats.mean_log)
+  $baseline_dispersion_log = max($host_log_stats.stddev_log)
+
+  // Log-Normal Z-Score derivation with safe dispersion floor
+  $diff_log = max($host_bytes.log_bytes) - max($host_log_stats.mean_log)
+  $raw_stddev = max($host_log_stats.stddev_log)
+  $safe_stddev = if($raw_stddev > 0, $raw_stddev, 1.0)
+  $z_log = $diff_log / $safe_stddev
+
+  // Continuous CRI translation via sigmoid function: CRI in [0, 100]
+  $cri = math.round(100.0 / (1.0 + math.exp(-0.6 * ($z_log - 3.0))))
+
+condition:
+  $baseline_active_samples >= {{min_active_samples}}
+  and $observed_bytes >= {{min_bytes}}
+  and $z_log >= {{z_score}}
+
+order:
+  $z_log desc

@@ -117,7 +117,32 @@ def generate_statistical_taxonomy() -> str:
       "",
       "---",
       "",
-      "## 10. Sensitivity & Anomaly Threshold Map",
+      "## 10. Multi-Sector Orthogonal Euclidean Threat Distance ($D$)",
+      "* **Goal**: Synthesize multi-stage kill chains across Authentication, Endpoint, and Network into a single orthogonal Euclidean distance norm using Malachite Function Factory `math.sqrt()`.",
+      "* **Formula**:",
+      "  $$D = \\sqrt{\\sum_{i=1}^{k} Z_i^2} = \\text{math.sqrt}(Z_{\\text{auth}}^2 + Z_{\\text{proc}}^2 + Z_{\\text{net}}^2)$$",
+      "* **Interpretation**:",
+      "  - Replaces squared-distance workarounds ($D^2$) with true Euclidean metric distance $D \\ge 3.0\\sigma$.",
+      "",
+      "---",
+      "",
+      "## 11. Log-Normal Volumetric Standardization ($Z_{\\log}$)",
+      "* **Goal**: Isolate extreme byte bursts over heavy-tailed, skewed network and data exfiltration streams without parametric Gaussian distortion.",
+      "* **Formula**:",
+      "  $$Y = \\text{math.log}(\\text{bytes} + 1.0), \\quad Z_{\\log} = \\frac{Y - \\mu_Y}{\\sigma_Y}$$",
+      "* **Interpretation**:",
+      "  - Log-transform stabilizes variance across several orders of magnitude, isolating true exfiltration anomalies.",
+      "",
+      "---",
+      "",
+      "## 12. Continuous Calibrated Risk Index (CRI [0–100]) In-Stage Translation",
+      "* **Goal**: Translate raw multi-stage $Z$-scores or threat distances into a bounded [0, 100] triage score directly inside YARA-L query outcomes.",
+      "* **Formula**:",
+      "  $$\\text{CRI} = \\text{math.round}\\left(\\frac{100.0}{1.0 + \\text{math.exp}(-0.6 \\cdot (Z - 3.0))}\\right)$$",
+      "",
+      "---",
+      "",
+      "## 13. Sensitivity & Anomaly Threshold Map",
       "",
       "| Archetype | Tier | Thresholds & Parameters |",
       "| :--- | :--- | :--- |",
@@ -143,10 +168,18 @@ def generate_dynamic_windowing_matrix() -> str:
       "",
       "# Dynamic Windowing & Adaptation Matrix",
       "",
-      "This matrix defines adaptive bucket granularity and proportional sample floors across search durations.",
+      "This matrix defines adaptive bucket granularity and proportional sample floors across search durations, supporting both the **Micro Temporal Spine** (`10m`, `15m`, `1h`) and the **Daily Macro Spine** (`1d`).",
       "",
-      "| Duration | Bucket Size | Minimum Sample Floor | Proportional Horizon |",
-      "| :--- | :--- | :--- | :--- |",
+      "### 1. Dual Temporal Spines Architecture",
+      "| Horizon | Target Use Case | Recommended Bucket | Sample Floor | Temporal Alignment |",
+      "| :--- | :--- | :--- | :--- | :--- |",
+      "| **Short Horizon (6h – 72h)** | Intra-day bursts, C2 beaconing jitter, password sprays | `10m`, `15m`, `1h` | 9 to 24 samples | Micro-analysis of sub-daily timing variance |",
+      "| **Multi-Day Horizon (7d – 30d)** | Multi-sector threat fusion, volume surges, dormant awakening | `1d` | 3 to 12 samples | **1:1 reconciliation with `secops-risk-metrics-multistage`** |",
+      "| **High-Frequency Multi-Day (7d – 14d)** | Multi-day beaconing persistence with sleep jitter | `1h` | 42 to 60 samples | Preserves hourly resolution across weeks |",
+      "",
+      "### 2. Proportional Duration Matrix",
+      "| Duration | Micro Bucket | Daily Macro Bucket | Proportional Sample Floor | Total Horizon |",
+      "| :--- | :--- | :--- | :--- | :--- |",
   ]
 
   durations = [
@@ -160,9 +193,11 @@ def generate_dynamic_windowing_matrix() -> str:
   ]
 
   for hours, label in durations:
-    adapt = get_adaptive_window_parameters(hours, "ZSCORE_PROCESS_SURGE", "BALANCED")
+    micro = get_adaptive_window_parameters(hours, "C2_BEACONING_JITTER", "BALANCED")
+    macro = get_adaptive_window_parameters(hours, "MULTI_SECTOR_FUSION", "BALANCED")
+    macro_bucket = f"`{macro['recommended_bucket']}`" if hours >= 168.0 else "*N/A (Intra-day)*"
     lines.append(
-        f"| **{label}** | `{adapt['recommended_bucket']}` | `{adapt['proportional_sample_floor']}` samples | `{hours:.0f}h` |"
+        f"| **{label}** | `{micro['recommended_bucket']}` | {macro_bucket} | `{macro['proportional_sample_floor']}` samples | `{hours:.0f}h` |"
     )
 
   lines.extend([
