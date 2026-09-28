@@ -31,16 +31,26 @@ compatibility: Requires access to a Google SecOps SIEM instance with the SecOps 
 
 This skill empowers an LLM agent and SOC analyst to execute **ad-hoc multi-stage statistical outlier hunting** in Google SecOps over raw UDM telemetry without requiring pre-computed machine-learning pipelines or UEBA batch metrics.
 
-> [!NOTE]
-> ### 🎯 Telemetry Scope & Skill Delegation
-> This skill executes **ad-hoc multi-stage statistical anomaly detection over raw in-flight event telemetry** (`UDM_EVENTS`).
-> **Skill Delegation Boundary:**
-> 1. 30-Day pre-computed behavioral baselines (`window: 30d`)
-> 2. Team, cohort, or peer-group comparisons from Risk Analytics
-> 3. 360° entity health checks or omnibus risk scoring (`graph.risk_score`)
-> 4. UEBA or Risk Analytics pre-computed metrics (`metrics.*`)
-> 5. Cloud-native data repository baselines (GCS, BigQuery, S3) with pre-computed origin IP baselines (`metrics.resource_read_*`, `principal.ip`).
-> 👉 **Delegate all 30-day baseline, peer, and UEBA requests to `secops-risk-metrics-multistage` (enforcing the conceptual Skill Handoff Card protocol).**
+> [!IMPORTANT]
+> ### 🚨 Telemetry Scope & Mandatory Pre-Flight Delegation Gate
+> This skill executes **ad-hoc multi-stage statistical anomaly detection strictly over raw in-flight event telemetry** (`UDM_EVENTS`).
+> **Skill Delegation Boundary (Immediate Yield):**
+> If an analyst prompt references `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, `"risk score"`, `"peer cohort"`, or asks for a behavioral risk review across 30 days:
+> **YOU MUST NEVER EXECUTE TOOLS, FORMULATE AD-HOC QUERIES, OR OFFER CONSULTATIVE DISCOVERY / VECTOR SELECTION.**
+> **IMMEDIATELY EMIT THE SKILL DELEGATION CARD BELOW AND YIELD THE TURN (0 TOOL CALLS):**
+>
+> ### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`
+>
+> > [!NOTE]
+> > **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**
+> > • **Routing Rationale**: Rolling 30-day behavioral baselines and UEBA metric functions are pre-computed in Google SecOps and exclusively maintained in secops-risk-metrics-multistage.
+> > • **Target Skill**: `secops-risk-metrics-multistage`
+> > • **Recommended Metric / Function**: `metrics.*`
+> > • **Target Dimension**: `[target user, host, or metric]`
+>
+> > [!IMPORTANT]
+> > **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the behavioral baseline query.
+> > *Please switch to the `secops-risk-metrics-multistage` skill to execute this behavioral baseline hunt.*
 
 ---
 
@@ -74,9 +84,9 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 
 When an analyst initiates a threat hunt or selects an archetype, proceed through the interactive pre-flight gate:
 0. **Pre-Flight Routing Interceptor (Risk Metrics Delegation Gate - Strict Precedence)**:
-   Always evaluate this routing interceptor first. It strictly supersedes both Consultative Discovery (Step 2) and Pre-Flight Specification (Step 4).
+   Always evaluate this routing interceptor first. It strictly supersedes both Consultative Discovery (Step 2) and Pre-Flight Specification (Step 4). Never offer consultative discovery, vector selection, or ask discovery questions when this interceptor matches.
    When the analyst request matches any pre-computed baseline or UEBA indicators below, immediately present the Markdown **Skill Delegation Card** and conclude your response (0 tool calls):
-   - **Explicit UEBA / 30-Day Baselines / Risk Metrics**: Any request containing the terms `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, or `"risk score"`. Statistical Hunter operates over short-horizon raw telemetry (typically 1h to 7d); rolling 30-day baselines belong to `secops-risk-metrics-multistage`.
+   - **Explicit UEBA / 30-Day Baselines / Risk Metrics**: Any request containing the terms `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, or `"risk score"`, or asking for a behavioral risk review across 30 days. Statistical Hunter operates over short-horizon raw telemetry (typically 1h to 7d); rolling 30-day baselines belong to `secops-risk-metrics-multistage`.
    - **Web / HTTP Traffic**: Requests asking to baseline or compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`, `metrics.http_queries_success`, `metrics.http_queries_fail`).
    - **Authentication Volume**: Requests comparing logins/failures to an entity's 30-day normal/typical baseline (`metrics.auth_attempts_*`).
    - **Network Bytes/Flows**: Outbound/inbound data transfer baselines (`metrics.network_bytes_*`, `metrics.network_flows_*`).
