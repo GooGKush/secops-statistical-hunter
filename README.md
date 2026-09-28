@@ -24,15 +24,19 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
    * Guarantees 6 standardized root outcome columns across all multi-stage pipelines: `$observation_count`, `$baseline_active_samples`, `$baseline_mean`, `$baseline_dispersion`, `$fleet_prevalence`, and `$distinct_binaries` (aliasing distinct programs, IPs, or targets).
    * Maps directly to the 6 Forensic Evidence Pillars in Section 3 of the triage report: `1. Activity Spike`, `2. Baseline History`, `3. Typical Normal Level`, `4. Normal Daily Spread`, `5. Company-Wide Breadth`, and `6. Variety of Programs`.
 4. **Chronicle SIEM Compiler Grammar & Bare Identifier Match Binding**:
-   * Formats all `match:` expressions with bare identifiers bound in stage event predicates (e.g. `$entity by 1h`, `$entity, $window_start by 1h`), completely eliminating match dot-notation syntax errors.
+   * Formats all `match:` expressions with bare identifiers bound in stage event predicates (e.g. `$entity by 1h`, `$entity, $window_start by 1h`, `$entity by 1d`), completely eliminating match dot-notation syntax errors.
    * Enforces Target Entity Scoping directly in primary stage predicates (`principal.hostname = "dev-ub22-1"`) to anchor baselines cleanly to the requested entity.
-   * Uses linearized math and squared deviance (`$poisson_z_sq = $diff_sq / ($safe_lambda + 1.0)`) with additive dispersion floors (`+ 1.0`) to avoid zero-division crashes.
-5. **Strict Pre-Flight Routing Interceptor**:
+   * Leverages Chronicle Function Factory mathematical built-ins (`math.sqrt`, `math.log`, `math.exp`, `math.min`, `math.max`, `math.round`) for true Euclidean Threat Distance ($D = \sqrt{\sum Z_i^2}$) and Log-Normal volumetric transforms ($Z_{\log} = (\ln(B+1) - \mu_{\ln}) / \sigma_{\ln}$).
+   * Employs Outcomes-in-Outcomes (OIO) in-stage inlining and safe non-zero floor guards (`if($sd > 0, $sd, 1.0)`) to maintain algebraic stability on zero-variance quiet baselines without artificial variance blunting.
+5. **Timeline Optimization: The Daily Temporal Spine (`by 1d`)**:
+   * Features adaptive window granularity that dynamically selects `by 1d` bucket sizes for macro-aligned models on horizons $\ge 7$ days, reducing intermediate row cardinality by $24\times$ ($336 \rightarrow 14$ rows per entity over 14 days) and providing 1:1 metric reconciliation with `secops-risk-metrics-multistage`.
+   * Preserves high-frequency bins (`10m`, `15m`, `1h`) for intraday and jitter-sensitive models (`C2_BEACONING_JITTER`, `POISSON_BURST_CLUSTERING`).
+6. **Strict Pre-Flight Routing Interceptor & Delegation Gate**:
    * Evaluates incoming requests against pre-computed baseline indicators (UEBA keywords, 30-day rolling baselines, `metrics.*`, peer cohorts, and omnibus risk scores), immediately emitting the Markdown Skill Delegation Card routing to `secops-risk-metrics-multistage` (0 tools called). Sub-second timing, rarity, and raw UDM outlier hunts remain inline under the Expert Bypass Rule.
-6. **Entity Context Graph (ECG) & Enterprise-Grounded Novelty Enrichment**:
+7. **Entity Context Graph (ECG) & Enterprise-Grounded Novelty Enrichment**:
    * Correlates raw telemetry bursts with Chronicle's persistent Entity Context Graph: `GLOBAL_CONTEXT` (GCTI threat intelligence, WHOIS Newly Registered Domains) and `DERIVED_CONTEXT` (enterprise binary prevalence `FILE`, domain prevalence `DOMAIN_NAME`, entity prevalence `USER`, and asset first-seen/last-seen age `ASSET`).
    * Supports the Enterprise-Grounded Hunt consultative pattern: offers analysts Tier A (Pure Local Baseline) vs. Tier B (Enterprise-Grounded Hunt) with 2.5x threat score boost for rare/novel binaries or domains (`day_count <= 3`).
-7. **Automated Clean Hand-Off Protocol**:
+8. **Automated Clean Hand-Off Protocol**:
    * Generates schema-compliant synthetic UDM security analytics events (`CUSTOM_SECURITY_DATA_ANALYTICS`) under a unique `Hunt Campaign ID`, caught by tenant rule `secops_statistical_hunter_alert_catchall` for seamless alert escalation without case wall pollution.
 
 ---
@@ -46,7 +50,8 @@ secops-statistical-hunter/
 ├── RELEASE_NOTES.md                         # Detailed version changelog & release history
 ├── LICENSE                                  # Apache 2.0 open-source license
 ├── llms.txt                                 # Token-efficient AI agent summary file
-├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (16)
+├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (17)
+│   ├── log_normal_volume_surge_2stage.yl2   # Parametric Log-Normal Volumetric Standardization & Sigmoid CRI
 │   ├── derived_context_file_prevalence_3stage.yl2 # Derived Context binary SHA-256 enterprise prevalence
 │   ├── derived_context_domain_prevalence_3stage.yl2 # Derived Context domain egress enterprise prevalence
 │   ├── derived_context_prevalence_3stage.yl2 # Derived Context enterprise user prevalence & asset age
@@ -76,7 +81,7 @@ secops-statistical-hunter/
 │   ├── poisson_rare_event_surge.yara        # Discrete Poisson score for sensitive administrative binaries
 │   ├── rolling_ratio_spike.yara             # 1-day vs 7-day vs 30-day moving ratio
 │   └── zscore_process_execution_surges.yara # Historical 3-Sigma Z-Score process surges per host
-├── references/                              # Deep-dive engineering guides (13)
+├── references/                              # Deep-dive engineering guides (14)
 │   ├── calibrated-risk-index-guide.md       # Sigmoid normalization (CRI 0–100) formulas
 │   ├── chart-specifications-guide.md        # Vega-Lite and Chart.js dual-Y visualization schemas
 │   ├── clean-handoff-udm-schema.md          # Synthetic UDM schemas & Chronicle API forwarder contracts
@@ -84,6 +89,7 @@ secops-statistical-hunter/
 │   ├── cyber-practitioner-glossary.md       # Field manual translating statistics to SOC operations
 │   ├── dynamic-windowing-matrix.md          # Adaptive window bucketing & sample floor matrix
 │   ├── entity-context-graph-guide.md        # GLOBAL_CONTEXT & DERIVED_CONTEXT YARA-L architecture
+│   ├── malachite-function-factory-matrix.md # Chronicle Malachite math.* and built-in function matrix
 │   ├── multi-stage-query-guide.md           # 4-Stage DAG grammar rules & compiler invariants
 │   ├── query-auditing-guide.md              # Pre-flight and post-flight payload intent auditing
 │   ├── scope-exclusions-guardrail.md        # Why UEBA metrics.* are excluded from ad-hoc searches
@@ -92,8 +98,9 @@ secops-statistical-hunter/
 │   └── watchdog-polling-architecture.md     # LRO watchdog mechanics & F1 optimization
 ├── scripts/                                 # Offline CI/testing helper scripts (Option A developer tooling)
 │   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & schema validator
+│   ├── generate_references.py               # Generates taxonomy and windowing reference markdown
 │   └── multistage_query_builder.py          # Python linter, AST validator, & report/chart generator
-└── tests/                                   # Automated test suite (116 tests, 100% pass rate)
+└── tests/                                   # Automated test suite (126 tests, 100% pass rate)
     ├── __init__.py
     ├── test_chart_specifications.py         # Dual-axis visualization spec tests
     ├── test_clean_handoff.py                # Clean Hand-Off UDM schema validation & batching tests

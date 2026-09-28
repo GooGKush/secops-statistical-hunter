@@ -1,5 +1,41 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.7.0 (September 27, 2026) — Function Factory Built-Ins, Outcomes-in-Outcomes Inlining, Daily Temporal Spine & Log-Normal Volumetric Surge
+
+* **Function Factory Mathematical Built-Ins (`math.*`) Across Raw UDM Pipelines**:
+  * Adopted Chronicle Malachite namespaced mathematical built-ins natively in raw UDM multi-stage queries:
+    * `math.sqrt()`: Computes true Euclidean Threat Distance ($D = \sqrt{Z_{\text{auth}}^2 + Z_{\text{proc}}^2 + Z_{\text{net}}^2}$) in multi-sector threat fusion.
+    * `math.log()`: Natural logarithm transformation ($\ln(B + 1)$) for variance stabilization over heavy-tailed network and byte telemetry.
+    * `math.exp()`: Exponential functions for continuous Sigmoid Calibrated Risk Index (CRI) curves and burst decay functions.
+    * `math.min()` & `math.max()`: Dynamic mathematical scalar clamping (e.g. bounding risk index ranges between $[0, 100]$).
+    * `math.round()` & `math.pow()`: Integer discretization and power operations directly in YARA-L outcomes.
+  * Preserved strict syntax guards rejecting bare `sqrt()` without the `math.` namespace.
+* **Outcomes-in-Outcomes (OIO) In-Stage Inlining**:
+  * Explicitly codified and enabled native in-stage outcome variable derivation: intermediate and root outcome blocks can directly reference earlier outcome variables within the same stage (e.g., `$diff = $obs - $avg`, `$z = $diff / $safe_sd`).
+  * Eliminated artificial stage decomposition previously required to circumvent intermediate variable chaining.
+* **Safe Non-Zero Dispersion Floor Guards**:
+  * Replaced double-padded denominators and artificial additive floors with exact conditional guards (`$safe_sd = if($sd > 0, $sd, 1.0)` or `$safe_lambda = if($lambda > 0, $lambda, 1.0)`).
+  * Implemented robust balanced-parenthesis parsing in the AST validator supporting nested aggregation calls inside `if()` conditionals.
+  * Fixed Coefficient of Variation (CV) in `templates/pipelines/c2_beaconing_jitter_2stage.yl2` to calculate $\text{CV} = \sigma / \mu$ cleanly without double-padding distortion.
+* **New Golden Pipeline Template: Log-Normal Volumetric Surge (`log_normal_volume_surge_2stage.yl2`)**:
+  * Added `templates/pipelines/log_normal_volume_surge_2stage.yl2` implementing parametric log-normal standardization:
+    $$Z_{\log} = \frac{\ln(B + 1) - \mu_{\ln}}{\sigma_{\ln}}$$
+  * Stabilizes extreme volumetric network egress distributions across enterprise endpoints and applies continuous Sigmoid CRI translation.
+* **Timeline Optimization: The Daily Temporal Spine (`by 1d`)**:
+  * Updated adaptive window parameter calculation (`get_adaptive_window_parameters`) to automatically select `bucket_size = "1d"` when search horizons reach or exceed 7 days ($\ge 168\text{h}$) for macro-aligned daily models (`MULTI_SECTOR_FUSION`, `LOG_NORMAL_VOLUME`, `DATA_EXFILTRATION_SPIKE`, `TWO_PART_HURDLE`, `DERIVED_CONTEXT_PREVALENCE`, `FLEET_PEER_ZSCORE`, `BAYESIAN_GAMMA_SHRINKAGE`).
+  * Slashes intermediate row cardinality by $24\times$ ($336 \rightarrow 14$ rows per entity over 14 days), preventing memory pressure on the analytical engine.
+  * Achieves 1:1 metric reconciliation and temporal alignment with `secops-risk-metrics-multistage`.
+  * Preserves high-frequency resolution (`10m`, `15m`, `1h`) for intraday and timing jitter archetypes (`C2_BEACONING_JITTER`, `POISSON_BURST_CLUSTERING`).
+* **Strengthened Pre-Flight Delegation Interceptor**:
+  * Elevated the Pre-Flight Delegation Gate into an affirmative, top-level directive in `SKILL.md`: inquiries containing `"UEBA"`, `"30-day baseline"`, `"peer cohort"`, or `"risk score"` immediately yield the turn with the canonical Markdown Skill Delegation Card (0 tool calls).
+  * Strictly forbids consultative discovery or vector selection for requests belonging to `secops-risk-metrics-multistage`.
+* **Foundational Reference Guides & Function Factory Documentation**:
+  * Added `references/malachite-function-factory-matrix.md` documenting all supported `math.*`, `strings.*`, `arrays.*`, and `timestamp.*` functions over raw UDM event telemetry.
+  * Updated `references/statistical-models-taxonomy.md` with Euclidean distance, log-normal standardization, and continuous CRI equations.
+  * Updated `references/dynamic-windowing-matrix.md` with the Dual Temporal Spine architecture.
+
+---
+
 ## 📦 Version 2.6.1 (September 26, 2026) — DERIVED_CONTEXT File & Domain Prevalence Pipelines, Enterprise-Grounded Consultative Pattern & 100% Dual-Engine Parity
 
 * **`DERIVED_CONTEXT` File & Domain Prevalence Multi-Stage Pipelines**:
