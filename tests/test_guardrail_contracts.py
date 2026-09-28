@@ -60,6 +60,14 @@ class TestGuardrailContracts(unittest.TestCase):
         "SKILL.md must direct executing calculations natively within SIEM."
     )
 
+  def test_run_command_explicit_exemption_contract_present(self):
+    """SKILL.md must explicitly define the hands-off run_command restriction."""
+    self.assertIn(
+        "There is no blanket approval for `run_command`, only explicit exemptions.",
+        self.skill_content,
+        "SKILL.md must restrict run_command to explicit exemptions."
+    )
+
   def test_literal_query_display_mandate_present(self):
     """SKILL.md must enforce that Section 2 contains the literal query passed to udm_search."""
     self.assertIn(

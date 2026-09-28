@@ -76,12 +76,12 @@ outcome:
   $diff_personal = max($host_hourly_extract.hourly_count) - max($host_personal_baseline.personal_avg)
   $raw_personal_sd = max($host_personal_baseline.personal_stddev)
   $safe_personal_sd = if($raw_personal_sd > 0, $raw_personal_sd, 1.0)
-  $personal_z_score = $diff_personal / ($safe_personal_sd + 1.0)
+  $personal_z_score = $diff_personal / $safe_personal_sd
 
   $diff_fleet = max($host_hourly_extract.hourly_count) - max($fleet_concurrent_baseline.fleet_hour_avg)
   $raw_fleet_sd = max($fleet_concurrent_baseline.fleet_hour_stddev)
   $safe_fleet_sd = if($raw_fleet_sd > 0, $raw_fleet_sd, 1.0)
-  $fleet_concurrent_z = $diff_fleet / ($safe_fleet_sd + 1.0)
+  $fleet_concurrent_z = $diff_fleet / $safe_fleet_sd
 
   $targeted_delta_z = $personal_z_score - $fleet_concurrent_z
 

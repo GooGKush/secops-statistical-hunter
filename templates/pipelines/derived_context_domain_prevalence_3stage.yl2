@@ -62,7 +62,7 @@ outcome:
   $mean_bytes = max($host_baseline.hist_mean_bytes)
   $sd_bytes = max($host_baseline.hist_sd_bytes)
   $safe_sd = if($sd_bytes > 0, $sd_bytes, 1.0)
-  $z_score = ($obs_bytes - $mean_bytes) / ($safe_sd + 1.0)
+  $z_score = ($obs_bytes - $mean_bytes) / $safe_sd
 
   $enterprise_day_count = min($domain_derived_context.day_count)
   $enterprise_first_seen = min($domain_derived_context.first_seen_ts)

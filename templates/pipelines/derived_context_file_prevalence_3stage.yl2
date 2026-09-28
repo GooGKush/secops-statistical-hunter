@@ -61,7 +61,7 @@ outcome:
   $mean_execs = max($host_baseline.hist_mean_execs)
   $sd_execs = max($host_baseline.hist_sd_execs)
   $safe_sd = if($sd_execs > 0, $sd_execs, 1.0)
-  $z_score = ($obs_execs - $mean_execs) / ($safe_sd + 1.0)
+  $z_score = ($obs_execs - $mean_execs) / $safe_sd
 
   $enterprise_day_count = min($file_derived_context.day_count)
   $enterprise_first_seen = min($file_derived_context.first_seen_ts)

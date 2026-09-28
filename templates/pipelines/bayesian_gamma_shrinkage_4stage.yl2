@@ -73,14 +73,16 @@ outcome:
 
   // Bayesian Posterior Metrics
   // Method-of-Moments Gamma prior (alpha_0 = mu^2 / sigma^2, beta_0 = mu / sigma^2), derived
-  // linearly in the root from stage-2 moments with a +1.0 additive floor on the variance.
+  // linearly in the root from stage-2 moments with a conditional safe floor on the variance.
   $variance = max($host_prior_stats.hist_stddev) * max($host_prior_stats.hist_stddev)
-  $beta_prior = max($host_prior_stats.hist_mean) / ($variance + 1.0)
-  $alpha_prior = (max($host_prior_stats.hist_mean) * max($host_prior_stats.hist_mean)) / ($variance + 1.0)
+  $safe_var = if($variance > 0, $variance, 1.0)
+  $beta_prior = max($host_prior_stats.hist_mean) / $safe_var
+  $alpha_prior = (max($host_prior_stats.hist_mean) * max($host_prior_stats.hist_mean)) / $safe_var
   $posterior_arrival_rate = ($alpha_prior + max($host_hourly_activity.hourly_count)) / ($beta_prior + 1.0)
   $prior_weight_pct = $beta_prior / ($beta_prior + 1.0)
   $evidence_weight_pct = 1.0 / ($beta_prior + 1.0)
-  $anomaly_score = $posterior_arrival_rate / (max($host_prior_stats.hist_mean) + 1.0)
+  $safe_hist_mean = if(max($host_prior_stats.hist_mean) > 0, max($host_prior_stats.hist_mean), 1.0)
+  $anomaly_score = $posterior_arrival_rate / $safe_hist_mean
 
 condition:
   $baseline_active_samples >= 24

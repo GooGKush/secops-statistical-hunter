@@ -70,7 +70,7 @@ condition:
 2. **Outcome Mathematical Expressions, OIO & Safe Divisors**:
    - Binary arithmetic, subtraction, ratios, parentheses, and Function Factory math (`math.abs`, `math.log`, `math.exp`, `math.sqrt`, `math.pow`, `math.floor`, `math.ceil`, `math.round`, `math.min`, `math.max`) are natively supported in `outcome:`.
    - **Outcomes-in-Outcomes (OIO) In-Stage Dependency Inlining**: Chronicle Malachite natively evaluates in-stage outcome variable dependencies (`$diff = $obs - $avg`, `$z = $diff / $safe_sd`). Dependencies are inlined at compile time as long as definition precedes reference and the dependency graph is acyclic.
-   - **Safe Non-Zero Dispersion Floors**: Every outcome division by standard deviation or dispersion must include a safe non-zero divisor guard (`$safe_sd = if($sd > 0, $sd, 1.0)`) or additive floor (`($obs - $avg) / ($sd + 1.0)`) to prevent division-by-zero crashes on zero-variance baselines.
+   - **Safe Non-Zero Dispersion Floors**: Every outcome division by standard deviation or dispersion must include a safe non-zero divisor guard (`$safe_sd = if($sd > 0, $sd, 1.0)`) to prevent division-by-zero crashes on zero-variance baselines without blunting variance.
 3. **Outcome `if(condition, then_expr, else_expr)` Rules**:
    - The second argument (`then_expr`) of `if()` accepts ONLY placeholders, event fields, and constants. Compound arithmetic inside `then_expr` (e.g. `if($std > 0, ($obs - $mean) / $std, 0.0)`) is rejected by the Chronicle Malachite compiler.
    - Assign compound arithmetic to intermediate outcome variables first, then pass the placeholder into `if()`.

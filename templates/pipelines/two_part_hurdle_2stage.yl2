@@ -7,7 +7,7 @@
 //   - Part 1 (Discrete Bernoulli Hurdle): Tests whether an account was historically dormant (active_samples <= {{min_active_samples}}).
 //     If dormant, sudden activity incurs a discrete activation penalty score.
 //   - Part 2 (Continuous Intensity): If historically active, evaluates continuous deviation against historical baseline:
-//     Z = (observed - mean) / (safe_stddev + 1.0).
+//     Z = (observed - mean) / if(safe_stddev > 0, safe_stddev, 1.0).
 //   - Safe Zero-Dispersion: Divisors protected conditionally via if() without variance blunting.
 // Sensitivity Boundary: {{tier}} (Hurdle Score >= {{z_score}}, Min Activity >= {{min_count}}, Min Active Samples >= {{min_active_samples}})
 // ============================================================================
@@ -75,7 +75,7 @@ outcome:
   // 2. Part 2: Continuous Intensity Conditioned on Crossing Hurdle
   $diff = $observation_count - $baseline_mean
   $safe_stddev = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
-  $intensity_z = $diff / ($safe_stddev + 1.0)
+  $intensity_z = $diff / $safe_stddev
 
   // 3. Composite Hurdle Threat Score
   $hurdle_threat_score = if($is_dormant > 0, $dormant_score, $intensity_z)

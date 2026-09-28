@@ -61,7 +61,7 @@ outcome:
   $mean_bytes = max($host_baseline.hist_mean_bytes)
   $sd_bytes = max($host_baseline.hist_sd_bytes)
   $safe_sd = if($sd_bytes > 0, $sd_bytes, 1.0)
-  $z_score = ($obs_bytes - $mean_bytes) / ($safe_sd + 1.0)
+  $z_score = ($obs_bytes - $mean_bytes) / $safe_sd
 
   $created = max($global_threat_intel.creation_ts)
   $domain_age_days = (timestamp.current_seconds() - $created) / 86400.0
