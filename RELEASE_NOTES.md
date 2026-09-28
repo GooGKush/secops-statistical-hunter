@@ -1,5 +1,29 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.7.1 (September 28, 2026) — Dispersion Denominator Purge, Affirmative Tool Guidance Architecture & Dual-Engine Parity
+
+* **Comprehensive Dispersion Denominator Purge Across Pipeline Templates**:
+  * Converted all artificial additive `+ 1.0` dispersion denominators across all 14 pipeline templates (`templates/pipelines/*.yl2`) to canonical nested outcome logic:
+    * `$safe_sd = if($sd > 0, $sd, 1.0)`
+    * `$safe_dispersion = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)`
+  * Completely eliminated statistical distortion in Fano factor, standard score, and Poisson dispersion ratios on quiet baselines without artificial variance blunting.
+  * Preserved mathematically legitimate Bayesian updates ($\beta_{\text{post}} = \beta_0 + 1.0$, Beta-Binomial conjugate updating, $\ln(B+1)$ transforms).
+  * Harmonized reference documentation in `references/multi-stage-query-guide.md` and `references/statistical-hunting-cooperative-framework.md`.
+* **Affirmative Tool Guidance & Lifecycle Architecture in `SKILL.md`**:
+  * Systematically purged negative prohibitions ("never execute", "strictly prohibited", "arbitrary case hijacking is strictly forbidden") across all operational phases in favor of clear affirmative guidance.
+  * Enforced affirmative execution of Turn 2 multi-stage queries upon clearance and affirmative nominal baseline reporting on zero-finding sweeps.
+  * Explicitly codified the hands-off `run_command` restriction: *"There is no blanket approval for `run_command`, only explicit exemptions."* Added unit test contract enforcement (`test_run_command_explicit_exemption_contract_present`).
+* **Stripping of Legacy `secops-gus:` Tool Prefixes**:
+  * Removed legacy `secops-gus:` tool prefixes across instructions, reference guides, diagrams, and python helpers, aligning with native MCP tool identifiers (`udm_search`, `import_logs`, `create_case_comment`).
+* **Chronicle SIEM Compiler Grammar Codification**:
+  * Codified explicit syntax requirements for case-insensitive regex matching (`re.regex(<field>, `(?i)...`)`).
+  * Codified cross-stage temporal window filtering requirements for downstream stages (`$max_day = max($day_id)` aggregated in Stage 2, bound before `match:` in Stage 3).
+* **100% Invariant Parity Across Dual-Engine Regression Suite (17 / 17 Tests Passed)**:
+  * Evaluated across all 17 regression test scenarios in dual-engine mode (`agentapi` + `direct-mcp`) with 6 workers against tenant `gus-sdl`, achieving 100% invariant parity across all P0, P1, and P2 contracts.
+  * Expanded automated unit test suite to **127 tests (100% pass rate)** in `pytest tests/`.
+
+---
+
 ## 📦 Version 2.7.0 (September 27, 2026) — Function Factory Built-Ins, Outcomes-in-Outcomes Inlining, Daily Temporal Spine & Log-Normal Volumetric Surge
 
 * **Function Factory Mathematical Built-Ins (`math.*`) Across Raw UDM Pipelines**:

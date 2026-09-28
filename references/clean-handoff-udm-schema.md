@@ -15,7 +15,7 @@ Pushing a statistical hunt finding does **not** directly create a case via a bac
 
 ```mermaid
 flowchart LR
-    A["Statistical Hunt Finding<br>(Outlier Z >= 3.0σ, CRI >= 50)"] -->|secops-gus:import_logs| B["1. Ingested UDM Event<br>(product_name: 'SecOps Statistical Hunter')"]
+    A["Statistical Hunt Finding<br>(Outlier Z >= 3.0σ, CRI >= 50)"] -->|import_logs| B["1. Ingested UDM Event<br>(product_name: 'SecOps Statistical Hunter')"]
     B -->|Real-Time Detection Engine| C["2. Catch-All YARA-L Rule<br>(Fires High-Severity Alert)"]
     C -->|Alert Grouping & Playbook| D["3. Chronicle SOAR Case<br>(Investigative Ticket)"]
 ```
@@ -234,7 +234,7 @@ Before calling any ingestion or case mutation APIs, the agent must present the l
 ### ⚡ Phase 4: Ingestion Execution Architecture & Safe Fallback Ladder
 
 1. **Primary Ingestion Vector: Direct In-Band Chronicle API Ingestion**:
-   * Direct Chronicle API ingestion via IAM credentials (`secops-gus:import_logs`) is the primary, robust mechanism.
+   * Direct Chronicle API ingestion via IAM credentials (`import_logs`) is the primary, robust mechanism.
    * Direct API ingestion requires no physical forwarder infrastructure or forwarder routing.
    * Standard Log Type: `CUSTOM_SECURITY_DATA_ANALYTICS`.
 
@@ -245,4 +245,4 @@ Before calling any ingestion or case mutation APIs, the agent must present the l
    * If in-band API ingestion encounters an environment restriction or API error:
      1. **Preserve Context & Stability**: Do not execute speculative tool loops or probe invalid log types.
      2. **Deliver Structured Payload Artifact**: Provide the complete, validated UDM JSON payload (or multi-event batch) in a clean markdown artifact or copyable block for analyst testing and manual promotion.
-     3. **Offer In-Band Case Wall Attachment**: Offer direct attachment of the hunt findings to an active investigation or case using `secops-gus:create_case_comment(case_id="<ID>", comment=...)`.
+     3. **Offer In-Band Case Wall Attachment**: Offer direct attachment of the hunt findings to an active investigation or case using `create_case_comment(case_id="<ID>", comment=...)`.

@@ -355,7 +355,7 @@ def prepare_chronicle_import_logs_args(
     forwarder_id: Optional[str] = None,
     log_type: Optional[str] = None,
 ) -> Dict[str, Any]:
-  """Prepares the arguments dict for calling secops-gus:import_logs."""
+  """Prepares the arguments dict for calling import_logs."""
   payload_strings = [json.dumps(event) for event in batch]
   effective_log_type = log_type or CHRONICLE_INGESTION_LOG_TYPE
 

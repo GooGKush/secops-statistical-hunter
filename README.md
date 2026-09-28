@@ -15,7 +15,7 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
 ## Core Capabilities
 
 1. **Native-Chat Option A Architecture**:
-   * Operates hermetically inside conversational chat sessions using native Google SecOps MCP tools (`secops-gus:udm_search`, `secops-gus:import_logs`, `secops-gus:create_case_comment`) and Markdown exclusively. Python helper scripts (`scripts/`) are reserved strictly for offline CI and developer unit testing (`pytest tests/`).
+   * Operates hermetically inside conversational chat sessions using native Google SecOps MCP tools (`udm_search`, `import_logs`, `create_case_comment`) and Markdown exclusively. Python helper scripts (`scripts/`) are reserved strictly for offline CI and developer unit testing (`pytest tests/`).
 2. **The 3-State Active Threat Hunt Lifecycle**:
    * **State 1 (Pre-Flight Clearance & Specification)**: Universal entry gate for all inquiries. Verifies schema via a 1-shot compiler probe (`maxEvents=1`, 10-minute window), renders the structured Pre-Flight Specification Card, displays the candidate multi-stage YARA-L query preview with 6 mandatory root outcome variables, and solicits analyst clearance (Mode A vs Mode B).
    * **State 2 (Deterministic Multi-Stage Execution & 5-Section Triage)**: Immediately executes the full multi-stage query via `udm_search(query=...)` upon receiving user clearance, and synthesizes aggregated `stats` evidence into the mandatory 5-Section CommonMark Triage Report.
@@ -100,7 +100,7 @@ secops-statistical-hunter/
 │   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & schema validator
 │   ├── generate_references.py               # Generates taxonomy and windowing reference markdown
 │   └── multistage_query_builder.py          # Python linter, AST validator, & report/chart generator
-└── tests/                                   # Automated test suite (126 tests, 100% pass rate)
+└── tests/                                   # Automated test suite (127 tests, 100% pass rate)
     ├── __init__.py
     ├── test_chart_specifications.py         # Dual-axis visualization spec tests
     ├── test_clean_handoff.py                # Clean Hand-Off UDM schema validation & batching tests
@@ -121,8 +121,15 @@ secops-statistical-hunter/
 
 ## Release Notes
 
+### v2.7.1 (September 28, 2026)
+* **Dispersion Denominator Purge Across Pipeline Templates**: Converted all artificial additive `+ 1.0` dispersion denominators across 14 pipeline templates to canonical nested outcome logic (`$safe_sd = if($sd > 0, $sd, 1.0)` / `$safe_dispersion = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)`). Preserved mathematically legitimate Bayesian updating constants ($\beta_{\text{post}} = \beta_0 + 1.0$, Beta-Binomial conjugate updating, $\ln(B+1)$ transforms).
+* **Affirmative Tool Guidance & Lifecycle Architecture**: Replaced negative prohibitions ("never execute", "strictly prohibited", "arbitrary case hijacking is strictly forbidden") with affirmative operational guidance in `SKILL.md`. Explicitly codified the hands-off `run_command` restriction ("There is no blanket approval for `run_command`, only explicit exemptions"), verified by unit tests.
+* **Stripping of Legacy Tool Prefixes**: Purged legacy `secops-gus:` tool prefixes across instructions, references, and diagrams, standardizing on native MCP tool operations (`udm_search`, `import_logs`, `create_case_comment`).
+* **Chronicle SIEM Compiler Grammar Codification**: Standardized explicit syntax patterns for case-insensitive regex (`re.regex(<field>, `(?i)...`)`) and cross-stage temporal window filtering (`$max_day = max($day_id)` bound before `match:` in downstream stages).
+* **100% Dual-Engine Regression Parity (17 / 17 Invariants Passed)**: Evaluated across all 17 regression test scenarios in dual-engine mode (`agentapi` + `direct-mcp`) with 6 workers, achieving 100% invariant parity across all P0, P1, and P2 contracts (127/127 automated unit tests passing).
+
 ### v2.6.0 (September 25, 2026)
-* **Option A Affirmative Native-Chat Runtime**: Enforced strict Option A architecture—scripts in `scripts/` are reserved for offline CI testing (`pytest tests/`), while the runtime conversational agent operates natively through Google SecOps MCP tools (`secops-gus:udm_search`, `secops-gus:import_logs`, `secops-gus:create_case_comment`) and Markdown exclusively.
+* **Option A Affirmative Native-Chat Runtime**: Enforced strict Option A architecture—scripts in `scripts/` are reserved for offline CI testing (`pytest tests/`), while the runtime conversational agent operates natively through Google SecOps MCP tools (`udm_search`, `import_logs`, `create_case_comment`) and Markdown exclusively.
 * **Universal Pre-Flight Gate & Interactive Scoping Protocol**: Unified all analytical entries into State 1, presenting operational analogies, standardized Pre-Flight Specification Cards, candidate query previews with 6 root outcome variables, and 1-shot schema validation probes (`maxEvents=1`, 10m window) with probe-then-yield transitions.
 * **6 Mandatory Root Outcome Variables**: Standardized `$observation_count`, `$baseline_active_samples`, `$baseline_mean`, `$baseline_dispersion`, `$fleet_prevalence`, and `$distinct_binaries` across all telemetry archetypes, mapping directly to the 6 Forensic Evidence Pillars in Section 3 of the triage report.
 * **Chronicle SIEM Compiler Grammar Hardening**: Codified bare identifier match headers (`match: $entity by 1h`), Target Entity Scoping in primary stage predicates (`principal.hostname = "dev-ub22-1"`), implicit `window_start` column bindings, and non-linear function alternatives (squared Poisson deviance and Euclidean distance).
