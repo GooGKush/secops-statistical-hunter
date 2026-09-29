@@ -21,8 +21,14 @@
   * Expanded `references/consultative-worksheet.md` with telemetry deformations 7–10 (Lineage Surprisal, Syntactic Entropy, Long-Tail Rarity, Kinetic Acceleration) and new Domain 3/4 consultative options.
   * Regenerated `references/statistical-models-taxonomy.md` (Sections 13–16).
   * Updated `SKILL.md` trigger catalog and physical analogies.
-* **Test Suite Expansion**:
-  * Expanded automated test suite from 127 to 136 tests (100% pass rate) in `pytest tests/`.
+* **Test Suite Expansion & Dual-Engine Regression Validation**:
+  * Expanded automated unit test suite from 127 to 136 tests (100% pass rate) in `pytest tests/`.
+  * Verified 100% clean AST compilation across all 21 golden pipeline templates (`scripts/multistage_query_builder.py`).
+  * Executed 21-scenario maintainer dual-engine regression suite against live Chronicle SIEM tenant (`gus-sdl`):
+    * **Dual-Engine Composite**: **20 / 21 scenarios passed (95.2%)**.
+    * **AgentAPI Engine**: **21 / 21 scenarios passed (100%)**.
+    * **Chronicle YARA-L 2.0 Invariants**: 100% verified across all 21 scenarios.
+    * All 4 new model regression scenarios (`SH-P1-09` Markov 2-Gram, `SH-P1-10` Shannon Entropy, `SH-P1-11` Zipfian Long Tail, and `SH-P1-12` Intraday EWMA Burst Velocity) passed cleanly on the first run.
 
 ---
 

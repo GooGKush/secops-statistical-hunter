@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.8.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-136%2F136%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-17%2F17%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md#100-dual-engine-regression-parity-17--17-invariants-passed)
+[![Version](https://img.shields.io/badge/version-v2.8.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-136%2F136%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-20%2F21%20passing%20(95.2%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -214,24 +214,30 @@ The skill package is verified through a rigorous three-tier testing hierarchy:
 ```bash
 pytest tests/
 ```
-* **Status**: **127 / 127 passing unit tests** across 13 test modules (100% pass rate).
+* **Status**: **136 / 136 passing unit tests** across 13 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, hands-off `run_command` restriction contracts, and template router permutations across all mathematical models.
 
 ### 2. Chronicle Compiler AST & Invariant Validation
 ```bash
 python3 scripts/multistage_query_builder.py
 ```
-* **Status**: **100% clean compilation** across all 17 golden pipeline templates.
+* **Status**: **100% clean compilation** across all 21 golden pipeline templates.
 * **Scope**: Verifies Malachite AST compliance, continuous outcome arithmetic, Function Factory built-ins (`math.*`), bare identifier match binding (`ZERO DOTS IN MATCH`), and safe non-zero dispersion floor guards.
 
 ### 3. Maintainer Dual-Platform Regression Validation
 End-to-end multi-turn conversational regression is validated by the maintainer team via the automated regression testing platform (`secops-regress`):
-* **Status**: **17 / 17 passing scenarios** (100% pass rate across AgentAPI and Direct MCP engines).
+* **Status**: **20 / 21 passing scenarios** (95.2% dual pass rate; **21 / 21 AgentAPI passing (100%)**).
 * **Scope**: Evaluates full conversation flows against live Google SecOps customer instances (`gus-sdl`), ensuring zero-stall Turn 2 execution, nominal quiet baseline reporting ($Z=0.00\sigma$), single-surface visualization compliance, and bilateral handoff protocol adherence.
 
 ---
 
 ## 📦 Release Notes
+
+### v2.8.0 (September 29, 2026) — Advanced Information-Theoretic & Long-Tail Analytical Models
+* **Four New Information-Theoretic & Long-Tail Models**: Added Markov 2-Gram Transition Rarity (`markov_2gram_transition_rarity_2stage.yl2`), Shannon Character-Class Entropy (`shannon_entropy_character_2stage.yl2`), Power-Law / Zipfian Long-Tail Process Rarity (`zipfian_process_rarity_2stage.yl2`), and Intraday EWMA Burst Velocity (`ewma_burst_velocity_2stage.yl2`), expanding golden pipelines from 17 to 21.
+* **Architecture, Routing & Sensitivity Mapping**: Added parameter bounds across conservative, balanced, and aggressive tiers in `SENSITIVITY_MAP`, registered archetypes in `MultiStageTemplateRouter`, and updated `HandoffEndpoint`.
+* **Consultative Guidance & Worksheets**: Expanded consultative worksheet with telemetry deformations 7–10 and taxonomy sections 13–16.
+* **Test Suite & Dual-Engine Regression Validation**: Expanded automated unit tests to 136/136 passing (100%). Achieved 20/21 dual-engine regression pass (21/21 AgentAPI 100% pass, 100% clean AST compilation) across all 21 live tenant scenarios.
 
 ### v2.7.1 (September 28, 2026) — Dispersion Denominator Purge, Affirmative Tool Guidance Architecture & Dual-Engine Parity
 * **Dispersion Denominator Purge Across Pipeline Templates**: Converted all artificial additive `+ 1.0` dispersion denominators across 14 pipeline templates to canonical nested outcome logic (`$safe_sd = if($sd > 0, $sd, 1.0)` / `$safe_dispersion = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)`). Preserved mathematically legitimate Bayesian updating constants ($\beta_{\text{post}} = \beta_0 + 1.0$, Beta-Binomial conjugate updating, $\ln(B+1)$ transforms).
