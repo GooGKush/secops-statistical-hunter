@@ -56,17 +56,17 @@ outcome:
   $local_volume = max($endpoint_process_burst.endpoint_executions)
   $commands = array_distinct($endpoint_process_burst.sample_commands)
 
-  // 1. Safe Adopter Cardinalities
-  $safe_adopters = if($adopter_hosts > 0, $adopter_hosts, 1)
-  $safe_fleet_volume = if($fleet_volume > 0, $fleet_volume, 1)
+  // 1. Safe Cardinalities
+  $safe_hosts = if($adopter_hosts > 0, $adopter_hosts, 1)
+  $safe_volume = if($fleet_volume > 0, $fleet_volume, 1)
 
   // 2. Zipfian Power-Law Log-Rank Departure
-  $log_fleet = math.log($safe_fleet_volume)
-  $log_adopters = math.log($safe_adopters)
+  $log_fleet = math.log($safe_volume)
+  $log_adopters = math.log($safe_hosts)
   $zipf_log_rank = $log_fleet - $log_adopters
 
   // 3. Inverse Asymptotic Tail Multiplier
-  $tail_rarity = 1.0 / $safe_adopters
+  $tail_rarity = 1.0 / $safe_hosts
   $zipf_rarity_score = $zipf_log_rank * (1.0 + $tail_rarity)
 
 condition:
