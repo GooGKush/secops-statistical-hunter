@@ -1,0 +1,85 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect rare, unobserved process parent-child execution transitions via Markov 2-Gram Transition Rarity.
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (-ln(P(Child | Parent)))
+// Mathematical Rationale:
+//   - Why this model: Evaluates the conditional transition probability P(B | A) of parent process A spawning
+//     child process B. Common administrative workflows (services.exe -> svchost.exe) exhibit high probability,
+//     while adversary execution chains (word.exe -> cmd.exe or sqlservr.exe -> powershell.exe) produce extreme
+//     information surprisal (-ln(P) >= {{surprisal_threshold}}), exposing living-off-the-land chains.
+//   - Small-Sample & Multiple-Comparison Protection: Enforces minimum parent launch count floor (>= {{min_parent_count}})
+//     and applies discrete transition count regularization to prevent single-event noise.
+// Sensitivity Boundary: {{tier}} (Surprisal Score >= {{surprisal_threshold}}, Min Parent Launches >= {{min_parent_count}})
+// ============================================================================
+
+// Stage 1: Parent Process Launch Baseline Frequency
+stage parent_baseline {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $host
+    $host != ""
+    $parent = principal.process.file.full_path
+    $parent != ""
+
+  match:
+    $host, $parent by {{bucket_size}}
+
+  outcome:
+    $parent_total_launches = count(metadata.id)
+}
+
+// Stage 2: Child Process Transition Frequency
+stage child_transition {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $host
+    $host != ""
+    $parent = principal.process.file.full_path
+    $child = target.process.file.full_path
+    $parent != ""
+    $child != ""
+
+  match:
+    $host, $parent, $child by {{bucket_size}}
+
+  outcome:
+    $transition_count = count(metadata.id)
+    $sample_command = array_distinct(target.process.command_line)
+}
+
+// Root Stage: Markov Conditional Probability & Information Surprisal
+$host = $parent_baseline.host
+$host = $child_transition.host
+$parent = $parent_baseline.parent
+$parent = $child_transition.parent
+$child = $child_transition.child
+
+match:
+  $host, $parent, $child by {{bucket_size}}
+
+outcome:
+  $parent_launches = max($parent_baseline.parent_total_launches)
+  $transition_launches = max($child_transition.transition_count)
+  $sample_commands = array_distinct($child_transition.sample_command)
+
+  // 1. Safe Cardinalities
+  $safe_parent = if($parent_launches > 0, $parent_launches, 1)
+  $safe_trans = if($transition_launches > 0, $transition_launches, 1)
+
+  // 2. Markov Transition Probability: P(B | A) = Count(A -> B) / Count(A)
+  $transition_prob = $safe_trans / $safe_parent
+
+  // 3. Information Surprisal (Self-Information Rarity): I = -ln(P) = ln(Parent) - ln(Transition)
+  $log_parent = math.log($safe_parent)
+  $log_trans = math.log($safe_trans)
+  $surprisal_score = $log_parent - $log_trans
+
+  // 4. Rare Sequence Multiplier (Amplifies singleton transitions)
+  $rare_multiplier = if($transition_launches <= 2, 2.0, 1.0)
+  $markov_threat_score = $surprisal_score * $rare_multiplier
+
+condition:
+  $parent_launches >= {{min_parent_count}}
+  and $markov_threat_score >= {{surprisal_threshold}}
+
+order:
+  $markov_threat_score desc

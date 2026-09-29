@@ -119,7 +119,47 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 13. Sensitivity & Anomaly Threshold Map
+## 13. Markov 2-Gram Transition Probability & Information Surprisal
+* **Goal**: Detect rare living-off-the-land process execution chains and unusual parent-child lineages.
+* **Formula**:
+  $$P(B \mid A) = \frac{\text{Count}(A \to B)}{\text{Count}(A)}, \quad I(B \mid A) = -\ln P(B \mid A) = \ln(\text{Count}(A)) - \ln(\text{Count}(A \to B))$$
+* **Threat Score**:
+  $$\text{Score} = I(B \mid A) \times \text{RareMultiplier}$$
+* **Interpretation**:
+  - Administrative hierarchies (`services.exe` $\to$ `svchost.exe`) have high conditional probability and negligible surprisal.
+  - Malicious execution (`word.exe` $\to$ `powershell.exe`) yields high information surprisal ($I \ge 3.0$), isolating living-off-the-land chains.
+
+---
+
+## 14. Shannon Character-Class Information Density & Entropy
+* **Goal**: Detect obfuscated, randomized command lines, base64 payloads, and algorithmic DGA domains.
+* **Formula**:
+  $$\text{Score} = \ln(\text{Length}) \times \text{LengthFactor}$$
+* **Guards**: Enforces minimum token length ($L \ge 25$) to prevent false alarms on brief command flags.
+* **Interpretation**:
+  - Natural language commands exhibit high redundancy and low character entropy; encoded scripts and DGA tokens exhibit collapsed compression redundancy.
+
+---
+
+## 15. Power-Law / Zipfian Inverse Rank Frequency Rarity
+* **Goal**: Isolate rare administrative tools operating in the asymptotic long tail of enterprise process distributions ($f(k) \propto 1/k^s$).
+* **Formula**:
+  $$\text{ZipfLogRank} = \ln(\text{FleetVolume}) - \ln(\text{Adopters}), \quad \text{RarityScore} = \text{ZipfLogRank} \times \left(1.0 + \frac{1}{\text{Adopters}}\right)$$
+* **Interpretation**:
+  - Standard enterprise binaries executed by thousands of hosts yield near-zero tail rarity.
+  - Unfrequent admin utilities (`vssadmin.exe`, `certutil.exe`) executed on $\le 2$ hosts produce extreme asymptotic tail departure scores.
+
+---
+
+## 16. Intraday Exponentially Weighted Moving Average (EWMA) Velocity
+* **Goal**: Detect sudden acute rate acceleration diverging from an exponentially smoothed trailing trajectory without lagging behind abrupt shifts.
+* **Formula**:
+  $$S_t = \alpha \cdot x_t + (1 - \alpha) \cdot S_{t-1}, \quad \Delta_{\text{velocity}} = x_t - S_t, \quad V = \frac{\Delta_{\text{velocity}}}{\sigma}$$
+* **Where**: $\alpha = 0.30$ provides rapid kinetic response to burst surges while anchoring to the trailing hourly baseline.
+
+---
+
+## 17. Sensitivity & Anomaly Threshold Map
 
 | Archetype | Tier | Thresholds & Parameters |
 | :--- | :--- | :--- |
@@ -147,6 +187,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `DORMANT_ACCOUNT_AWAKENING` | **CONSERVATIVE** | `z_score=3.5`, `min_count=10`, `dormant_weight=3.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `DORMANT_ACCOUNT_AWAKENING` | **BALANCED** | `z_score=2.5`, `min_count=5`, `dormant_weight=2.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `DORMANT_ACCOUNT_AWAKENING` | **AGGRESSIVE** | `z_score=1.5`, `min_count=2`, `dormant_weight=1.5`, `min_sd=0.2`, `min_active_samples=3` |
+| `EWMA_BURST_VELOCITY` | **CONSERVATIVE** | `velocity_threshold=3.0`, `min_count=50`, `min_sd=5.0`, `min_active_samples=60` |
+| `EWMA_BURST_VELOCITY` | **BALANCED** | `velocity_threshold=2.0`, `min_count=25`, `min_sd=2.0`, `min_active_samples=30` |
+| `EWMA_BURST_VELOCITY` | **AGGRESSIVE** | `velocity_threshold=1.5`, `min_count=10`, `min_sd=1.0`, `min_active_samples=14` |
 | `FLEET_PEER_ZSCORE` | **CONSERVATIVE** | `fleet_z=3.5`, `min_host_count=50`, `min_fleet_sd=10.0`, `min_active_hosts=25` |
 | `FLEET_PEER_ZSCORE` | **BALANCED** | `fleet_z=2.5`, `min_host_count=25`, `min_fleet_sd=5.0`, `min_active_hosts=15` |
 | `FLEET_PEER_ZSCORE` | **AGGRESSIVE** | `fleet_z=2.0`, `min_host_count=10`, `min_fleet_sd=2.0`, `min_active_hosts=10` |
@@ -165,6 +208,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `LOG_NORMAL_VOLUME_SURGE` | **CONSERVATIVE** | `z_score=3.5`, `min_bytes=100000000.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `LOG_NORMAL_VOLUME_SURGE` | **BALANCED** | `z_score=2.5`, `min_bytes=10000000.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `LOG_NORMAL_VOLUME_SURGE` | **AGGRESSIVE** | `z_score=1.8`, `min_bytes=1000000.0`, `min_sd=0.2`, `min_active_samples=3` |
+| `MARKOV_2GRAM_TRANSITION_RARITY` | **CONSERVATIVE** | `surprisal_threshold=4.5`, `min_parent_count=20` |
+| `MARKOV_2GRAM_TRANSITION_RARITY` | **BALANCED** | `surprisal_threshold=3.0`, `min_parent_count=10` |
+| `MARKOV_2GRAM_TRANSITION_RARITY` | **AGGRESSIVE** | `surprisal_threshold=2.0`, `min_parent_count=5` |
 | `MULTI_SECTOR_FUSION` | **CONSERVATIVE** | `threat_distance=4.0`, `min_active_samples=14`, `min_events=10` |
 | `MULTI_SECTOR_FUSION` | **BALANCED** | `threat_distance=3.0`, `min_active_samples=7`, `min_events=5` |
 | `MULTI_SECTOR_FUSION` | **AGGRESSIVE** | `threat_distance=2.0`, `min_active_samples=3`, `min_events=2` |
@@ -180,12 +226,18 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `PRIVILEGED_LATERAL_EXPANSION` | **CONSERVATIVE** | `z_score=3.0`, `min_distinct_targets=5`, `min_sd=1.0`, `min_active_samples=30` |
 | `PRIVILEGED_LATERAL_EXPANSION` | **BALANCED** | `z_score=2.0`, `min_distinct_targets=3`, `min_sd=0.5`, `min_active_samples=14` |
 | `PRIVILEGED_LATERAL_EXPANSION` | **AGGRESSIVE** | `z_score=1.5`, `min_distinct_targets=2`, `min_sd=0.2`, `min_active_samples=7` |
+| `SHANNON_ENTROPY_CHARACTER` | **CONSERVATIVE** | `entropy_threshold=7.0`, `min_length=40` |
+| `SHANNON_ENTROPY_CHARACTER` | **BALANCED** | `entropy_threshold=5.5`, `min_length=25` |
+| `SHANNON_ENTROPY_CHARACTER` | **AGGRESSIVE** | `entropy_threshold=4.0`, `min_length=15` |
 | `TWO_PART_HURDLE` | **CONSERVATIVE** | `z_score=3.5`, `min_count=10`, `dormant_weight=3.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `TWO_PART_HURDLE` | **BALANCED** | `z_score=2.5`, `min_count=5`, `dormant_weight=2.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `TWO_PART_HURDLE` | **AGGRESSIVE** | `z_score=1.5`, `min_count=2`, `dormant_weight=1.5`, `min_sd=0.2`, `min_active_samples=3` |
 | `VELOCITY_SURGE_RATIO` | **CONSERVATIVE** | `ratio_1v7=5.0`, `ratio_1v30=8.0`, `min_today=200`, `min_baseline_days=20` |
 | `VELOCITY_SURGE_RATIO` | **BALANCED** | `ratio_1v7=3.0`, `ratio_1v30=5.0`, `min_today=100`, `min_baseline_days=14` |
 | `VELOCITY_SURGE_RATIO` | **AGGRESSIVE** | `ratio_1v7=2.0`, `ratio_1v30=3.0`, `min_today=50`, `min_baseline_days=7` |
+| `ZIPFIAN_PROCESS_RARITY` | **CONSERVATIVE** | `zipf_threshold=4.0`, `max_adopters=1`, `min_count=5` |
+| `ZIPFIAN_PROCESS_RARITY` | **BALANCED** | `zipf_threshold=2.5`, `max_adopters=2`, `min_count=2` |
+| `ZIPFIAN_PROCESS_RARITY` | **AGGRESSIVE** | `zipf_threshold=1.5`, `max_adopters=3`, `min_count=1` |
 | `ZSCORE_PROCESS_SURGE` | **CONSERVATIVE** | `z_score=3.0`, `min_count=50`, `min_sd=10.0`, `min_active_samples=120` |
 | `ZSCORE_PROCESS_SURGE` | **BALANCED** | `z_score=2.0`, `min_count=25`, `min_sd=5.0`, `min_active_samples=60` |
 | `ZSCORE_PROCESS_SURGE` | **AGGRESSIVE** | `z_score=1.5`, `min_count=10`, `min_sd=2.0`, `min_active_samples=30` |

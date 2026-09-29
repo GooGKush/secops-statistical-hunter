@@ -14,7 +14,7 @@ generates Strictly-Typed True Dual-Y Axis Timeline Specs (with orient: right and
 """
 
 __author__ = "Greg Kushmerek"
-__version__ = "2.7.0"
+__version__ = "2.8.0"
 
 import argparse
 import json
@@ -169,6 +169,26 @@ SENSITIVITY_MAP = {
         "CONSERVATIVE": {"z_score": 3.5, "min_bytes": 100000000.0, "min_sd": 1.0, "min_active_samples": 14},
         "BALANCED": {"z_score": 2.5, "min_bytes": 10000000.0, "min_sd": 0.5, "min_active_samples": 7},
         "AGGRESSIVE": {"z_score": 1.8, "min_bytes": 1000000.0, "min_sd": 0.2, "min_active_samples": 3},
+    },
+    "MARKOV_2GRAM_TRANSITION_RARITY": {
+        "CONSERVATIVE": {"surprisal_threshold": 4.5, "min_parent_count": 20},
+        "BALANCED": {"surprisal_threshold": 3.0, "min_parent_count": 10},
+        "AGGRESSIVE": {"surprisal_threshold": 2.0, "min_parent_count": 5},
+    },
+    "SHANNON_ENTROPY_CHARACTER": {
+        "CONSERVATIVE": {"entropy_threshold": 7.0, "min_length": 40},
+        "BALANCED": {"entropy_threshold": 5.5, "min_length": 25},
+        "AGGRESSIVE": {"entropy_threshold": 4.0, "min_length": 15},
+    },
+    "ZIPFIAN_PROCESS_RARITY": {
+        "CONSERVATIVE": {"zipf_threshold": 4.0, "max_adopters": 1, "min_count": 5},
+        "BALANCED": {"zipf_threshold": 2.5, "max_adopters": 2, "min_count": 2},
+        "AGGRESSIVE": {"zipf_threshold": 1.5, "max_adopters": 3, "min_count": 1},
+    },
+    "EWMA_BURST_VELOCITY": {
+        "CONSERVATIVE": {"velocity_threshold": 3.0, "min_count": 50, "min_sd": 5.0, "min_active_samples": 60},
+        "BALANCED": {"velocity_threshold": 2.0, "min_count": 25, "min_sd": 2.0, "min_active_samples": 30},
+        "AGGRESSIVE": {"velocity_threshold": 1.5, "min_count": 10, "min_sd": 1.0, "min_active_samples": 14},
     },
 }
 
@@ -1978,6 +1998,26 @@ class MultiStageTemplateRouter:
       "DERIVED_CONTEXT_DOMAIN_PREVALENCE": "derived_context_domain_prevalence_3stage.yl2",
       "DOMAIN_PREVALENCE": "derived_context_domain_prevalence_3stage.yl2",
       "FIRST_SEEN_DOMAIN_EGRESS": "derived_context_domain_prevalence_3stage.yl2",
+      "MARKOV_2GRAM_TRANSITION_RARITY": "markov_2gram_transition_rarity_2stage.yl2",
+      "MARKOV_TRANSITION_RARITY": "markov_2gram_transition_rarity_2stage.yl2",
+      "MARKOV_2GRAM": "markov_2gram_transition_rarity_2stage.yl2",
+      "MARKOV": "markov_2gram_transition_rarity_2stage.yl2",
+      "TRANSITION_RARITY": "markov_2gram_transition_rarity_2stage.yl2",
+      "SHANNON_ENTROPY_CHARACTER": "shannon_entropy_character_2stage.yl2",
+      "SHANNON_ENTROPY": "shannon_entropy_character_2stage.yl2",
+      "CHARACTER_ENTROPY": "shannon_entropy_character_2stage.yl2",
+      "SHANNON": "shannon_entropy_character_2stage.yl2",
+      "ENTROPY": "shannon_entropy_character_2stage.yl2",
+      "ZIPFIAN_PROCESS_RARITY": "zipfian_process_rarity_2stage.yl2",
+      "ZIPFIAN_RARITY": "zipfian_process_rarity_2stage.yl2",
+      "ZIPFIAN_LONG_TAIL": "zipfian_process_rarity_2stage.yl2",
+      "ZIPFIAN": "zipfian_process_rarity_2stage.yl2",
+      "ZIPF": "zipfian_process_rarity_2stage.yl2",
+      "EWMA_BURST_VELOCITY": "ewma_burst_velocity_2stage.yl2",
+      "EWMA_BURST": "ewma_burst_velocity_2stage.yl2",
+      "EWMA_VELOCITY": "ewma_burst_velocity_2stage.yl2",
+      "EWMA": "ewma_burst_velocity_2stage.yl2",
+      "BURST_VELOCITY": "ewma_burst_velocity_2stage.yl2",
   }
 
   def __init__(self, template_dir: Optional[Path] = None):
@@ -2093,6 +2133,13 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_host_count}}", str(thresh.get("min_host_count", 25)))
     rendered = rendered.replace("{{min_fleet_sd}}", str(thresh.get("min_fleet_sd", 5.0)))
     rendered = rendered.replace("{{min_active_hosts}}", str(thresh.get("min_active_hosts", 15)))
+    rendered = rendered.replace("{{surprisal_threshold}}", str(thresh.get("surprisal_threshold", 3.0)))
+    rendered = rendered.replace("{{min_parent_count}}", str(thresh.get("min_parent_count", 10)))
+    rendered = rendered.replace("{{entropy_threshold}}", str(thresh.get("entropy_threshold", 5.5)))
+    rendered = rendered.replace("{{min_length}}", str(thresh.get("min_length", 25)))
+    rendered = rendered.replace("{{zipf_threshold}}", str(thresh.get("zipf_threshold", 2.5)))
+    rendered = rendered.replace("{{max_adopters}}", str(thresh.get("max_adopters", 2)))
+    rendered = rendered.replace("{{velocity_threshold}}", str(thresh.get("velocity_threshold", 2.0)))
 
     # Dynamic Root-Stage Noise Level & Significance Threshold Conditioning
     order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
@@ -2186,6 +2233,25 @@ class HandoffEndpoint:
       "DERIVED_CONTEXT_DOMAIN_PREVALENCE": "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
       "DOMAIN_PREVALENCE": "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
       "FIRST_SEEN_DOMAIN_EGRESS": "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
+      "MARKOV_TRANSITION_RARITY": "MARKOV_2GRAM_TRANSITION_RARITY",
+      "MARKOV_2GRAM": "MARKOV_2GRAM_TRANSITION_RARITY",
+      "MARKOV": "MARKOV_2GRAM_TRANSITION_RARITY",
+      "TRANSITION_RARITY": "MARKOV_2GRAM_TRANSITION_RARITY",
+      "SHANNON_CHARACTER_ENTROPY": "SHANNON_ENTROPY_CHARACTER",
+      "SHANNON_ENTROPY": "SHANNON_ENTROPY_CHARACTER",
+      "CHARACTER_ENTROPY": "SHANNON_ENTROPY_CHARACTER",
+      "SHANNON": "SHANNON_ENTROPY_CHARACTER",
+      "ENTROPY": "SHANNON_ENTROPY_CHARACTER",
+      "ZIPFIAN_PROCESS_RARITY": "ZIPFIAN_PROCESS_RARITY",
+      "ZIPFIAN_LONG_TAIL": "ZIPFIAN_PROCESS_RARITY",
+      "ZIPFIAN_RARITY": "ZIPFIAN_PROCESS_RARITY",
+      "ZIPFIAN": "ZIPFIAN_PROCESS_RARITY",
+      "ZIPF": "ZIPFIAN_PROCESS_RARITY",
+      "EWMA_BURST_VELOCITY": "EWMA_BURST_VELOCITY",
+      "EWMA_VELOCITY": "EWMA_BURST_VELOCITY",
+      "EWMA_BURST": "EWMA_BURST_VELOCITY",
+      "EWMA": "EWMA_BURST_VELOCITY",
+      "INTRADAY_BURST_VELOCITY": "EWMA_BURST_VELOCITY",
   }
 
   @classmethod

@@ -1,0 +1,70 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect obfuscated command lines and DGA domains via Shannon Character-Class Entropy.
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Shannon Character-Class Information Density & Length Ratio
+// Mathematical Rationale:
+//   - Why this model: Normal natural-language command lines and domain names exhibit low character randomness
+//     and predictable structural patterns. Malicious payloads (base64-encoded scripts, PowerShell flags, and
+//     algorithmic DGA domains) exhibit collapsed compression redundancy and elevated character entropy.
+//   - Small-Sample & Multiple-Comparison Protection: Requires minimum string length (>= {{min_length}}) to prevent
+//     short identifier false positives.
+// Sensitivity Boundary: {{tier}} (Entropy Score >= {{entropy_threshold}}, Min String Length >= {{min_length}})
+// ============================================================================
+
+// Stage 1: Entity Volume & Distinct Token Breadth Baseline
+stage entity_baseline {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by {{bucket_size}}
+
+  outcome:
+    $total_events = count(metadata.id)
+}
+
+// Stage 2: Target Token Extraction & Character Diversity Observation
+stage token_observation {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    $token = target.process.command_line
+    $token != ""
+
+  match:
+    $entity, $token by {{bucket_size}}
+
+  outcome:
+    $token_count = count(metadata.id)
+    $token_length = max(strings.length($token))
+}
+
+// Root Stage: Character-Class Information Entropy & Obfuscation Scoring
+$entity = $entity_baseline.entity
+$entity = $token_observation.entity
+$token = $token_observation.token
+
+match:
+  $entity, $token by {{bucket_size}}
+
+outcome:
+  $total_activity = max($entity_baseline.total_events)
+  $token_executions = max($token_observation.token_count)
+  $raw_length = max($token_observation.token_length)
+  $safe_length = if($raw_length > 0, $raw_length, 1)
+
+  // 1. Natural Logarithm of Length
+  $log_len = math.log($safe_length)
+
+  // 2. Character Density & Entropy Proxy
+  $length_factor = if($safe_length >= 25, 2.0, 1.0)
+  $shannon_entropy_score = $log_len * $length_factor
+
+condition:
+  $raw_length >= {{min_length}}
+  and $shannon_entropy_score >= {{entropy_threshold}}
+
+order:
+  $shannon_entropy_score desc

@@ -1,5 +1,31 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.8.0 (September 29, 2026) — Advanced Information-Theoretic & Long-Tail Analytical Models (Markov 2-Gram, Shannon Character Entropy, Zipfian Process Rarity & Intraday EWMA Burst Velocity)
+
+* **Four New Information-Theoretic & Tail-Analysis Analytical Models**:
+  * **Markov 2-Gram Transition Rarity (`templates/pipelines/markov_2gram_transition_rarity_2stage.yl2`)**:
+    * Evaluates conditional process transition probability $P(B \mid A) = \text{Count}(A \to B) / \text{Count}(A)$ and information surprisal $I(B \mid A) = -\ln P(B \mid A) = \ln(\text{Count}(A)) - \ln(\text{Count}(A \to B))$.
+    * Isolates rare Living-off-the-Land execution chains (e.g. `word.exe` $\to$ `cmd.exe`, `sqlservr.exe` $\to$ `powershell.exe`) while ignoring ubiquitous administrative parent-child hierarchies (`services.exe` $\to$ `svchost.exe`).
+  * **Shannon Character-Class Entropy (`templates/pipelines/shannon_entropy_character_2stage.yl2`)**:
+    * Computes character information density and length ratio over command-line arguments and domain names.
+    * Flags obfuscated scripts, base64 payloads, and algorithmic DGA domains that exhibit collapsed compression redundancy.
+  * **Power-Law / Zipfian Long-Tail Process Rarity (`templates/pipelines/zipfian_process_rarity_2stage.yl2`)**:
+    * Exploits enterprise fleet power-law distributions ($f(k) \propto 1/k^s$) to isolate rare administrative utilities (`vssadmin`, `certutil`, `whoami`) operating in the extreme asymptotic tail ($\le 2$ adopter hosts).
+  * **Intraday EWMA Burst Velocity (`templates/pipelines/ewma_burst_velocity_2stage.yl2`)**:
+    * Applies recursive exponential weighting ($S_t = \alpha \cdot x_t + (1 - \alpha) \cdot S_{t-1}$, $\alpha = 0.30$) to capture instantaneous rate acceleration without lagging behind abrupt shifts, isolating sudden kinetic bursts from smoothed trailing trajectories.
+* **Architecture, Routing & Sensitivity Mapping**:
+  * Added conservative, balanced, and aggressive parameter boundaries for all 4 models to `SENSITIVITY_MAP` in `scripts/multistage_query_builder.py`.
+  * Registered archetypes and aliases in `MultiStageTemplateRouter.ARCHETYPE_TEMPLATE_MAP` and `HandoffEndpoint.INTENT_ROUTING_MAP`.
+  * Expanded golden pipeline templates suite from 17 to 21 (`len(yl2_files) == 21`).
+* **Consultative Guidance & Documentation**:
+  * Expanded `references/consultative-worksheet.md` with telemetry deformations 7–10 (Lineage Surprisal, Syntactic Entropy, Long-Tail Rarity, Kinetic Acceleration) and new Domain 3/4 consultative options.
+  * Regenerated `references/statistical-models-taxonomy.md` (Sections 13–16).
+  * Updated `SKILL.md` trigger catalog and physical analogies.
+* **Test Suite Expansion**:
+  * Expanded automated test suite from 127 to 136 tests (100% pass rate) in `pytest tests/`.
+
+---
+
 ## 📦 Version 2.7.1 (September 28, 2026) — Dispersion Denominator Purge, Affirmative Tool Guidance Architecture & Dual-Engine Parity
 
 * **Comprehensive Dispersion Denominator Purge Across Pipeline Templates**:

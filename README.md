@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.7.1-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-127%2F127%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-17%2F17%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md#100-dual-engine-regression-parity-17--17-invariants-passed)
+[![Version](https://img.shields.io/badge/version-v2.8.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-136%2F136%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-17%2F17%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md#100-dual-engine-regression-parity-17--17-invariants-passed)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -55,6 +55,8 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
     * Generates structured forensic reports: 1. Executive Summary, 2. Calibrated Risk Index, 3. Forensic Evidence Pillars with visual ASCII bars (`████░░░░░░`), 4. Baseline Distribution Context, and 5. Actionable Next Steps & 1-Click Drill-Down Queries.
 14. **Automated Clean Hand-Off Protocol**:
     * Generates schema-compliant synthetic UDM security analytics events (`CUSTOM_SECURITY_DATA_ANALYTICS`) under a unique `Hunt Campaign ID`, caught by tenant rule `secops_statistical_hunter_alert_catchall` for seamless alert escalation without case wall pollution.
+15. **Advanced Information-Theoretic & Long-Tail Models**:
+    * Expands analytical reach with Markov 2-Gram Transition Rarity (evaluating $- \ln P(B \mid A)$ conditional process surprisal), Shannon Character-Class Entropy (obfuscated scripts & DGA detection), Power-Law / Zipfian Long-Tail Process Rarity ($f(k) \propto 1/k^s$ asymptotic tail isolation), and Intraday EWMA Burst Velocity ($\alpha = 0.30$ kinetic rate acceleration), bringing the golden pipeline suite to 21 models.
 
 ---
 
@@ -67,7 +69,7 @@ secops-statistical-hunter/
 ├── RELEASE_NOTES.md                         # Detailed version changelog & release history
 ├── LICENSE                                  # Apache 2.0 open-source license
 ├── llms.txt                                 # Token-efficient AI agent summary file
-├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (17)
+├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (21)
 │   ├── bayesian_gamma_shrinkage_4stage.yl2  # Poisson-Gamma Bayesian Credibility Shrinkage
 │   ├── beta_binomial_failure_4stage.yl2     # Beta-Binomial Failure Rate Shrinkage
 │   ├── c2_beaconing_jitter_2stage.yl2       # C2 beaconing timing jitter & interval regularity (CV)
@@ -75,15 +77,19 @@ secops-statistical-hunter/
 │   ├── derived_context_file_prevalence_3stage.yl2 # Derived Context binary SHA-256 enterprise prevalence
 │   ├── derived_context_prevalence_3stage.yl2 # Derived Context enterprise user prevalence & asset age
 │   ├── dual_baseline_delta_z_3stage.yl2     # Dual-Baseline Delta-Z & Fleet Prevalence Normalization
+│   ├── ewma_burst_velocity_2stage.yl2       # Intraday EWMA burst rate velocity & kinetic acceleration
 │   ├── global_threat_intel_enrichment_3stage.yl2 # GCTI Threat Intel & WHOIS NRD egress correlation
 │   ├── hybrid_entropy_concentration_2stage.yl2 # Diversity Deficit & Elephant Flow Concentration
 │   ├── log_normal_volume_surge_2stage.yl2   # Parametric Log-Normal Volumetric Standardization & Sigmoid CRI
 │   ├── mad_exfiltration_2stage.yl2          # Median Absolute Deviation (MAD) & Non-Parametric IQR
+│   ├── markov_2gram_transition_rarity_2stage.yl2 # Markov 2-Gram transition probability & information surprisal
 │   ├── multi_sector_threat_fusion_4stage.yl2 # Orthogonal Threat Space & Euclidean Distance
 │   ├── poisson_burst_clustering_2stage.yl2  # Poisson Burst Clustering & Fano Factor (password spray)
 │   ├── poisson_rare_surge_2stage.yl2        # Discrete Poisson Rarity & Low-Volume Spikes
 │   ├── privileged_lateral_expansion_2stage.yl2 # Privileged lateral movement & destination expansion
+│   ├── shannon_entropy_character_2stage.yl2 # Shannon character-class entropy & obfuscated script density
 │   ├── two_part_hurdle_2stage.yl2           # Two-Part Hurdle model for zero-inflated dormant entities
+│   ├── zipfian_process_rarity_2stage.yl2    # Power-Law / Zipfian long-tail administrative utility rarity
 │   └── zscore_process_surge_2stage.yl2      # Parametric Z-Score process surges per host
 ├── examples/                                # Working standalone YARA-L search templates (12)
 │   ├── bayesian_gamma_shrinkage.yara        # Poisson-Gamma Bayesian Credibility Shrinkage

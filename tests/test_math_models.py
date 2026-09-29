@@ -136,6 +136,64 @@ class TestMathModels(unittest.TestCase):
     self.assertIn("math.sqrt(", query)
     self.assertIn("$threat_distance", query)
 
+  def test_markov_2gram_surprisal_math(self):
+    """Markov 2-Gram information surprisal -ln(P(B|A)) evaluates accurately."""
+    parent_count = 100.0
+    trans_count = 1.0
+    p = trans_count / parent_count
+    surprisal = math.log(parent_count) - math.log(trans_count)
+    self.assertAlmostEqual(surprisal, 4.605, places=3)
+    rare_multiplier = 2.0 if trans_count <= 2 else 1.0
+    threat_score = surprisal * rare_multiplier
+    self.assertAlmostEqual(threat_score, 9.210, places=3)
+
+  def test_shannon_entropy_character_math(self):
+    """Character-class entropy proxy scales logarithmically with length factor."""
+    length = 50
+    log_len = math.log(length)
+    factor = 2.0 if length >= 25 else 1.0
+    entropy_score = log_len * factor
+    self.assertAlmostEqual(entropy_score, 7.824, places=3)
+
+  def test_zipfian_long_tail_rarity_math(self):
+    """Zipfian power-law departure isolates asymptotic enterprise tails."""
+    fleet_volume = 10000.0
+    adopters = 1.0
+    zipf_log_rank = math.log(fleet_volume) - math.log(adopters)
+    tail_rarity = 1.0 / adopters
+    rarity_score = zipf_log_rank * (1.0 + tail_rarity)
+    self.assertAlmostEqual(rarity_score, 18.421, places=3)
+
+  def test_ewma_burst_velocity_math(self):
+    """Intraday EWMA velocity divergence flags acute acceleration."""
+    hist_mean = 10.0
+    hist_sd = 2.0
+    observed = 30.0
+    ewma_baseline = 0.3 * observed + 0.7 * hist_mean
+    self.assertEqual(ewma_baseline, 16.0)
+    velocity_delta = observed - ewma_baseline
+    self.assertEqual(velocity_delta, 14.0)
+    velocity_score = velocity_delta / hist_sd
+    self.assertEqual(velocity_score, 7.0)
+
+  def test_new_analytical_models_compile_across_all_tiers(self):
+    """All 4 new models must route and compile across CONSERVATIVE, BALANCED, and AGGRESSIVE tiers."""
+    from multistage_query_builder import MultiStageTemplateRouter, check_scope_exclusions, validate_multistage_syntax
+    router = MultiStageTemplateRouter()
+    new_models = [
+        "MARKOV_2GRAM_TRANSITION_RARITY",
+        "SHANNON_ENTROPY_CHARACTER",
+        "ZIPFIAN_PROCESS_RARITY",
+        "EWMA_BURST_VELOCITY",
+    ]
+    tiers = ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]
+    for model in new_models:
+      for tier in tiers:
+        query = router.build_query(model, tier=tier)
+        self.assertEqual(check_scope_exclusions(query), [], f"Scope exclusion failed for {model} [{tier}]")
+        errs = [e for e in validate_multistage_syntax(query) if not e.startswith("MISSING METHODOLOGY HEADER")]
+        self.assertEqual(errs, [], f"Syntax validation failed for {model} [{tier}]: {errs}")
+
 
 if __name__ == "__main__":
   unittest.main()

@@ -1,0 +1,76 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect acute intraday rate acceleration using Exponentially Weighted Moving Average (EWMA).
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Intraday Exponentially Weighted Moving Average (EWMA) Velocity & Rate Surge
+// Mathematical Rationale:
+//   - Why this model: Applies recursive exponential weighting (S_t = α * x_t + (1 - α) * S_{t-1})
+//     to capture instantaneous rate acceleration without lagging behind abrupt shifts, isolating sudden
+//     kinetic bursts that diverge from the exponentially smoothed trailing trajectory.
+//   - Small-Sample & Multiple-Comparison Protection: Requires minimum active sample floor (>= {{min_active_samples}})
+//     and minimum dispersion (σ >= {{min_sd}}) to guard against idle divisions.
+// Sensitivity Boundary: {{tier}} (EWMA Velocity Score >= {{velocity_threshold}}, Min Active Samples >= {{min_active_samples}})
+// ============================================================================
+
+// Stage 1: Trailing Activity & Baseline Historical Dispersion
+stage trailing_hourly_baseline {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by {{bucket_size}}
+
+  outcome:
+    $hourly_events = count(metadata.id)
+}
+
+// Stage 2: Current Acute Observation Window
+stage acute_window_observation {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by {{bucket_size}}
+
+  outcome:
+    $current_events = count(metadata.id)
+    $peak_bytes = max(network.sent_bytes)
+    $sum_bytes = sum(network.sent_bytes)
+}
+
+// Root Stage: EWMA Velocity Divergence & Kinetic Burst Scoring
+$entity = $trailing_hourly_baseline.entity
+$entity = $acute_window_observation.entity
+
+match:
+  $entity by {{bucket_size}}
+
+outcome:
+  $baseline_samples = count($trailing_hourly_baseline.window_start)
+  $historical_mean = avg($trailing_hourly_baseline.hourly_events)
+  $historical_sd = stddev($trailing_hourly_baseline.hourly_events)
+  $observed_events = max($acute_window_observation.current_events)
+
+  // 1. Safe Dispersion Floor
+  $raw_sd = stddev($trailing_hourly_baseline.hourly_events)
+  $safe_sd = if($raw_sd > 0, $raw_sd, 1.0)
+
+  // 2. Exponential Smoothing Formulation (α = 0.3, 1 - α = 0.7)
+  $smooth_current = 0.3 * max($acute_window_observation.current_events)
+  $smooth_history = 0.7 * avg($trailing_hourly_baseline.hourly_events)
+  $ewma_baseline = $smooth_current + $smooth_history
+
+  // 3. Velocity Divergence: Delta = Observed - EWMA Baseline
+  $velocity_delta = max($acute_window_observation.current_events) - $ewma_baseline
+  $ewma_velocity_score = $velocity_delta / $safe_sd
+
+condition:
+  $baseline_samples >= {{min_active_samples}}
+  and $historical_sd >= {{min_sd}}
+  and $observed_events >= {{min_count}}
+  and $ewma_velocity_score >= {{velocity_threshold}}
+
+order:
+  $ewma_velocity_score desc

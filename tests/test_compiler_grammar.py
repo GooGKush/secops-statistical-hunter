@@ -298,6 +298,38 @@ class TestCompilerGrammar(unittest.TestCase):
     errors = validate_multistage_syntax(query)
     self.assertEqual(errors, [], f"Rendered hybrid entropy concentration had errors: {errors}")
 
+  def test_markov_2gram_transition_rarity_template_passes_cleanly(self):
+    """Rendered Markov 2-Gram transition rarity template must pass syntax validation cleanly."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    query = router.build_query("MARKOV_2GRAM_TRANSITION_RARITY")
+    errors = validate_multistage_syntax(query)
+    self.assertEqual(errors, [], f"Rendered Markov 2-Gram pipeline had errors: {errors}")
+
+  def test_shannon_entropy_character_template_passes_cleanly(self):
+    """Rendered Shannon character entropy template must pass syntax validation cleanly."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    query = router.build_query("SHANNON_ENTROPY_CHARACTER")
+    errors = validate_multistage_syntax(query)
+    self.assertEqual(errors, [], f"Rendered Shannon character entropy pipeline had errors: {errors}")
+
+  def test_zipfian_process_rarity_template_passes_cleanly(self):
+    """Rendered Zipfian process rarity template must pass syntax validation cleanly."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    query = router.build_query("ZIPFIAN_PROCESS_RARITY")
+    errors = validate_multistage_syntax(query)
+    self.assertEqual(errors, [], f"Rendered Zipfian process rarity pipeline had errors: {errors}")
+
+  def test_ewma_burst_velocity_template_passes_cleanly(self):
+    """Rendered EWMA burst velocity template must pass syntax validation cleanly."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    query = router.build_query("EWMA_BURST_VELOCITY")
+    errors = validate_multistage_syntax(query)
+    self.assertEqual(errors, [], f"Rendered EWMA burst velocity pipeline had errors: {errors}")
+
   def test_root_stage_sequential_derivations_and_if_logic(self):
     """Terminal Root stage permits sequential derived assignments and safe if() logic."""
     good_query = """

@@ -1,16 +1,17 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.7.1
+version: 2.8.0
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   outlier hunting, and Entity Context Graph (GLOBAL_CONTEXT and DERIVED_CONTEXT) enrichment in Google Security
   Operations (SecOps) over raw UDM telemetry across custom time slices.
   Supports Z-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, Median Absolute Deviation (MAD),
   Coefficient of Variation (CV), Poisson-Gamma Bayesian Shrinkage, Beta-Binomial Ratio Regularization,
-  Dual-Baseline Delta-Z (Patch Tuesday Shield), Multi-Sector Threat Fusion, and 6 Hybrid Mathematical Models
-  (Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds, Two-Part Hurdle,
-  and Fleet Prevalence Normalization). Supports dynamic root-stage condition filtering and noise level steering.
+  Dual-Baseline Delta-Z (Patch Tuesday Shield), Multi-Sector Threat Fusion, Markov 2-Gram Transition Rarity,
+  Shannon Character-Class Entropy, Zipfian Long-Tail Process Rarity, Intraday EWMA Burst Velocity, and 6 Hybrid
+  Mathematical Models (Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds,
+  Two-Part Hurdle, and Fleet Prevalence Normalization). Supports dynamic root-stage condition filtering and noise level steering.
   Enforces strict 5-Section CommonMark Triage Reporting (with 6 standardized forensic evidence pillars,
   Calibrated Risk Index [0-100] normalization, Unicode visual bars, and 1-click drilldowns),
   strict visual axis-type isolation, and post-query intent and stage degradation auditing.
@@ -23,7 +24,8 @@ description: |
   "unusual data repository access", "service account origin rarity", "source code repository anomaly",
     "diversity deficit", "elephant flow concentration", "orthogonal threat space", "two-part hurdle", "privileged lateral expansion", "unseen endpoint login", "admin destination breadth",
     "global threat intel enrichment", "gcti threat match", "whois newly registered domain surge", "derived context asset age", "unfamiliar machine login",
-    "derived context file prevalence", "enterprise unseen binary burst", "derived context domain prevalence", "first seen domain egress", "binary enterprise prevalence".
+    "derived context file prevalence", "enterprise unseen binary burst", "derived context domain prevalence", "first seen domain egress", "binary enterprise prevalence",
+    "markov process transition", "parent child transition surprisal", "living off the land chain", "shannon character entropy", "obfuscated command line entropy", "zipfian process rarity", "power law process tail", "ewma burst velocity", "intraday kinetic burst".
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
 ---
 
@@ -74,6 +76,10 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 | *"Find anomalous logins targeting brand-new, rare, or recently commissioned assets."* | **`DERIVED_CONTEXT_PREVALENCE`** ($Z_{\text{auth}} \ge 2.5$) | **The Unfamiliar Machine**: Uses Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to verify true enterprise first-seen age, separating routine logins from first-contact connections to unestablished endpoints. |
 | *"Hunt for anomalous execution bursts of rare or enterprise-unseen binaries."* | **`DERIVED_CONTEXT_FILE_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The Unprecedented Binary**: Uses Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to evaluate enterprise-wide file prevalence (`day_count <= 3`), applying a 2.5x threat score multiplier for rare binaries executing on local endpoints. |
 | *"Detect high-volume network egress bursts to enterprise-unseen or newly contacted domains."* | **`DERIVED_CONTEXT_DOMAIN_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The First-Contact Outbound Flow**: Employs Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to cross-reference domain history (`day_count <= 3`), prioritizing network surges targeting domains never previously accessed across the fleet. |
+| *"Detect anomalous process lineages or rare living-off-the-land parent-child executions (e.g. Word -> cmd, SQL Server -> PowerShell)."* | **`MARKOV_2GRAM_TRANSITION_RARITY`** (Surprisal $I \ge 3.0$) | **The Broken Lineage Chain**: Parent-child execution transitions follow conditional probability $P(B \mid A)$. Normal administrative transitions have high probability; anomalous adversary execution chains trigger extreme information surprisal. |
+| *"Detect obfuscated command-line arguments, base64 payloads, or algorithmic DGA domains."* | **`SHANNON_ENTROPY_CHARACTER`** (Entropy $\ge 5.5$) | **The Scrambled Script**: Natural language commands exhibit predictable character patterns and redundancy; encoded scripts and DGA tokens exhibit collapsed compression redundancy and elevated character entropy. |
+| *"Find rare administrative utilities executing in the asymptotic fleet tail (<= 2 hosts enterprise-wide)."* | **`ZIPFIAN_PROCESS_RARITY`** (Zipf Rarity $\ge 2.5$) | **The Long-Tail Tool**: Enterprise process execution follows a power-law distribution ($f(k) \propto 1/k^s$); standard tools dominate volume while stealthy admin utilities sit in the extreme asymptotic tail. |
+| *"Detect acute intraday rate acceleration without lagging trailing historical baselines."* | **`EWMA_BURST_VELOCITY`** (Velocity $V \ge 2.0\sigma$) | **The Sudden Kinetic Thrust**: Exponentially weighted moving average ($\alpha = 0.30$) captures instantaneous velocity shifts, isolating sudden burst acceleration from smoothed baseline trajectories. |
 
 ---
 

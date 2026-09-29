@@ -33,6 +33,18 @@ Every threat—known, emerging, or zero-day—physically deforms raw UDM event s
 │ 6. Enterprise Novelty       │ Activity involving entities   │ Z-Score with Derived Context         │
 │    ("The Unseen Intruder")  │ with near-zero enterprise     │ Prevalence Multiplier                │
 │                             │ presence (day_count <= 3)     │ (File / Domain 3-stage DAG)          │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 7. Lineage Surprisal        │ Benign parent spawning rare   │ Markov 2-Gram Transition Rarity      │
+│    ("The Broken Chain")     │ anomalous child process       │ (-ln(P(B|A)) >= 3.0 surprisal score) │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 8. Syntactic Entropy        │ High character randomness in  │ Shannon Character-Class Entropy      │
+│    ("The Scrambled Command")│ command lines, scripts, or DGA│ (Length & Information Density Score) │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 9. Long-Tail Rarity         │ Executions of tools in extreme│ Power-Law / Zipfian Inverse Rank     │
+│    ("The Asymptotic Tool")  │ asymptotic tail (<= 2 hosts)  │ Frequency Rarity (f(k) ~ 1/k^s)      │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 10. Kinetic Acceleration    │ Instantaneous rate departure  │ Intraday Exponentially Weighted      │
+│    ("The Sudden Thrust")    │ from smoothed trajectory      │ Moving Average (EWMA Velocity)       │
 └─────────────────────────────┴───────────────────────────────┴──────────────────────────────────────┘
 ```
 
@@ -83,15 +95,19 @@ When engaging the analyst during State 1, use the **Summary View** menus below t
 * **Why Static Rules Miss It**: Administrative binaries (`powershell.exe`, `certutil.exe`) are legitimately used; static rules either drown in noise or miss localized machine surges.
 * **Summary View Options**:
   1. *Parametric Host Surge*: Detect endpoints executing binaries at > 3 standard deviations above baseline (**Standard Z-Score** on `PROCESS_LAUNCH`).
-  2. *Quiet Server Command Rarity*: Surface rarely executed tools on historically quiet infrastructure (**Discrete Poisson Rarity** on `PROCESS_LAUNCH`).
-  3. *Fleet Prevalence Shielding*: Isolate targeted malware execution from company-wide software deployments (**Dual-Baseline Delta-Z** on `PROCESS_LAUNCH`).
-  4. *Unseen Staged Binary Bursts*: Isolate localized execution spikes while using enterprise day count to separate unseen binaries from ubiquitous administrative utilities (**Derived Context File Prevalence** on `PROCESS_LAUNCH`).
+  2. *Markov Parent-Child Transition Surprisal*: Flag anomalous child process spawning lineages (e.g. Word -> cmd, SQL Server -> PowerShell) (**Markov 2-Gram Information Surprisal** on `PROCESS_LAUNCH`).
+  3. *Power-Law Zipfian Tool Long Tail*: Isolate rare administrative utility execution in the asymptotic fleet tail (**Zipfian Inverse Rank Rarity** on `PROCESS_LAUNCH`).
+  4. *Obfuscated Scripting & Command Randomness*: Detect base64 encoding and high-entropy parameters (**Shannon Character-Class Entropy** on `PROCESS_LAUNCH`).
+  5. *Quiet Server Command Rarity*: Surface rarely executed tools on historically quiet infrastructure (**Discrete Poisson Rarity** on `PROCESS_LAUNCH`).
+  6. *Fleet Prevalence Shielding*: Isolate targeted malware execution from company-wide software deployments (**Dual-Baseline Delta-Z** on `PROCESS_LAUNCH`).
+  7. *Unseen Staged Binary Bursts*: Isolate localized execution spikes while using enterprise day count to separate unseen binaries from ubiquitous administrative utilities (**Derived Context File Prevalence** on `PROCESS_LAUNCH`).
 
 ### Domain 4: Scripted Staging & Bulk Data Exfiltration
 * **Why Static Rules Miss It**: Attackers fragment data into sub-threshold uploads or exfiltrate across non-standard protocols.
 * **Summary View Options**:
   1. *Robust Heavy-Tail Surges*: Identify extreme volumetric uploads resilient to historical outlier pollution (**Median Absolute Deviation MAD** on network egress).
-  2. *Vocabulary Diversity Deficit*: Detect scripted automated dumps exhibiting extreme target concentration (**Diversity Deficit k/(N+1)** on HTTP requests).
+  2. *Intraday Kinetic Acceleration*: Detect acute rate bursts without lagging trailing historical baselines (**Intraday EWMA Burst Velocity** on `PROCESS_LAUNCH` or `NETWORK_CONNECTION`).
+  3. *Vocabulary Diversity Deficit*: Detect scripted automated dumps exhibiting extreme target concentration (**Diversity Deficit k/(N+1)** on HTTP requests).
 
 ### Domain 5: Lateral Movement & Privileged Account Traversal
 * **Why Static Rules Miss It**: Admins have valid credentials across many hosts; point-in-time alerts cannot track machine radius expansion.
