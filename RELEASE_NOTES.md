@@ -1,6 +1,6 @@
 # Release Notes: SecOps Statistical Hunter
 
-## 📦 Version 2.8.0 (September 29, 2026) — Advanced Information-Theoretic & Long-Tail Analytical Models (Markov 2-Gram, Shannon Character Entropy, Zipfian Process Rarity & Intraday EWMA Burst Velocity)
+## 📦 Version 2.7.2 (September 29, 2026) — Advanced Information-Theoretic & Long-Tail Analytical Models (Markov 2-Gram, Shannon Character Entropy, Zipfian Process Rarity & Intraday EWMA Burst Velocity)
 
 * **Four New Information-Theoretic & Tail-Analysis Analytical Models**:
   * **Markov 2-Gram Transition Rarity (`templates/pipelines/markov_2gram_transition_rarity_2stage.yl2`)**:

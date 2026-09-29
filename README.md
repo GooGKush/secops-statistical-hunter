@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.8.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-136%2F136%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-20%2F21%20passing%20(95.2%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v2.7.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-136%2F136%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-20%2F21%20passing%20(95.2%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -233,7 +233,7 @@ End-to-end multi-turn conversational regression is validated by the maintainer t
 
 ## 📦 Release Notes
 
-### v2.8.0 (September 29, 2026) — Advanced Information-Theoretic & Long-Tail Analytical Models
+### v2.7.2 (September 29, 2026) — Advanced Information-Theoretic & Long-Tail Analytical Models
 * **Four New Information-Theoretic & Long-Tail Models**: Added Markov 2-Gram Transition Rarity (`markov_2gram_transition_rarity_2stage.yl2`), Shannon Character-Class Entropy (`shannon_entropy_character_2stage.yl2`), Power-Law / Zipfian Long-Tail Process Rarity (`zipfian_process_rarity_2stage.yl2`), and Intraday EWMA Burst Velocity (`ewma_burst_velocity_2stage.yl2`), expanding golden pipelines from 17 to 21.
 * **Architecture, Routing & Sensitivity Mapping**: Added parameter bounds across conservative, balanced, and aggressive tiers in `SENSITIVITY_MAP`, registered archetypes in `MultiStageTemplateRouter`, and updated `HandoffEndpoint`.
 * **Consultative Guidance & Worksheets**: Expanded consultative worksheet with telemetry deformations 7–10 and taxonomy sections 13–16.
