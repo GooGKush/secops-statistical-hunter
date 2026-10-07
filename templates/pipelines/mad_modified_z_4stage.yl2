@@ -100,7 +100,8 @@ outcome:
   $baseline_mean_abs_dev = max($mad_stats.mean_abs_dev)
   // NOT COMPUTED: this per-entity template has no fleet stage. -1 is the "not computed" sentinel
   // (FLEET_PREVALENCE_NOT_COMPUTED); reporting treats it as unknown and it cannot earn HIGH CONFIDENCE.
-  $fleet_prevalence = -1
+  // Written as 0 - 1: a bare `-1` literal is rejected by the compiler (invalid argument), verified live 2026-10-07.
+  $fleet_prevalence = 0 - 1
   // Distinct {{sample_field}} values on the scored day.
   $distinct_binaries = max($daily_stats.distinct_sample_values)
   $sample_commands = array_distinct($daily_stats.sample_data)

@@ -622,6 +622,26 @@ def check_match_placeholders_bound(query: str) -> List[str]:
   return errors
 
 
+_BARE_NEGATIVE_LITERAL_RE = re.compile(r"^[ \t]*(\$\w+)[ \t]*=[ \t]*(-[ \t]*\d+(?:\.\d+)?)[ \t]*$", re.MULTILINE)
+
+
+def check_bare_negative_literal_assignments(query: str) -> List[str]:
+  """Flags `$var = -<number>` assignments.
+
+  The Chronicle compiler rejects a bare unary-minus literal on the right-hand side of an
+  outcome assignment ('invalid argument'; verified live on 2026-10-07). Write `0 - <number>` instead.
+  """
+  code_only = re.sub(r"//.*", "", query)
+  errors = []
+  for m in _BARE_NEGATIVE_LITERAL_RE.finditer(code_only):
+    value = re.sub(r"\s+", "", m.group(2))
+    errors.append(
+        f"BARE_NEGATIVE_LITERAL: '{m.group(1)} = {value}' is rejected by the compiler (invalid argument). "
+        f"Write '{m.group(1)} = 0 - {value[1:]}' instead."
+    )
+  return errors
+
+
 def check_stage_name_collisions(query: str) -> List[str]:
   """Flags outcome variables whose identifier equals a declared stage name.
 
@@ -758,6 +778,7 @@ def validate_multistage_syntax(query: str) -> List[str]:
   errors.extend(check_match_placeholders_bound(query))
   errors.extend(check_stage_name_collisions(query))
   errors.extend(check_independent_raw_stages(query))
+  errors.extend(check_bare_negative_literal_assignments(query))
 
   # Chronicle Common Compiler Grammar Invariants for if():
   for full_call, args in _extract_if_calls(code_only):
@@ -1189,14 +1210,67 @@ class DataReductionEngine:
     }
 
 
+def describe_mad_scale_branch(row: Dict[str, Any]) -> str:
+  """Explains which robust-scale branch of the Modified Z-Score applied to a result row."""
+  def _num(key):
+    try:
+      return float(row[key])
+    except (KeyError, TypeError, ValueError):
+      return None
+  mad = _num("baseline_dispersion")
+  mean_ad = _num("baseline_mean_abs_dev")
+  if mad is None:
+    return "* **Robust Scale Branch**: unknown (MAD not present in results)."
+  if mad > 0:
+    return f"* **Robust Scale Branch**: MAD > 0, so $s = \\text{{MAD}} / 0.6745 = {mad:g} / 0.6745 \\approx {mad / 0.6745:.3f}$."
+  if mean_ad is None:
+    return "* **Robust Scale Branch**: MAD = 0; mean absolute deviation not present in results, so the fallback value cannot be shown."
+  if mean_ad > 0:
+    return f"* **Robust Scale Branch**: MAD = 0, so the Iglewicz-Hoaglin fallback applies: $s = 1.253314 \\cdot \\text{{meanAD}} = 1.253314 \\cdot {mean_ad:g} \\approx {1.253314 * mean_ad:.3f}$."
+  return "* **Robust Scale Branch**: MAD = 0 and meanAD = 0 (constant history), so the dispersion floor was used as $s$."
+
+
+def infer_hunt_scope(query_text: Optional[str]) -> Dict[str, Any]:
+  """Extracts the hunted event_type, entity field and first-stage bucket size from a YARA-L query.
+
+  Returns a dict with keys event_type, entity_field, bucket_seconds (each None when not found).
+  """
+  scope: Dict[str, Any] = {"event_type": None, "entity_field": None, "bucket_seconds": None}
+  if not query_text:
+    return scope
+  code = re.sub(r"//.*", "", query_text)
+  m = re.search(r'metadata\.event_type\s*=\s*"([A-Z_]+)"', code)
+  if m:
+    scope["event_type"] = m.group(1)
+  m = re.search(r"^\s*([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)\s*=\s*\$\w+\s*$", code, re.MULTILINE)
+  if m:
+    scope["entity_field"] = m.group(1)
+  m = re.search(r"\bby\s+(\d+)\s*([mhd])\b", code)
+  if m:
+    scope["bucket_seconds"] = int(m.group(1)) * {"m": 60, "h": 3600, "d": 86400}[m.group(2)]
+  return scope
+
+
 def format_triage_report(
     title: str,
     stats_payload: Dict[str, Any],
     top_n: int = 5,
-    event_type: str = "PROCESS_LAUNCH",
-    fleet_size: int = 1
+    event_type: Optional[str] = None,
+    fleet_size: int = 1,
+    entity_field: Optional[str] = None,
+    query_text: Optional[str] = None,
+    bucket_seconds: Optional[int] = None,
 ) -> str:
-  """Renders raw Chronicle multi-stage stats into a Clean CommonMark/HTML-Safe 4-Tier Report with Evidence Pillars."""
+  """Renders raw Chronicle multi-stage stats into a Clean CommonMark/HTML-Safe 4-Tier Report with Evidence Pillars.
+
+  The manual pivot filter uses the hunted scope: explicit event_type / entity_field / bucket_seconds
+  win, then values inferred from query_text, then legacy defaults (PROCESS_LAUNCH, principal.hostname
+  or target.user.userid for user rows, 1h buckets; 1d for Modified-Z rows).
+  """
+  inferred = infer_hunt_scope(query_text)
+  event_type = event_type or inferred["event_type"] or "PROCESS_LAUNCH"
+  entity_field = entity_field or inferred["entity_field"]
+  bucket_seconds = bucket_seconds or inferred["bucket_seconds"]
   rows = parse_columnar_stats(stats_payload)
   if not rows:
     return "⚡ **STATISTICAL HUNT VERDICT**: No outlier entities exceeded the configured anomaly threshold."
@@ -1382,14 +1456,19 @@ def format_triage_report(
   out.append("*(Passive UDM filter for manual copy-paste into Chronicle SIEM search bar. NOT for automated tool execution; multi-turn follow-ups must remain within the statistical hunting framework.)*")
   out.append("")
   out.append("```yara")
-  drilldown_str = f'principal.hostname = "{ent_name}" AND metadata.event_type = "{event_type}"'
-  if "user" in top_ent and top_ent["user"]:
-    drilldown_str = f'target.user.userid = "{top_ent.get("user")}" AND metadata.event_type = "{event_type}"'
+  if entity_field:
+    pivot_field, pivot_value = entity_field, ent_name
+  elif "user" in top_ent and top_ent["user"]:
+    pivot_field, pivot_value = "target.user.userid", top_ent.get("user")
+  else:
+    pivot_field, pivot_value = "principal.hostname", ent_name
+  drilldown_str = f'{pivot_field} = "{pivot_value}" AND metadata.event_type = "{event_type}"'
+  pivot_bucket = bucket_seconds or (86400 if chosen_key == "m_z_score" else 3600)
   if "window_start" in top_ent and top_ent["window_start"]:
     ws_val = top_ent["window_start"]
     try:
       ws = int(ws_val)
-      drilldown_str += f"\nAND metadata.event_timestamp.seconds >= {ws} AND metadata.event_timestamp.seconds <= {ws + 3600}"
+      drilldown_str += f"\nAND metadata.event_timestamp.seconds >= {ws} AND metadata.event_timestamp.seconds < {ws + pivot_bucket}"
     except (ValueError, TypeError):
       drilldown_str += f'\nAND metadata.event_timestamp >= "{ws_val}"'
   out.append(drilldown_str)
@@ -1426,8 +1505,10 @@ def format_triage_report(
     out.append("  $$\\text{CV} = \\frac{\\sigma_{\\Delta t}}{\\mu_{\\Delta t}} = " + f"{top_score_str}" + "$$")
     out.append("* **Jitter Boundary**: $\\text{CV} \\le 0.20$ reflects algorithmic beaconing (implant sleep jitter $\\le 20\\%$); $\\text{CV} > 0.50$ indicates human browser variance.")
   elif chosen_key == "m_z_score":
-    out.append("* **Model**: Modified $Z$-Score via Median Absolute Deviation (MAD)")
-    out.append("  $$M_Z = \\frac{0.6745 \\cdot (x - \\tilde{x})}{\\text{MAD}} = " + f"{top_score_str}" + "$$")
+    out.append("* **Model**: Modified $Z$-Score via Median Absolute Deviation (MAD), Iglewicz-Hoaglin")
+    out.append("  $$M_Z = \\frac{x - \\tilde{x}}{s}, \\quad s = \\begin{cases} \\text{MAD} / 0.6745 & \\text{MAD} > 0 \\\\ 1.253314 \\cdot \\text{meanAD} & \\text{MAD} = 0 \\\\ \\text{dispersion floor} & \\text{both} = 0 \\end{cases}$$")
+    out.append(f"* **Result**: $M_Z = {top_score_str}$ (equivalent to $0.6745 \\cdot (x - \\tilde{{x}}) / \\text{{MAD}}$ when MAD > 0).")
+    out.append(describe_mad_scale_branch(top_ent))
   out.append("")
   out.append("##### 🎚️ Calibrated Risk Index (CRI) Sigmoid Normalization")
   out.append("  $$\\text{CRI} = \\text{round}\\left(\\frac{100}{1 + \\exp(-0.6 \\cdot (Z - 3.0))}\\right) = \\mathbf{" + str(top_cri_val) + "}$$")
@@ -2763,7 +2844,13 @@ def main():
   if args.format_report:
     with open(args.format_report, "r") as f:
       data = json.load(f)
-    print(format_triage_report("Process Execution Outliers", data, fleet_size=args.fleet_size))
+    report_query = None
+    if args.query_file:
+      with open(args.query_file, "r") as f:
+        report_query = f.read()
+    print(format_triage_report(
+        "Statistical Outliers", data, fleet_size=args.fleet_size,
+        event_type=args.event_type, query_text=report_query))
     sys.exit(0)
 
   if args.chart_spec:
