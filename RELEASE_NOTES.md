@@ -12,6 +12,8 @@
   * `{{min_mb}}` renamed to `{{min_daily_volume}}` (it is compared to the daily value, not megabytes).
   * Default Modified-Z cut-off is now 3.5 (BALANCED); CONSERVATIVE 5.0, AGGRESSIVE 3.0.
 * **Evidence pillars**: added `$baseline_median` (the 6-pillar `$baseline_mean` slot is retained for the contract and documented as holding the median); `$distinct_binaries` now counts distinct `{{sample_field}}` values on the scored day; `$fleet_prevalence = 1` is explicitly documented as a placeholder (not computed by this per-entity template).
+* **Fleet prevalence "not computed" sentinel**: the MAD template now emits `$fleet_prevalence = -1` instead of a fake `1`. `resolve_fleet_prevalence()` treats missing or negative prevalence as unknown; `evaluate_confidence_tier()` caps unknown prevalence at MODERATE, and the triage report shows `not computed` instead of claiming isolation. Documented in the `SKILL.md` 6-pillar contract.
+* Added `tests/test_mad_cross_skill_sync.py` (copied verbatim from `secops-risk-metrics-multistage`): name-independent guard that the MAD math is identical in both skills; skips if the sibling repo is absent.
 * **Documented caveats**: median/MAD are over active days only (zero-activity days emit no row); the scored day is included in its own baseline.
 * MAD archetype aliases (`MAD`, `MODIFIED_Z`, ...) now always resolve the `DATA_EXFILTRATION_SPIKE` threshold set (previously fell back to Z-score thresholds).
 * Added `tests/test_mad_modified_z_template.py` (11 tests); suite 136 → 147 passing.

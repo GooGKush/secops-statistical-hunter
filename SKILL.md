@@ -165,6 +165,7 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
      - `$fleet_prevalence` (fleet breadth active in window, e.g. `max($fleet_breadth.fleet_hosts)`)
      - `$distinct_binaries` (distinct programs or destination targets, e.g. `max($host_hourly.distinct_procs)` for process activity or `max($host_hourly.distinct_destinations)` for network traffic)
      Retain these 6 exact outcome variable names across all telemetry types (process launches, network connections, authentication, DNS, file events).
+     If a pipeline cannot compute fleet breadth, emit `$fleet_prevalence = -1` (not computed); reporting treats it as unknown and it never counts toward HIGH CONFIDENCE.
    * *Target Entity Scoping & Bare Identifier Match Binding*:
      When scoping to a specific entity (such as host `dev-ub22-1` or user `frank.kolzig`), filter directly in the primary stage predicates and bind the entity variable for matching:
      ```yara

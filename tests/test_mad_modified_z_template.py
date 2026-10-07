@@ -90,7 +90,8 @@ class TestMadModifiedZTemplate(unittest.TestCase):
       self.assertRegex(self.raw, rf"\n  \${v} = ")
     self.assertIn("$baseline_median = max($mad_stats.median_val)", self.raw)
     self.assertIn("$distinct_binaries = max($daily_stats.distinct_sample_values)", self.raw)
-    self.assertIn("PLACEHOLDER", self.raw)
+    self.assertIn("$fleet_prevalence = -1", self.raw)
+    self.assertIn("NOT COMPUTED", self.raw)
 
   def test_default_threshold_is_iglewicz_hoaglin(self):
     self.assertEqual(SENSITIVITY_MAP["DATA_EXFILTRATION_SPIKE"]["BALANCED"]["m_z"], 3.5)

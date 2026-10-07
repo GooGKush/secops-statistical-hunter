@@ -1018,17 +1018,39 @@ def calculate_fleet_adjusted_threshold(base_z: float, fleet_size: int) -> float:
   return max(base_z, round(correction, 2))
 
 
+# Sentinel a pipeline emits as `$fleet_prevalence` when it does not compute fleet breadth.
+FLEET_PREVALENCE_NOT_COMPUTED = -1
+
+
+def resolve_fleet_prevalence(row: Dict[str, Any]) -> Optional[float]:
+  """Returns fleet prevalence, or None when it is missing or marked not computed (negative sentinel)."""
+  for key in ("fleet_prevalence", "hosts_contacting", "fleet_host_count"):
+    if key in row and row[key] not in (None, ""):
+      try:
+        value = float(row[key])
+      except (TypeError, ValueError):
+        return None
+      return value if value >= 0 else None
+  return None
+
+
 def evaluate_confidence_tier(row: Dict[str, Any]) -> Tuple[str, str]:
-  """Evaluates statistical evidence confidence rating (High vs Moderate vs Insufficient Baseline)."""
+  """Evaluates statistical evidence confidence rating (High vs Moderate vs Insufficient Baseline).
+
+  HIGH CONFIDENCE requires a known, low fleet prevalence; a missing or not-computed
+  prevalence is treated as unknown and caps the rating at MODERATE.
+  """
   active_samples = float(row.get("baseline_active_samples", row.get("active_samples", row.get("active_days", 100))))
   obs = float(row.get("observation_count", row.get("observed_count", row.get("observed_today", row.get("total_fails", 50)))))
   disp = float(row.get("baseline_dispersion", row.get("stddev_val", row.get("mad_val", 10.0))))
-  prevalence = float(row.get("fleet_prevalence", row.get("hosts_contacting", 1)))
+  prevalence = resolve_fleet_prevalence(row)
 
   if active_samples < 30 or obs < 5 or disp <= 0.1:
     return "⚪ **INSUFFICIENT BASELINE**", "Denominator too small (< 30 active samples or near-zero dispersion). Risk of false-positive anomaly."
-  elif active_samples >= 120 and obs >= 25 and disp >= 5.0 and prevalence <= 3:
+  elif active_samples >= 120 and obs >= 25 and disp >= 5.0 and prevalence is not None and prevalence <= 3:
     return "🟢 **HIGH CONFIDENCE**", "Robust historical baseline (>= 120 active samples, verified dispersion, low fleet prevalence)."
+  elif active_samples >= 120 and obs >= 25 and disp >= 5.0 and prevalence is None:
+    return "🟡 **MODERATE CONFIDENCE**", "Robust historical baseline, but fleet prevalence was not computed; HIGH requires verified low fleet prevalence."
   else:
     return "🟡 **MODERATE CONFIDENCE**", "Adequate baseline with acceptable statistical support."
 
@@ -1279,7 +1301,11 @@ def format_triage_report(
   active_samples = top_ent.get("baseline_active_samples", top_ent.get("active_samples", top_ent.get("active_days", "N/A")))
   base_mean = top_ent.get("baseline_mean", top_ent.get("mean_val", top_ent.get("historical_lambda", top_ent.get("mu", "N/A"))))
   base_disp = top_ent.get("baseline_dispersion", top_ent.get("stddev_val", top_ent.get("mad_val", "N/A")))
-  fleet_prev = top_ent.get("fleet_prevalence", top_ent.get("hosts_contacting", top_ent.get("fleet_host_count", "1")))
+  fleet_prev_num = resolve_fleet_prevalence(top_ent)
+  if fleet_prev_num is None:
+    fleet_prev = "not computed"
+  else:
+    fleet_prev = str(int(fleet_prev_num)) if float(fleet_prev_num).is_integer() else str(fleet_prev_num)
   cardinality = top_ent.get("distinct_binaries", top_ent.get("distinct_subdomains", top_ent.get("total_connections", "N/A")))
 
   out.append("")
@@ -1310,7 +1336,10 @@ def format_triage_report(
   out.append(f"> ")
   out.append(f"> **Why It Matters**: This sudden burst produced an anomaly rating of **{top_score_str}**, indicating behavior so statistically rare that it almost certainly represents **automated software execution, script loops, or active threat tooling** rather than normal human employee activity.")
   out.append(f"> ")
-  out.append(f"> **Organization Context**: This behavior was observed on only **{fleet_prev} endpoint(s)** across the entire company, ruling out a routine corporate-wide software rollout.")
+  if fleet_prev_num is None:
+    out.append("> **Organization Context**: Fleet-wide breadth was **not computed** by this pipeline; check other endpoints before ruling out a routine corporate-wide software rollout.")
+  else:
+    out.append(f"> **Organization Context**: This behavior was observed on only **{fleet_prev} endpoint(s)** across the entire company, ruling out a routine corporate-wide software rollout.")
   out.append("")
 
   # Render Plain-English 6 Evidence Pillars
@@ -1322,7 +1351,8 @@ def format_triage_report(
   out.append(f"| **2. Baseline History** | `{active_samples} units` | How much history was analyzed to ensure this isn't a new or unobserved machine |")
   out.append(f"| **3. Typical Normal Level** | `{base_mean}` | The normal expected volume when things are operating routinely |")
   out.append(f"| **4. Normal Daily Spread** | `±{base_disp}` | Typical fluctuation range; this surge blew far past this envelope |")
-  out.append(f"| **5. Company-Wide Breadth** | `{fleet_prev} host(s)` | 1 host = isolated/targeted; 100 hosts = company-wide software push |")
+  fleet_prev_cell = fleet_prev if fleet_prev_num is None else f"{fleet_prev} host(s)"
+  out.append(f"| **5. Company-Wide Breadth** | `{fleet_prev_cell}` | 1 host = isolated/targeted; 100 hosts = company-wide software push |")
   out.append(f"| **6. Variety of Programs** | `{cardinality}` | Unique programs/commands involved (high variety = batch recon/staging) |")
 
   if chosen_key and chosen_key in THREAT_EXPLANATIONS:
@@ -1415,7 +1445,10 @@ def format_triage_report(
   out.append("##### 🛡️ Statistical Validity & Safeguard Verification")
   out.append(f"* **Sample Density Floor**: `{active_samples}` active units (Threshold $\\ge 30$ $\\to$ **PASSED**).")
   out.append(f"* **Dispersion Non-Zero Floor**: Spread `{base_disp}` (Threshold $\\ge 5.0$ $\\to$ **PASSED**).")
-  out.append(f"* **Fleet Prevalence Isolation**: `{fleet_prev}` host(s) (Threshold $\\le 3$ $\\to$ **PASSED**).")
+  if fleet_prev_num is None:
+    out.append("* **Fleet Prevalence Isolation**: `not computed` (Threshold $\\le 3$ $\\to$ **NOT EVALUATED**).")
+  else:
+    out.append(f"* **Fleet Prevalence Isolation**: `{fleet_prev}` host(s) (Threshold $\\le 3$ $\\to$ **PASSED**).")
   out.append("</details>")
 
   return "\n".join(out)
