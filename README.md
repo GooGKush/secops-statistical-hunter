@@ -81,7 +81,7 @@ secops-statistical-hunter/
 │   ├── global_threat_intel_enrichment_3stage.yl2 # GCTI Threat Intel & WHOIS NRD egress correlation
 │   ├── hybrid_entropy_concentration_2stage.yl2 # Diversity Deficit & Elephant Flow Concentration
 │   ├── log_normal_volume_surge_2stage.yl2   # Parametric Log-Normal Volumetric Standardization & Sigmoid CRI
-│   ├── mad_exfiltration_2stage.yl2          # Median Absolute Deviation (MAD) & Non-Parametric IQR
+│   ├── mad_modified_z_4stage.yl2            # Standalone MAD / Modified Z-Score (4-stage, Iglewicz-Hoaglin MAD=0 fallback)
 │   ├── markov_2gram_transition_rarity_2stage.yl2 # Markov 2-Gram transition probability & information surprisal
 │   ├── multi_sector_threat_fusion_4stage.yl2 # Orthogonal Threat Space & Euclidean Distance
 │   ├── poisson_burst_clustering_2stage.yl2  # Poisson Burst Clustering & Fano Factor (password spray)
@@ -135,6 +135,7 @@ secops-statistical-hunter/
     ├── test_query_auditor.py                # Post-flight intent and raw log dump detection tests
     ├── test_routing_interceptor.py          # Pre-flight routing interceptor and delegation tests
     ├── test_triage_reporting.py             # CommonMark 5-section triage schema & pillar tests
+    ├── test_mad_modified_z_template.py      # MAD / Modified Z template correctness contract
     ├── test_verified_compiler_facts.py      # Chronicle Malachite compiler grammar facts
     └── test_window_adaptation.py            # Dynamic windowing and sample floor adaptation tests
 ```

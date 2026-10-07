@@ -1,0 +1,121 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Standalone Median Absolute Deviation (MAD) / Modified Z-Score outlier hunt over raw UDM telemetry.
+//   Scores each entity-day of {{daily_aggregation}} against that entity's own robust baseline
+//   (median + MAD) over whatever startTime/endTime window the query is run on. Works for any raw field:
+//   event counts (default), byte volumes, distinct-value counts, etc.
+//   Scope note: this is the standalone raw-telemetry MAD model. The sibling secops-risk-metrics-multistage
+//   skill uses MAD only as a robustness cross-check next to its 30-day pre-computed UEBA metric baseline.
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Pipeline: 4 stages (daily_stats -> median_stats -> mad_stats -> root).
+// Slots (template placeholder name -> value in this rendering):
+//   daily_aggregation = {{daily_aggregation}}
+//       Daily observed value per entity. Default: count(metadata.id) (event count).
+//       Examples: sum(network.sent_bytes) (bytes out), count_distinct(network.dns.questions.name).
+//   sample_field = {{sample_field}}
+//       Raw UDM field sampled as evidence (e.g. network.dns.questions.name for DNS, target.ip for
+//       NETWORK_CONNECTION, target.process.file.full_path for PROCESS_LAUNCH).
+//   min_daily_volume = {{min_daily_volume}}
+//       Floor on the scored day's observed value (same units as daily_aggregation).
+//   dispersion_floor = {{dispersion_floor}}
+//       Last-resort robust scale used only when both MAD and mean absolute deviation are 0.
+// Statistical Model: Modified Z-Score (Iglewicz & Hoaglin, 1993)
+//   median   = median(daily value over active days)  [even count: one middle value, no interpolation]
+//   MAD      = median(|daily value - median|)
+//   meanAD   = mean(|daily value - median|)
+//   scale    = MAD / 0.6745            if MAD > 0
+//            = 1.253314 * meanAD       if MAD = 0 (Iglewicz-Hoaglin fallback)
+//            = {{dispersion_floor}}    if both are 0 (perfectly constant history)
+//   M_Z      = (observed - median) / scale    (== 0.6745 * (observed - median) / MAD when MAD > 0)
+//   Recommended outlier cut-off: M_Z > 3.5.
+// Mathematical Rationale:
+//   - Security telemetry distributions are heavily right-skewed; mean/stddev Z-scores are distorted by the very
+//     spikes they are meant to find. Median and MAD have a 50% breakdown point.
+//   - Steady entities (MAD = 0) are NOT dropped: they fall back to the mean absolute deviation, so a sudden
+//     departure from a perfectly regular baseline is still scored.
+// Caveats:
+//   - Days with zero activity produce no daily_stats row, so the median/MAD are computed over ACTIVE days only.
+//     For sparse entities this biases the baseline upward (and the score downward).
+//   - The scored day is included in its own baseline (no hold-out); the median's robustness limits the impact.
+// Sensitivity Boundary: {{tier}} (M_Z > {{m_z}}, Daily Value >= {{min_daily_volume}}, Active Days >= {{min_baseline_days}})
+// ============================================================================
+
+// Stage 1: Daily observed value per entity
+stage daily_stats {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+  outcome:
+    $daily_value = {{daily_aggregation}}
+    $distinct_sample_values = count_distinct({{sample_field}})
+    $sample_data = array_distinct({{sample_field}})
+}
+
+// Stage 2: Baseline median of the daily value per entity (active days only)
+stage median_stats {
+    $entity = $daily_stats.entity
+
+  match:
+    $entity
+  outcome:
+    // window.median(values, should_ignore_zero_values): false keeps genuine 0 values in the median.
+    // With an even count the engine returns one of the two middle values (no interpolation, non-deterministic).
+    $baseline_median = window.median($daily_stats.daily_value, false)
+}
+
+// Stage 3: MAD, mean absolute deviation (MAD=0 fallback) and baseline depth per entity
+stage mad_stats {
+    $entity = $daily_stats.entity
+    $entity = $median_stats.entity
+
+  match:
+    $entity
+  outcome:
+    // false is REQUIRED: true would drop the zero deviations of days at the median and inflate MAD.
+    $mad = window.median(math.abs($daily_stats.daily_value - $median_stats.baseline_median), false)
+    $mean_abs_dev = avg(math.abs($daily_stats.daily_value - $median_stats.baseline_median))
+    $median_val = max($median_stats.baseline_median)
+    $active_days = count_distinct($daily_stats.window_start)
+}
+
+// Root Stage: Modified Z-Score per entity-day and the 6 Evidence Pillars
+$entity = $daily_stats.entity
+$entity = $mad_stats.entity
+$window_start = $daily_stats.window_start
+
+match:
+  $entity, $window_start by 1d
+outcome:
+  // 6 Core Evidence Pillars (names fixed by the skill's root-outcome contract)
+  $observation_count = max($daily_stats.daily_value)
+  $baseline_active_samples = max($mad_stats.active_days)
+  // Contract slot $baseline_mean holds the baseline MEDIAN here (central tendency); $baseline_median is the honest alias.
+  $baseline_median = max($mad_stats.median_val)
+  $baseline_mean = max($mad_stats.median_val)
+  // $baseline_dispersion is the raw (unscaled) MAD.
+  $baseline_dispersion = max($mad_stats.mad)
+  $baseline_mean_abs_dev = max($mad_stats.mean_abs_dev)
+  // PLACEHOLDER: fleet prevalence is NOT computed by this per-entity template; constant 1 only satisfies the contract.
+  $fleet_prevalence = 1
+  // Distinct {{sample_field}} values on the scored day.
+  $distinct_binaries = max($daily_stats.distinct_sample_values)
+  $sample_commands = array_distinct($daily_stats.sample_data)
+
+  // Robust scale with Iglewicz-Hoaglin MAD=0 fallback.
+  // if() branches must be plain outcome variables or literals, so each branch is computed first.
+  $scale_from_mad = $baseline_dispersion / 0.6745
+  $scale_from_meanad = $baseline_mean_abs_dev * 1.253314
+  $robust_scale = if($baseline_dispersion > 0, $scale_from_mad, $scale_from_meanad)
+  $safe_robust_scale = if($robust_scale > 0, $robust_scale, {{dispersion_floor}})
+  $m_z_score = ($observation_count - $baseline_median) / $safe_robust_scale
+
+condition:
+  $baseline_active_samples >= {{min_baseline_days}}
+  and $observation_count >= {{min_daily_volume}}
+  and $m_z_score > {{m_z}}
+
+order:
+  $m_z_score desc

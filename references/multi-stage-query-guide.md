@@ -129,7 +129,7 @@ condition:
      - `fleet_zscore_process_outliers.yara` (Peer Fleet Z-Score Normalization)
      - `zscore_process_surge_2stage.yl2` (Z-Score)
      - `poisson_rare_surge_2stage.yl2` (Discrete Poisson Rarity)
-     - `mad_exfiltration_2stage.yl2` (Median Absolute Deviation)
+     - `mad_modified_z_4stage.yl2` (Median Absolute Deviation / Modified Z-Score, 4-stage: daily value → median → MAD + meanAD fallback → root)
      - `c2_beaconing_jitter_2stage.yl2` (Coefficient of Variation)
      - `poisson_burst_clustering_2stage.yl2` (Fano Factor)
      - `two_part_hurdle_2stage.yl2` (Two-Part Hurdle)

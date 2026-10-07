@@ -59,6 +59,17 @@ SYNTAX_TRAPS = [
     (r"match:\s*[^;\n]*\bby\s+(?!1d\b)\d+d\b", "SYNTAX ERROR (NONCANONICAL_MATCH_WINDOW): Multi-day tumbling windows ('by 2d', 'by 7d', 'by 14d') are rejected by the compiler. Verified windows: 'by 5m', 'by 1h', 'by 2h', 'by 1d'. Keep the bucket at <= 1d and widen startTime/endTime to cover longer horizons."),
 ]
 
+# Default evidence-sampling field for the MAD template ({{sample_field}}), keyed by UDM event type.
+MAD_SAMPLE_FIELD_BY_EVENT_TYPE = {
+    "NETWORK_DNS": "network.dns.questions.name",
+    "NETWORK_CONNECTION": "target.ip",
+    "NETWORK_HTTP": "target.hostname",
+    "PROCESS_LAUNCH": "target.process.file.full_path",
+    "USER_LOGIN": "principal.ip",
+    "FILE_CREATION": "target.file.full_path",
+    "FILE_READ": "target.file.full_path",
+}
+
 SENSITIVITY_MAP = {
     "CATEGORICAL_FLEET_PREVALENCE": {
         "CONSERVATIVE": {"max_adopters": 1, "min_events": 10, "min_active_hours": 12},
@@ -91,9 +102,11 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"cv": 0.40, "min_conns": 15, "prevalence": 1, "min_active_hours": 3},
     },
     "DATA_EXFILTRATION_SPIKE": {
-        "CONSERVATIVE": {"m_z": 3.5, "min_mb": 500.0, "min_mad": 20.0, "min_baseline_days": 14},
-        "BALANCED": {"m_z": 2.5, "min_mb": 100.0, "min_mad": 10.0, "min_baseline_days": 7},
-        "AGGRESSIVE": {"m_z": 2.0, "min_mb": 25.0, "min_mad": 5.0, "min_baseline_days": 3},
+        # Modified Z (Iglewicz-Hoaglin): 3.5 is the standard outlier cut-off.
+        # min_daily_volume is in the units of {{daily_aggregation}} (event count by default).
+        "CONSERVATIVE": {"m_z": 5.0, "min_daily_volume": 500, "dispersion_floor": 1.0, "min_baseline_days": 14},
+        "BALANCED": {"m_z": 3.5, "min_daily_volume": 100, "dispersion_floor": 1.0, "min_baseline_days": 7},
+        "AGGRESSIVE": {"m_z": 3.0, "min_daily_volume": 25, "dispersion_floor": 1.0, "min_baseline_days": 3},
     },
     "HEAVY_TAIL_OUTLIERS": {
         "CONSERVATIVE": {"surge_ratio": 3.0, "min_iqr": 50.0, "min_baseline_days": 14},
@@ -1940,10 +1953,10 @@ class MultiStageTemplateRouter:
       "CV": "c2_beaconing_jitter_2stage.yl2",
       "BEACONING": "c2_beaconing_jitter_2stage.yl2",
       "JITTER": "c2_beaconing_jitter_2stage.yl2",
-      "DATA_EXFILTRATION_SPIKE": "mad_exfiltration_2stage.yl2",
-      "MAD_EXFILTRATION": "mad_exfiltration_2stage.yl2",
-      "MAD": "mad_exfiltration_2stage.yl2",
-      "MODIFIED_Z": "mad_exfiltration_2stage.yl2",
+      "DATA_EXFILTRATION_SPIKE": "mad_modified_z_4stage.yl2",
+      "MAD_EXFILTRATION": "mad_modified_z_4stage.yl2",
+      "MAD": "mad_modified_z_4stage.yl2",
+      "MODIFIED_Z": "mad_modified_z_4stage.yl2",
       "DUAL_BASELINE_DELTA_Z": "dual_baseline_delta_z_3stage.yl2",
       "DELTA_Z": "dual_baseline_delta_z_3stage.yl2",
       "DUAL_BASELINE": "dual_baseline_delta_z_3stage.yl2",
@@ -1960,10 +1973,10 @@ class MultiStageTemplateRouter:
       "LOG_NORMAL_VOLUME_SURGE": "log_normal_volume_surge_2stage.yl2",
       "LOG_NORMAL_VOLUME": "log_normal_volume_surge_2stage.yl2",
       "LOG_NORMAL": "log_normal_volume_surge_2stage.yl2",
-      "RAW_TELEMETRY_ENRICHMENT": "mad_exfiltration_2stage.yl2",
-      "TELEMETRY_ENRICHMENT": "mad_exfiltration_2stage.yl2",
-      "DUAL_PLANE_CORRELATION": "mad_exfiltration_2stage.yl2",
-      "DUAL_PLANE_HYBRID": "mad_exfiltration_2stage.yl2",
+      "RAW_TELEMETRY_ENRICHMENT": "mad_modified_z_4stage.yl2",
+      "TELEMETRY_ENRICHMENT": "mad_modified_z_4stage.yl2",
+      "DUAL_PLANE_CORRELATION": "mad_modified_z_4stage.yl2",
+      "DUAL_PLANE_HYBRID": "mad_modified_z_4stage.yl2",
       "DIVERSITY_DEFICIT": "hybrid_entropy_concentration_2stage.yl2",
       "ENTROPY_PROXY": "hybrid_entropy_concentration_2stage.yl2",
       "ELEPHANT_FLOW_CONCENTRATION": "hybrid_entropy_concentration_2stage.yl2",
@@ -2046,6 +2059,8 @@ class MultiStageTemplateRouter:
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
       apply_threshold_condition: bool = True,
+      daily_aggregation: Optional[str] = None,
+      sample_field: Optional[str] = None,
   ) -> str:
     tier_up = tier.upper()
     template_file = self.get_template_filename(archetype)
@@ -2060,6 +2075,10 @@ class MultiStageTemplateRouter:
       if k in archetype.upper() or archetype.upper() in k:
         canonical_key = k
         break
+    # Aliases like MAD / MODIFIED_Z do not substring-match DATA_EXFILTRATION_SPIKE;
+    # pin the MAD template to its own threshold set.
+    if template_file == "mad_modified_z_4stage.yl2":
+      canonical_key = "DATA_EXFILTRATION_SPIKE"
     thresh = SENSITIVITY_MAP.get(canonical_key, {}).get(tier_up, {})
 
     # Adaptive window calculation
@@ -2090,10 +2109,16 @@ class MultiStageTemplateRouter:
         event_type = "USER_LOGIN"
       elif "c2_beaconing" in template_file:
         event_type = "NETWORK_CONNECTION"
-      elif "mad_exfiltration" in template_file:
+      elif "mad_modified_z" in template_file:
         event_type = "NETWORK_DNS"
       else:
         event_type = "PROCESS_LAUNCH"
+
+    # MAD template slots: daily observed value and evidence sample field.
+    if not daily_aggregation:
+      daily_aggregation = "count(metadata.id)"
+    if not sample_field:
+      sample_field = MAD_SAMPLE_FIELD_BY_EVENT_TYPE.get(event_type.upper(), "metadata.product_event_type")
 
     # Substitutions
     rendered = raw_template
@@ -2101,6 +2126,8 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{event_type}}", event_type)
     rendered = rendered.replace("{{entity_field}}", entity_field)
     rendered = rendered.replace("{{bucket_size}}", bucket_size)
+    rendered = rendered.replace("{{daily_aggregation}}", daily_aggregation)
+    rendered = rendered.replace("{{sample_field}}", sample_field)
 
     # Threshold substitutions
     for k, v in thresh.items():
@@ -2126,9 +2153,9 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{cv}}", str(thresh.get("cv", 0.20)))
     rendered = rendered.replace("{{min_conns}}", str(thresh.get("min_conns", 25)))
     rendered = rendered.replace("{{prevalence}}", str(thresh.get("prevalence", 2)))
-    rendered = rendered.replace("{{m_z}}", str(thresh.get("m_z", 2.5)))
-    rendered = rendered.replace("{{min_mb}}", str(thresh.get("min_mb", 100.0)))
-    rendered = rendered.replace("{{min_mad}}", str(thresh.get("min_mad", 10.0)))
+    rendered = rendered.replace("{{m_z}}", str(thresh.get("m_z", 3.5)))
+    rendered = rendered.replace("{{min_daily_volume}}", str(thresh.get("min_daily_volume", 100)))
+    rendered = rendered.replace("{{dispersion_floor}}", str(thresh.get("dispersion_floor", 1.0)))
     rendered = rendered.replace("{{fleet_z}}", str(thresh.get("fleet_z", 2.5)))
     rendered = rendered.replace("{{min_host_count}}", str(thresh.get("min_host_count", 25)))
     rendered = rendered.replace("{{min_fleet_sd}}", str(thresh.get("min_fleet_sd", 5.0)))

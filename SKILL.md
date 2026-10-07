@@ -128,7 +128,7 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
 3. **Plain-English Operational Analogy**: Explain the detection mechanics in 1-2 intuitive sentences.
 4. **Structured Pre-Flight Hunting Specification Card & Candidate Query Preview**:
    * *Template-First Formulation Directive*: Before formulating a candidate query, inspect the matching canonical pipeline template using `view_file` on `templates/pipelines/<model_name>.yl2` (or consult `references/multi-stage-query-guide.md` via `view_file`) to adopt verified variable bindings, match keys, and outcome formulas:
-     - `MAD_EXFILTRATION` / `MAD`: `templates/pipelines/mad_exfiltration_2stage.yl2`
+     - `MAD_EXFILTRATION` / `MAD` / `MODIFIED_Z`: `templates/pipelines/mad_modified_z_4stage.yl2` (standalone MAD over any window/raw field; set `{{daily_aggregation}}` e.g. `sum(network.sent_bytes)` for bytes, default `count(metadata.id)`)
      - `POISSON_BURST_CLUSTERING`: `templates/pipelines/poisson_burst_clustering_2stage.yl2`
      - `POISSON_RARE_SURGE` / `POISSON_ORIGIN_RARITY`: `templates/pipelines/poisson_rare_surge_2stage.yl2`
      - `C2_BEACONING_JITTER`: `templates/pipelines/c2_beaconing_jitter_2stage.yl2`

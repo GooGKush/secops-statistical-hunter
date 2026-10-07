@@ -169,9 +169,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `CATEGORICAL_FLEET_PREVALENCE` | **CONSERVATIVE** | `max_adopters=1`, `min_events=10`, `min_active_hours=12` |
 | `CATEGORICAL_FLEET_PREVALENCE` | **BALANCED** | `max_adopters=2`, `min_events=5`, `min_active_hours=6` |
 | `CATEGORICAL_FLEET_PREVALENCE` | **AGGRESSIVE** | `max_adopters=3`, `min_events=2`, `min_active_hours=1` |
-| `DATA_EXFILTRATION_SPIKE` | **CONSERVATIVE** | `m_z=3.5`, `min_mb=500.0`, `min_mad=20.0`, `min_baseline_days=14` |
-| `DATA_EXFILTRATION_SPIKE` | **BALANCED** | `m_z=2.5`, `min_mb=100.0`, `min_mad=10.0`, `min_baseline_days=7` |
-| `DATA_EXFILTRATION_SPIKE` | **AGGRESSIVE** | `m_z=2.0`, `min_mb=25.0`, `min_mad=5.0`, `min_baseline_days=3` |
+| `DATA_EXFILTRATION_SPIKE` | **CONSERVATIVE** | `m_z=5.0`, `min_daily_volume=500`, `dispersion_floor=1.0`, `min_baseline_days=14` |
+| `DATA_EXFILTRATION_SPIKE` | **BALANCED** | `m_z=3.5`, `min_daily_volume=100`, `dispersion_floor=1.0`, `min_baseline_days=7` |
+| `DATA_EXFILTRATION_SPIKE` | **AGGRESSIVE** | `m_z=3.0`, `min_daily_volume=25`, `dispersion_floor=1.0`, `min_baseline_days=3` |
 | `DERIVED_CONTEXT_DOMAIN_PREVALENCE` | **CONSERVATIVE** | `threat_score=3.5`, `min_obs_bytes=1000000.0`, `min_active_hours=24`, `rare_multiplier=2.5` |
 | `DERIVED_CONTEXT_DOMAIN_PREVALENCE` | **BALANCED** | `threat_score=2.5`, `min_obs_bytes=100000.0`, `min_active_hours=12`, `rare_multiplier=2.5` |
 | `DERIVED_CONTEXT_DOMAIN_PREVALENCE` | **AGGRESSIVE** | `threat_score=1.5`, `min_obs_bytes=10000.0`, `min_active_hours=6`, `rare_multiplier=2.0` |

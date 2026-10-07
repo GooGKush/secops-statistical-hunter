@@ -53,7 +53,7 @@ Every threat—known, emerging, or zero-day—physically deforms raw UDM event s
 ## 🎯 The Three Threat Tiers
 
 ### Tier 1: Known Knowns (Immediate SOC Objectives)
-* **High-Volume Exfiltration**: Massive outbound network or DNS byte spikes (`mad_exfiltration_2stage.yl2`).
+* **High-Volume Exfiltration**: Massive outbound network or DNS byte spikes (`mad_modified_z_4stage.yl2`, with `daily_aggregation=sum(network.sent_bytes)` for byte volume).
 * **Volumetric Password Sprays**: Massive authentication failures against single or multiple targets (`poisson_burst_clustering_2stage.yl2`).
 * **Living-off-the-Land Process Surges**: Sudden spikes in administrative or dual-use binaries (`zscore_process_surge_2stage.yl2`).
 

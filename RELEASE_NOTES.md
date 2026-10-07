@@ -1,5 +1,21 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.7.3 (October 7, 2026) — MAD / Modified Z-Score Template Correctness
+
+* **Renamed** `templates/pipelines/mad_exfiltration_2stage.yl2` ──► `templates/pipelines/mad_modified_z_4stage.yl2` (the pipeline has 4 stages: `daily_stats` → `median_stats` → `mad_stats` → root). All routing (`ARCHETYPE_TEMPLATE_MAP`), `SKILL.md`, `README.md`, and `references/` pointers updated; history entries below are left as written.
+* **Honest scope**: header now describes a standalone MAD / Modified Z hunt over any window or raw field (vs. the sibling `secops-risk-metrics-multistage` skill, which uses MAD as a cross-check next to its 30-day UEBA baseline).
+* **New slots**: `{{daily_aggregation}}` (daily observed value; default `count(metadata.id)`, e.g. `sum(network.sent_bytes)` for bytes) and `{{sample_field}}` (evidence sampling; defaulted per event type via `MAD_SAMPLE_FIELD_BY_EVENT_TYPE`). `build_query()` accepts `daily_aggregation=` / `sample_field=`.
+* **Math fixes**:
+  * Iglewicz-Hoaglin MAD=0 fallback: scale = MAD/0.6745 if MAD > 0, else 1.253314 × meanAD (meanAD computed in `mad_stats`), else `{{dispersion_floor}}`. `$m_z_score = (observed - median) / scale`.
+  * `window.median(..., false)` for both the daily median and MAD: the old `true` (`should_ignore_zero_values`) discarded zero deviations of days at the median and inflated MAD. Even-count medians pick one middle value (no interpolation) — documented.
+  * Removed the `$baseline_dispersion >= {{min_mad}}` gate that silently dropped perfectly steady entities (and made the old fallback dead code).
+  * `{{min_mb}}` renamed to `{{min_daily_volume}}` (it is compared to the daily value, not megabytes).
+  * Default Modified-Z cut-off is now 3.5 (BALANCED); CONSERVATIVE 5.0, AGGRESSIVE 3.0.
+* **Evidence pillars**: added `$baseline_median` (the 6-pillar `$baseline_mean` slot is retained for the contract and documented as holding the median); `$distinct_binaries` now counts distinct `{{sample_field}}` values on the scored day; `$fleet_prevalence = 1` is explicitly documented as a placeholder (not computed by this per-entity template).
+* **Documented caveats**: median/MAD are over active days only (zero-activity days emit no row); the scored day is included in its own baseline.
+* MAD archetype aliases (`MAD`, `MODIFIED_Z`, ...) now always resolve the `DATA_EXFILTRATION_SPIKE` threshold set (previously fell back to Z-score thresholds).
+* Added `tests/test_mad_modified_z_template.py` (11 tests); suite 136 → 147 passing.
+
 ## 📦 Version 2.7.2 (September 29, 2026) — Advanced Information-Theoretic & Long-Tail Analytical Models (Markov 2-Gram, Shannon Character Entropy, Zipfian Process Rarity & Intraday EWMA Burst Velocity)
 
 * **Four New Information-Theoretic & Tail-Analysis Analytical Models**:
