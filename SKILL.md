@@ -6,7 +6,8 @@ description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   outlier hunting, and Entity Context Graph (GLOBAL_CONTEXT and DERIVED_CONTEXT) enrichment in Google Security
   Operations (SecOps) over raw UDM telemetry across custom time slices.
-  Supports Z-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, Median Absolute Deviation (MAD),
+  Supports Z-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, standalone Median Absolute Deviation (MAD)
+  over raw fields or custom windows (30d-baseline MAD on a metric-catalog vector: secops-risk-metrics-multistage),
   Coefficient of Variation (CV), Poisson-Gamma Bayesian Shrinkage, Beta-Binomial Ratio Regularization,
   Dual-Baseline Delta-Z (Patch Tuesday Shield), Multi-Sector Threat Fusion, Markov 2-Gram Transition Rarity,
   Shannon Character-Class Entropy, Zipfian Long-Tail Process Rarity, Intraday EWMA Burst Velocity, and 6 Hybrid
@@ -92,6 +93,7 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
    Always evaluate this routing interceptor first. When this interceptor matches, routing handoff takes absolute precedence over consultative discovery or specification.
    When the analyst request matches any pre-computed baseline or UEBA indicators below, immediately present the Markdown **Skill Delegation Card** and conclude your response (0 tool calls):
    - **Explicit UEBA / 30-Day Baselines / Risk Metrics**: Any request containing the terms `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, or `"risk score"`, or asking for a behavioral risk review across 30 days. Statistical Hunter operates over short-horizon raw telemetry (typically 1h to 7d); rolling 30-day baselines belong to `secops-risk-metrics-multistage`.
+   - **MAD Against a 30-Day / `metrics.*` Baseline**: MAD/modified-Z requested against a 30-day or pre-computed baseline on a metric-catalog vector (outbound bytes, auth attempts, DNS volume) belongs to `secops-risk-metrics-multistage` (true MAD plus 30d Z cross-check). Standalone MAD over raw fields or custom windows stays here, even when the same events also feed a metrics vector.
    - **Web / HTTP Traffic**: Requests asking to baseline or compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`, `metrics.http_queries_success`, `metrics.http_queries_fail`).
    - **Authentication Volume**: Requests comparing logins/failures to an entity's 30-day normal/typical baseline (`metrics.auth_attempts_*`).
    - **Network Bytes/Flows**: Outbound/inbound data transfer baselines (`metrics.network_bytes_*`, `metrics.network_flows_*`).
