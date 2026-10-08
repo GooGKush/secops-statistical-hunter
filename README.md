@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.7.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-136%2F136%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-20%2F21%20passing%20(95.2%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v2.7.3-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-168%2F168%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-21%2F21%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -215,7 +215,7 @@ The skill package is verified through a rigorous three-tier testing hierarchy:
 ```bash
 pytest tests/
 ```
-* **Status**: **136 / 136 passing unit tests** across 13 test modules (100% pass rate).
+* **Status**: **168 / 168 passing unit tests** across 17 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, hands-off `run_command` restriction contracts, and template router permutations across all mathematical models.
 
 ### 2. Chronicle Compiler AST & Invariant Validation
@@ -227,12 +227,18 @@ python3 scripts/multistage_query_builder.py
 
 ### 3. Maintainer Dual-Platform Regression Validation
 End-to-end multi-turn conversational regression is validated by the maintainer team via the automated regression testing platform (`secops-regress`):
-* **Status**: **20 / 21 passing scenarios** (95.2% dual pass rate; **21 / 21 AgentAPI passing (100%)**).
+* **Status**: **21 / 21 passing scenarios** (100% dual pass rate as of v2.7.3).
 * **Scope**: Evaluates full conversation flows against live Google SecOps customer instances (`gus-sdl`), ensuring zero-stall Turn 2 execution, nominal quiet baseline reporting ($Z=0.00\sigma$), single-surface visualization compliance, and bilateral handoff protocol adherence.
 
 ---
 
 ## 📦 Release Notes
+
+### v2.7.3 (October 8, 2026) — MAD / Modified Z-Score Template Correctness & Cross-Skill MAD Routing
+* **Correct standalone MAD**: `mad_exfiltration_2stage.yl2` is now `mad_modified_z_4stage.yl2` (it has 4 stages). It uses `window.median(..., false)`, the Iglewicz-Hoaglin MAD=0 fallback (1.253314 × meanAD, then a dispersion floor) and a default Modified-Z cut-off of 3.5. The `min_mad` gate that silently dropped steady entities is gone; new `{{daily_aggregation}}` and `{{sample_field}}` slots replace hard-coded event counts and file paths.
+* **Honest evidence**: `$fleet_prevalence` emits a "not computed" sentinel (-1) instead of a fake 1, and reports show `not computed`; the triage pivot uses the hunted event type, entity field and bucket width.
+* **Routing**: this skill owns MAD over raw fields or custom windows; MAD against a 30-day `metrics.*` baseline hands off to `secops-risk-metrics-multistage`. `test_mad_cross_skill_sync.py` keeps the MAD math and the routing wording identical in both skills.
+* **Test Suite**: 168/168 unit tests; 21/21 dual-engine regression scenarios.
 
 ### v2.7.2 (September 29, 2026) — Advanced Information-Theoretic & Long-Tail Analytical Models
 * **Four New Information-Theoretic & Long-Tail Models**: Added Markov 2-Gram Transition Rarity (`markov_2gram_transition_rarity_2stage.yl2`), Shannon Character-Class Entropy (`shannon_entropy_character_2stage.yl2`), Power-Law / Zipfian Long-Tail Process Rarity (`zipfian_process_rarity_2stage.yl2`), and Intraday EWMA Burst Velocity (`ewma_burst_velocity_2stage.yl2`), expanding golden pipelines from 17 to 21.

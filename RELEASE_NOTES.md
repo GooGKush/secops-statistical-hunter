@@ -1,6 +1,6 @@
 # Release Notes: SecOps Statistical Hunter
 
-## 📦 Version 2.7.3 (October 7, 2026) — MAD / Modified Z-Score Template Correctness
+## 📦 Version 2.7.3 (October 8, 2026) — MAD / Modified Z-Score Template Correctness & Cross-Skill MAD Routing
 
 * **Renamed** `templates/pipelines/mad_exfiltration_2stage.yl2` ──► `templates/pipelines/mad_modified_z_4stage.yl2` (the pipeline has 4 stages: `daily_stats` → `median_stats` → `mad_stats` → root). All routing (`ARCHETYPE_TEMPLATE_MAP`), `SKILL.md`, `README.md`, and `references/` pointers updated; history entries below are left as written.
 * **Honest scope**: header now describes a standalone MAD / Modified Z hunt over any window or raw field (vs. the sibling `secops-risk-metrics-multistage` skill, which uses MAD as a cross-check next to its 30-day UEBA baseline).
@@ -19,7 +19,9 @@
 * **MAD formula display**: the report shows the full Iglewicz-Hoaglin scale (MAD/0.6745, 1.253314·meanAD fallback, dispersion floor) and states which branch applied to the top row.
 * **Documented caveats**: median/MAD are over active days only (zero-activity days emit no row); the scored day is included in its own baseline.
 * MAD archetype aliases (`MAD`, `MODIFIED_Z`, ...) now always resolve the `DATA_EXFILTRATION_SPIKE` threshold set (previously fell back to Z-score thresholds).
-* Added `tests/test_mad_modified_z_template.py` (11 tests); suite 136 → 147 passing.
+* **Cross-skill MAD routing**: the skill description scopes this skill to standalone MAD over raw fields or custom windows, and names `secops-risk-metrics-multistage` for MAD against a 30-day `metrics.*` baseline on a metric-catalog vector. A new SKILL.md interceptor bullet ("MAD Against a 30-Day / `metrics.*` Baseline") hands off only when that baseline is requested. `test_mad_cross_skill_sync.py` checks both skills' descriptions.
+* Added `tests/test_mad_modified_z_template.py` (11 tests). **Test Suite**: 168/168 unit tests across 17 modules (was 136).
+* **Dual-engine regression**: 21/21 stats-hunter scenarios pass (SH-P1-10 passed on rerun after a Gemini safety-filter refusal on the first attempt).
 
 ## 📦 Version 2.7.2 (September 29, 2026) — Advanced Information-Theoretic & Long-Tail Analytical Models (Markov 2-Gram, Shannon Character Entropy, Zipfian Process Rarity & Intraday EWMA Burst Velocity)
 
