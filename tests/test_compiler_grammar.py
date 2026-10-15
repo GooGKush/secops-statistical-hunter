@@ -85,10 +85,12 @@ class TestCompilerGrammar(unittest.TestCase):
     errors = validate_multistage_syntax(bad_query)
     self.assertTrue(any("'in (\"A\", \"B\")'" in e for e in errors), "Should reject Python/SQL tuple syntax")
 
-  def test_reject_by_24h_window(self):
+  def test_flag_noncanonical_by_24h_window(self):
+    # 'by 24h' compiles (same 00:00Z buckets as 'by 1d', verified on gus-sdl
+    # 2026-10-15); the builder still flags it so the skill writes 'by 1d'.
     bad_query = "stage s { metadata.event_type = \"PROCESS_LAUNCH\" match: $h by 24h outcome: $c = count(metadata.id) }"
     errors = validate_multistage_syntax(bad_query)
-    self.assertTrue(any("'by 24h' is invalid" in e for e in errors), "Should reject 'by 24h' in favor of 'by 1d'")
+    self.assertTrue(any("NONCANONICAL_WINDOW_TOKEN" in e for e in errors), "Should flag 'by 24h' in favor of 'by 1d'")
 
   def test_reject_dollar_stage_prefix(self):
     bad_query = "stage $bad_stage { metadata.event_type = \"PROCESS_LAUNCH\" match: $h by 1h outcome: $c = count(metadata.id) }"

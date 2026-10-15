@@ -56,4 +56,4 @@ python3 scripts/multistage_query_builder.py \
 1. **`RAW_LOG_DUMP_DETECTED`**: Emits violation if the API returned `"events"` instead of compiled `"stats"`. All multi-stage math must run inside Chronicle's F1 engine.
 2. **Multi-Vector Isolation**: Flags any attempt to cram cross-domain telemetry silos (Auth + Process + Network) into a single unseparated stage.
 3. **ECG Limit Invariant**: Enforces a maximum of 1 Entity Context Graph lookup per stage to prevent F1 memory exhaustion.
-4. **Token-Level Math Traps**: Rejects invalid YARA-L tokens such as `^` (exponent), `by 24h` (requires `by 1d`), `in ("A", "B")` (requires disjunctions), and `stage $name` (`$` prefix).
+4. **Token-Level Math Traps**: Rejects invalid YARA-L tokens such as `^` (exponent), `in ("A", "B")` (requires disjunctions), and `stage $name` (`$` prefix). Also flags the non-canonical `by 24h` (it compiles to the same buckets as `by 1d`; write `by 1d`).

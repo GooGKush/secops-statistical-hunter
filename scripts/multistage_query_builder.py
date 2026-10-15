@@ -45,7 +45,7 @@ SYNTAX_TRAPS = [
     (r"match:\s*[^;\n]+\bby\b[^;\n]+\b(hop|over)\b", "SYNTAX ERROR: Compound 'by X hop Y' or 'by X over Y' is invalid syntax in YARA-L. Use 'match: $var by <duration>' for tumbling buckets, 'match: $var over <duration>' for sliding windows, or 'match: $var' for unwindowed baseline stages."),
     (r"\^", "SYNTAX ERROR (INVALID_EXPONENT_OPERATOR): '^' is invalid in YARA-L outcome expressions. Use '$var * $var' for squared terms ($z_sq = $z * $z)."),
     (r"\bin\s*\([\"']", "SYNTAX ERROR (INVALID_IN_SYNTAX): 'in (\"A\", \"B\")' tuple syntax is invalid in YARA-L. Use '(field = \"A\" or field = \"B\")' or regex 're.regex(field, `A|B`)'."),
-    (r"match:\s*[^;\n]*\bby\s+24h\b", "SYNTAX ERROR (INVALID_WINDOW_SYNTAX): 'by 24h' is invalid in YARA-L. Use 'by 1d' for daily matching."),
+    (r"match:\s*[^;\n]*\bby\s+24h\b", "STYLE ERROR (NONCANONICAL_WINDOW_TOKEN): 'by 24h' compiles to the same buckets as 'by 1d' but is non-canonical. Use 'by 1d' for daily matching."),
     (r"stage\s+\$[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR (STAGE_NAME_PREFIX_ERROR): Stage declarations must not have a '$' prefix (use 'stage stage_name {', not 'stage $stage_name {')."),
     (r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", "SYNTAX ERROR (INVALID_DETECTION_RULE_SYNTAX): Multi-stage queries are Search/Dashboard-only ('stage ... { ... }' + root stage). Do NOT wrap in 'rule ... { ... }'."),
     (r"(?:stage\s+[a-zA-Z0-9_]+\s*\{.*?\}\s*)+\s*events\s*:", "SYNTAX ERROR (INVALID_EVENTS_SECTION_IN_ROOT): Root stage of a multi-stage query must not contain an 'events:' header block. Stage bindings must be declared directly before match:."),

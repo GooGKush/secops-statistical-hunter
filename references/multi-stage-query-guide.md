@@ -145,7 +145,8 @@ condition:
    | Defining `$window_start = min(metadata.event_timestamp.seconds)` in a stage outcome | **Rejected**. Collides with the implicit column. |
    | Root outcome variable named the same as a stage | **Rejected**. Rename the stage. |
    | Three independent raw stages joined at the root | **Rejected** (any two compile). Fold sectors into one raw stage with conditional sums. |
-   | `match: … by 2d` / `by 7d` / `by 14d` / `by 24h` | **Rejected**. `by 5m`, `by 1h`, `by 2h`, `by 1d` verified to compile; any `by Nd` with N > 1 is rejected. Widen `startTime`/`endTime` for longer horizons. |
+   | `match: … by 2d` / `by 7d` / `by 14d` | **Rejected**. `by 5m`, `by 1h`, `by 2h`, `by 1d` verified to compile; any `by Nd` with N > 1 is rejected. Widen `startTime`/`endTime` for longer horizons. |
+   | `match: … by 24h` | **Compiles** and returns the same `00:00Z` buckets and counts as `by 1d` (verified on gus-sdl, 2026-10-15). Non-canonical: write `by 1d`. To collapse the whole window, use an unbucketed key (`match: $binary`), not a bucket sized to the window. |
    | `if($x == 1.0, …)` | **Rejected**. Use `=`. |
    | Aggregator arithmetic inside a stage outcome (`(max($ts) - min($ts)) / (count(metadata.id) + 1.0)`, `avg(x) * avg(x)`) | **Compiles**. |
    | `array_distinct($stage.array_col)` in root (re-aggregating a stage array) | **Compiles**. |
