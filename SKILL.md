@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.7.3
+version: 2.7.4
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   outlier hunting, and Entity Context Graph (GLOBAL_CONTEXT and DERIVED_CONTEXT) enrichment in Google Security
@@ -210,7 +210,8 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
    * *Single-Cycle Self-Healing Ceiling & Single-Event Boundary on Turn 1*: Limit compiler probes on Turn 1 to at most **ONE initial probe + ONE retry (maximum 2 probes total)** evaluating the single-event filter with `maxEvents=1`. Multi-stage queries (`stage ...`) execute strictly on Turn 2 upon receiving clearance. When the probe returns either an event or zero results (`{}`), treat the schema validation as complete—zero results reflect nominal baseline activity—and proceed immediately to formulate the Markdown Pre-Flight Card and candidate query preview without additional tool calls.
 6. **Explicit Clearance Question & Turn 1 Yield Invariant**:
    Conclude Turn 1 by presenting the clearance inquiry:
-   *"Would you like me to proceed with executing this search in **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Timeline)**?"*
+   *"Would you like me to proceed with executing this search in **Mode A (Rolling 24-Hour Raw-Event Window)** or **Mode B (14-Day Raw-Event Timeline)**?"*
+   These raw-event windows belong to this skill only; `secops-risk-metrics-multistage` defines its own Mode A/B (UTC day buckets, today `00:00Z` → now) and they do not transfer.
    Immediately upon outputting this clearance inquiry in Markdown, yield the turn to the analyst. Yielding after the candidate preview allows the analyst to verify the query plan and select their preferred time horizon before the multi-stage historical search executes in State 2.
 
 ---
@@ -219,7 +220,7 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
 
 When receiving execution clearance from the analyst (such as "Clearance granted", "Proceed", "Go ahead", "Run the hunt", or selection of Mode A/Mode B):
 1. **Immediate Execution Turn**:
-   Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search(query=...)`, regardless of preliminary spot-check counts. When the analyst approves execution without choosing between Mode A or Mode B, proceed using Mode A (24-Hour Snapshot, e.g. `startTime=<24_hours_ago>`, `endTime=<now>`) or the timeline matching the investigation hypothesis. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), format the response affirmatively as a nominal baseline. Proceed directly to executing the query.
+   Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search(query=...)`, regardless of preliminary spot-check counts. When the analyst approves execution without choosing between Mode A or Mode B, proceed using Mode A (Rolling 24-Hour Raw-Event Window, e.g. `startTime=<24_hours_ago>`, `endTime=<now>`) or the timeline matching the investigation hypothesis. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), format the response affirmatively as a nominal baseline. Proceed directly to executing the query.
 2. **Mandatory 5-Section Triage Report Delivery**:
    Synthesize the aggregated `stats` evidence returned by `udm_search` (or nominal baseline metrics if zero events are returned) into all 5 sections in exact order:
 
