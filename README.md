@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.7.3-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-168%2F168%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-21%2F21%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v2.7.4-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-168%2F168%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-21%2F21%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -233,6 +233,12 @@ End-to-end multi-turn conversational regression is validated by the maintainer t
 ---
 
 ## 📦 Release Notes
+
+### v2.7.4 (October 15, 2026) — Scoped Mode Labels & Cross-Skill Time-Window Clarity
+* **Mode labels say what the window is**: the clearance question now offers **Mode A (Rolling 24-Hour Raw-Event Window)** or **Mode B (14-Day Raw-Event Timeline)**, and states that these windows belong to this skill only. `secops-risk-metrics-multistage` uses UTC day buckets (today `00:00Z` → now), and agents that loaded both skills were applying this skill's rolling 24 hours to metrics hunts.
+* **Cooperative framework**: the risk-metrics column no longer calls its baseline a "30-day sliding baseline window"; it is anchored once per search request at the `startTime` day.
+* **Match-window grammar**: `by 24h` is valid (same buckets as `by 1d`); the guides no longer call it rejected. The skill keeps `by 1d` as its single daily form, and a whole-window collapse uses an unbucketed key.
+* **No template or routing changes.** 168/168 unit tests.
 
 ### v2.7.3 (October 8, 2026) — MAD / Modified Z-Score Template Correctness & Cross-Skill MAD Routing
 * **Correct standalone MAD**: `mad_exfiltration_2stage.yl2` is now `mad_modified_z_4stage.yl2` (it has 4 stages). It uses `window.median(..., false)`, the Iglewicz-Hoaglin MAD=0 fallback (1.253314 × meanAD, then a dispersion floor) and a default Modified-Z cut-off of 3.5. The `min_mad` gate that silently dropped steady entities is gone; new `{{daily_aggregation}}` and `{{sample_field}}` slots replace hard-coded event counts and file paths.

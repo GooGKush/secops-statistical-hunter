@@ -1,5 +1,17 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.7.4 (October 15, 2026) — Scoped Mode Labels & Cross-Skill Time-Window Clarity
+
+* **Why**: agents that loaded both skills applied this skill's rolling 24-hour window to risk-metrics Mode A hunts. Both skills call their horizons "Mode A" / "Mode B", but this skill's Mode A is a rolling 24-hour raw-event window and the risk-metrics Mode A is today `00:00Z` → now in UTC day buckets.
+* **`SKILL.md`**:
+  * Clearance question: **Mode A (Rolling 24-Hour Raw-Event Window)** or **Mode B (14-Day Raw-Event Timeline)** (was "24-Hour Snapshot" / "14-Day Timeline"). The default-mode sentence in State 2 uses the new label.
+  * New scope line: these raw-event windows belong to this skill only; `secops-risk-metrics-multistage` defines its own Mode A/B and they do not transfer.
+  * The words "Mode A" / "Mode B" are unchanged, so routing and clearance detection still match.
+* **`references/statistical-hunting-cooperative-framework.md`**: the risk-metrics "Lookback Horizon" no longer says "30-day sliding baseline window". It now says the 30-day baseline is anchored once per search request at its `startTime` day, scored in UTC days (verified in the Malachite query engine, `query_engine/qesql/ueba.go`).
+* **Match-window grammar corrected**: `by 24h` is valid YARA-L. On gus-sdl it returns the same `00:00Z` buckets and counts as `by 1d`. `multi-stage-query-guide.md` and `query-auditing-guide.md` no longer call it rejected or invalid. `SKILL.md` (Canonical Match Windows) now says daily buckets are written `by 1d`, and that collapsing the whole search window uses an unbucketed key (`match: $binary`), not a bucket sized to the window. `multistage_query_builder.py` still flags `by 24h`, now as `NONCANONICAL_WINDOW_TOKEN` (was `INVALID_WINDOW_SYNTAX`).
+* No template or routing changes.
+* **Test Suite**: 168/168 unit tests.
+
 ## 📦 Version 2.7.3 (October 8, 2026) — MAD / Modified Z-Score Template Correctness & Cross-Skill MAD Routing
 
 * **Renamed** `templates/pipelines/mad_exfiltration_2stage.yl2` ──► `templates/pipelines/mad_modified_z_4stage.yl2` (the pipeline has 4 stages: `daily_stats` → `median_stats` → `mad_stats` → root). All routing (`ARCHETYPE_TEMPLATE_MAP`), `SKILL.md`, `README.md`, and `references/` pointers updated; history entries below are left as written.
