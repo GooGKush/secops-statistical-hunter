@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.7.5
+version: 2.8.0
 description: |
   Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
   outlier hunting, and Entity Context Graph (GLOBAL_CONTEXT and DERIVED_CONTEXT) enrichment in Google Security
@@ -81,6 +81,8 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 | *"Detect obfuscated command-line arguments, base64 payloads, or algorithmic DGA domains."* | **`SHANNON_ENTROPY_CHARACTER`** (Entropy $\ge 5.5$) | **The Scrambled Script**: Natural language commands exhibit predictable character patterns and redundancy; encoded scripts and DGA tokens exhibit collapsed compression redundancy and elevated character entropy. |
 | *"Find rare administrative utilities executing in the asymptotic fleet tail (<= 2 hosts enterprise-wide)."* | **`ZIPFIAN_PROCESS_RARITY`** (Zipf Rarity $\ge 2.5$) | **The Long-Tail Tool**: Enterprise process execution follows a power-law distribution ($f(k) \propto 1/k^s$); standard tools dominate volume while stealthy admin utilities sit in the extreme asymptotic tail. |
 | *"Detect acute intraday rate acceleration without lagging trailing historical baselines."* | **`EWMA_BURST_VELOCITY`** (Velocity $V \ge 2.0\sigma$) | **The Sudden Kinetic Thrust**: Exponentially weighted moving average ($\alpha = 0.30$) captures instantaneous velocity shifts, isolating sudden burst acceleration from smoothed baseline trajectories. |
+| *"Detect consecutive user logins from geographically distant locations faster than physical flight speed (> 900 km/h)."* | **`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`** ($V \ge 900\text{ km/h}$) | **The Supersonic Commuter**: Evaluates Haversine geodesic distance (`math.geo_distance`) across login intervals to isolate stolen credentials used across continents. |
+| *"Detect endpoints that normally consume data suddenly inverting their directional byte ratio to become net data producers."* | **`PRODUCER_CONSUMER_RATIO_INVERSION`** ($\rho \ge 0.70$, $Z \ge 2.5\sigma$) | **The Role Reversal**: Workstations normally download far more than they upload ($\rho < 0.20$); exfiltration or staging flips the directional byte ratio ($\rho = \text{sent} / (\text{sent} + \text{received}) \ge 0.70$). |
 
 ---
 
@@ -141,10 +143,16 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
      - `PRIVILEGED_LATERAL_EXPANSION`: `templates/pipelines/privileged_lateral_expansion_2stage.yl2`
      - `TWO_PART_HURDLE`: `templates/pipelines/two_part_hurdle_2stage.yl2`
      - `HYBRID_ENTROPY_CONCENTRATION` / `DIVERSITY_DEFICIT`: `templates/pipelines/hybrid_entropy_concentration_2stage.yl2`
+     - `ZIPFIAN_PROCESS_RARITY` / `FLEET_PREVALENCE_NORMALIZATION`: `templates/pipelines/zipfian_process_rarity_2stage.yl2`
+     - `MARKOV_2GRAM_TRANSITION_RARITY`: `templates/pipelines/markov_2gram_transition_rarity_2stage.yl2`
+     - `SHANNON_ENTROPY_CHARACTER`: `templates/pipelines/shannon_entropy_character_2stage.yl2`
+     - `EWMA_BURST_VELOCITY`: `templates/pipelines/ewma_burst_velocity_2stage.yl2`
      - `GLOBAL_THREAT_INTEL_ENRICHMENT` / `GLOBAL_CONTEXT`: `templates/pipelines/global_threat_intel_enrichment_3stage.yl2`
      - `DERIVED_CONTEXT_PREVALENCE` / `DERIVED_CONTEXT`: `templates/pipelines/derived_context_prevalence_3stage.yl2`
      - `DERIVED_CONTEXT_FILE_PREVALENCE` / `FILE_PREVALENCE`: `templates/pipelines/derived_context_file_prevalence_3stage.yl2`
      - `DERIVED_CONTEXT_DOMAIN_PREVALENCE` / `DOMAIN_PREVALENCE`: `templates/pipelines/derived_context_domain_prevalence_3stage.yl2`
+     - `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` / `IMPOSSIBLE_TRAVEL`: `templates/pipelines/impossible_travel_geo_velocity_2stage.yl2`
+     - `PRODUCER_CONSUMER_RATIO_INVERSION` / `ROLE_INVERSION`: `templates/pipelines/producer_consumer_ratio_inversion_2stage.yl2`
      - `ZSCORE_PROCESS_SURGE` / `Z_SCORE`: `templates/pipelines/zscore_process_surge_2stage.yl2`
    * *Canonical Pre-Flight Specification Card Structure*: Present the hunting plan using the standard pre-flight specification card layout:
      ```markdown
@@ -219,8 +227,8 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
 ### 📊 State 2: Deterministic Multi-Stage Execution & 5-Section Triage Report (After Clearance)
 
 When receiving execution clearance from the analyst (such as "Clearance granted", "Proceed", "Go ahead", "Run the hunt", or selection of Mode A/Mode B):
-1. **Immediate Execution Turn**:
-   Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search(query=...)`, regardless of preliminary spot-check counts. When the analyst approves execution without choosing between Mode A or Mode B, proceed using Mode A (Rolling 24-Hour Raw-Event Window, e.g. `startTime=<24_hours_ago>`, `endTime=<now>`) or the timeline matching the investigation hypothesis. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), format the response affirmatively as a nominal baseline. Proceed directly to executing the query.
+1. **Immediate Execution Turn (Single Multi-Stage Dispatch & Zero Follow-Up Raw Dumps)**:
+   Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search(query=...)` once, regardless of preliminary spot-check counts. When the analyst approves execution without choosing between Mode A or Mode B, proceed using Mode A (Rolling 24-Hour Raw-Event Window, e.g. `startTime=<24_hours_ago>`, `endTime=<now>`) or the timeline matching the investigation hypothesis. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), **stop calling tools immediately** and format the response affirmatively as a nominal baseline (`0 Outliers Detected`). Never execute follow-up unaggregated raw `udm_search` queries to inspect event timestamps, and never write or execute Python scripts (`scratch/*.py` or `run_command`) to calculate statistics outside SIEM. Proceed directly to rendering the 5-Section Triage Report.
 2. **Mandatory 5-Section Triage Report Delivery**:
    Synthesize the aggregated `stats` evidence returned by `udm_search` (or nominal baseline metrics if zero events are returned) into all 5 sections in exact order:
 
@@ -261,7 +269,7 @@ When receiving execution clearance from the analyst (such as "Clearance granted"
 
 ---
 #### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)
-*(Passive UDM filter provided strictly as an analyst copy-paste reference for manual triage within the Chronicle SIEM console. Automated multi-turn agent execution is reserved for multi-stage statistical pipelines. Use a ```text fence here so this single-line filter remains distinct from the executed multi-stage query in Section 5.)*
+*(Passive UDM filter provided strictly as an analyst copy-paste reference for manual triage within the Chronicle SIEM console. Automated multi-turn agent execution is reserved for multi-stage statistical pipelines. Use a ```text fence here.)*
 ```text
 principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 ```
@@ -276,18 +284,6 @@ principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 $$\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right) = \mathbf{100}$$
 ##### 🌐 Multiple-Comparison Fleet Correction ($Z_{\text{adj}} \approx \sqrt{2 \ln N}$)
 ##### 🛡️ Statistical Validity & Safeguard Verification
-##### 💻 Executed Multi-Stage Query (Verbatim Provenance)
-*(The exact literal multi-stage YARA-L string submitted to `udm_search(query=...)`, in a ```yara fence. This is the only ```yara block in the report.)*
-```yara
-stage host_hourly { ... }
-$host = $host_hourly.host
-match:
-  $host by 1h
-outcome:
-  ...
-order:
-  $z desc
-```
 </details>
 ```
 
@@ -332,7 +328,7 @@ Ensure that the executed query matches the promised architecture and narrative d
 * **Transparent Error Surfacing**: When an API query returns an error, surface the exact error response and diagnostic details directly to the analyst with proposed template adjustments.
 * **Tool Orchestration Protocol**: Fulfill all threat hunting workflows exclusively through chat Markdown and SecOps MCP tool calls (`udm_search`, `import_logs`, `create_case_comment`). Inspect canonical pipeline templates and reference guides using `view_file` on `templates/pipelines/*.yl2` and `references/*.md`. Formulate, validate, and compute all mathematical models, baseline statistics, and triage reports entirely within native chat reasoning and Chronicle SIEM execution. There is no blanket approval for `run_command`, only explicit exemptions. Reserve shell execution tools (`run_command`) and local filesystem modification tools (`write_to_file`, `replace_file_content`) exclusively for offline repository development and CI test suites (`pytest tests/`).
 * **Native SIEM Engine Execution Guarantee**: Execute all multi-stage baseline aggregations, standard deviation calculations, and threshold evaluations natively within Google SecOps Chronicle SIEM via `udm_search`. Conduct all hunting, query formulation, and report generation natively through SecOps MCP tools and direct Markdown responses. Formulate all mathematical reasoning, syntax verification against references, and baseline derivations directly within the conversation turn using the canonical `.yl2` pipeline templates and markdown references.
-* **Verbatim Query Provenance**: Display the exact literal multi-stage YARA-L query string submitted to `udm_search(query=...)` inside the Section 5 appendix (*Executed Multi-Stage Query*) in a ```yara fence. Section 4's manual pivot filter uses a ```text fence so the executed query is the report's only ```yara block.
+* **Pre/Post Execution Query Integrity Gate (`QueryIntegrityGate`)**: Before dispatching `udm_search` on Turn 2, `QueryIntegrityGate` verifies that the query contains zero unresolved `{{placeholders}}`, passes AST grammar validation, and preserves the target entity scope. After execution, `QueryIntegrityGate` inspects the backend response for Chronicle compiler/API errors (preventing false-clean `0.00σ` reports). Because the candidate query is already previewed in State 1 and locked by `QueryIntegrityGate`, repeating the executed YARA-L query block in the delivered report is omitted.
 * **Statistical Aggregation Integrity**: Format the 5-Section Triage Report exclusively from aggregated `stats` buckets. If `udm_search` returns unaggregated raw events, present the auto-corrected multi-stage query (selected from `templates/pipelines/`) and solicit analyst clearance to execute the aggregated pipeline.
 * **Search Query Nomenclature**: Identify and structure all threat hunting artifacts as ad-hoc Multi-Stage Queries (`stage ... { ... }` + Root stage). Continuous detection rules (`rule ... { ... }`) are reserved for detection engineering workflows.
 

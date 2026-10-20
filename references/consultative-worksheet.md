@@ -45,8 +45,44 @@ Every threat—known, emerging, or zero-day—physically deforms raw UDM event s
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 10. Kinetic Acceleration    │ Instantaneous rate departure  │ Intraday Exponentially Weighted      │
 │    ("The Sudden Thrust")    │ from smoothed trajectory      │ Moving Average (EWMA Velocity)       │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 11. Bipartite Fan-Out/Fan-In│ 1 source -> N targets (1 -> N)│ Privileged Lateral Expansion Z-Score │
+│    ("The Graph Spider")     │ or N sources -> 1 host (N -> 1│ (`privileged_lateral_expansion_2stage│
+│                             │ internal staging convergence) │ .yl2`) & Distinct Target Cardinality │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 12. Role Inversion (ρ)      │ Net consumer endpoint flips to│ Producer–Consumer Byte Ratio         │
+│    ("The Role Reversal")    │ net producer (sent/(sent+recv)│ Inversion (`producer_consumer_ratio_ │
+│                             │ >= 0.70 directional shift)    │ inversion_2stage.yl2`)               │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 13. Geospatial Velocity     │ Consecutive logins across     │ Haversine Geodesic Velocity          │
+│    ("Supersonic Commuter")  │ unreachable coordinates       │ (`math.geo_distance`, Δd/Δt > 900    │
+│                             │                               │ km/h, `impossible_travel_...yl2`)    │
 └─────────────────────────────┴───────────────────────────────┴──────────────────────────────────────┘
 ```
+
+### Persona-Conditioned Prior Matrix (Condition Model on Entity Persona First)
+
+Before selecting a statistical model in State 1, condition your baseline expectations on the **target entity persona**:
+
+| Entity Persona | Normal Baseline Physics | High-Signal Anomaly Signature & Model |
+| :--- | :--- | :--- |
+| **Human Interactive User** | Diurnal variance expected; chaotic inter-arrival intervals ($\text{CV} > 0.50$); bounded geography and host radius. | Robotic timing regularity (**`C2_BEACONING_JITTER`**, $\text{CV} \le 0.20$), supersonic geographic velocity (**`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`**, $> 900\text{ km/h}$ via `math.geo_distance`), or machine radius expansion (**`PRIVILEGED_LATERAL_EXPANSION`**). |
+| **Service Account / Workload Identity** | Clockwork timing is *normal*; fixed source runner IPs/hosts (`count_distinct(principal.ip) == 1`); deterministic repository scope. | **Source-IP/Host Breadth Expansion** ($>1$ origin via **`POISSON_ORIGIN_RARITY`**), interactive logon types, or dormancy awakening (**`TWO_PART_HURDLE`**). |
+| **CI/CD Runner / Admin Jump Host** | High process/connection volume is normal; wide internal destination fan-out is routine. | **Long-Tail Zipfian Process Rarity** (**`ZIPFIAN_PROCESS_RARITY`**), **Parent-Child Markov Surprisal** (**`MARKOV_2GRAM_TRANSITION_RARITY`**), **First-Seen Domain Egress** (**`DERIVED_CONTEXT_DOMAIN_PREVALENCE`**), or **Producer–Consumer Byte Ratio Inversion** ($\rho \ge 0.70$). |
+
+### Pre/Post Event-Anchored Changepoint Framing ($T_0$)
+
+When an analyst asks *"Did behavior change after event $T_0$ (e.g., IAM role grant, HR termination notice, binary deployment, or firewall change)?"*:
+* Partition the search into a **Pre-Event Baseline Window** $[T_0 - W, T_0)$ and a **Post-Event Observation Window** $[T_0, \text{now})$.
+* Compare post-event intensity, breadth, or directional byte ratio ($\rho = \text{sent} / (\text{sent} + \text{received})$) against the pre-$T_0$ baseline distribution, or pair with **Intraday EWMA Burst Velocity** (`ewma_burst_velocity_2stage.yl2`) to isolate instantaneous post-$T_0$ trajectory departures.
+
+### Executable Confounder Disambiguation & SecOps Data Tables (`%<table_name>`)
+
+Pair each of the 4 Common-Sense Confounder Checks with its concrete query-level control:
+1. **Innocent Corporate Explanation (Patch Tuesday / Mass Rollout)** $\rightarrow$ Enforce **Fleet Concurrency Count ($K$)** via `dual_baseline_delta_z_3stage.yl2` ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$) or `DERIVED_CONTEXT` prevalence (`day_count <= 3`).
+2. **Quiet Entity Trap (Zero-Inflated / Dormant Baseline)** $\rightarrow$ Use **Two-Part Hurdle** (`two_part_hurdle_2stage.yl2`) or **Discrete Poisson Rarity** (`poisson_rare_surge_2stage.yl2`) with non-zero dispersion floor (`if($sd > 0, $sd, 1.0)`).
+3. **Past Noise Camouflage (Historical Outlier Pollution)** $\rightarrow$ Switch from parametric $Z$-score to **Median Absolute Deviation (MAD)** (`mad_modified_z_4stage.yl2`, $M_Z = 0.6745 \cdot (x - \tilde{x}) / \text{MAD}$).
+4. **Approved Scanner / VIP Prior Adjustments (SecOps Data Tables `%<table_name>.<column>`)** $\rightarrow$ Suppress authorized scanners via `not principal.hostname in %authorized_scanners.hostname`, join entity risk priors via `%ueba_entity_priors.entity`, or consume Phase 1 bridge cohorts via `%ueba_hunt_bridge.hostname`.
 
 ---
 

@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.7.5-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-169%2F169%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-21%2F21%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v2.8.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-173%2F173%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -51,12 +51,13 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
     * Implements Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds, Two-Part Hurdle, and Fleet Prevalence Normalization directly over raw event streams.
 12. **Calibrated Risk Index (CRI [0–100])**:
     * Standardizes multi-dimensional statistics onto a unified, logistic sigmoid 0–100 scale anchoring $3.0\sigma$ at CRI 50 across 4 operational severity tiers: 🟢 Nominal (0–29), 🟡 Elevated (30–49), 🟠 High (50–84), and 🔴 Critical (85–100).
-13. **Standardized 5-Section CommonMark Triage Reporting**:
-    * Generates structured forensic reports: 1. Executive Summary, 2. Calibrated Risk Index, 3. Forensic Evidence Pillars with visual ASCII bars (`████░░░░░░`), 4. Baseline Distribution Context, and 5. Actionable Next Steps & 1-Click Drill-Down Queries.
+13. **Standardized 5-Section CommonMark Triage Reporting & `QueryIntegrityGate`**:
+    * Generates structured forensic reports: 1. Executive Summary, 2. Calibrated Risk Index, 3. Forensic Evidence Pillars with visual ASCII bars (`████░░░░░░`), 4. Baseline Distribution Context, and 5. Actionable Next Steps & 1-Click Drill-Down Queries (omitting redundant `Executed Multi-Stage Query` code dumps while verifying every dispatched query via `QueryIntegrityGate`).
+    * `QueryIntegrityGate` (`scripts/multistage_query_builder.py`) audits pre-dispatch queries for unresolved `{{slot}}` placeholders, missing target entity scoping, and malformed `%<table_name>.<column>` Data Table syntax, and inspects post-execution `udm_search` responses so backend compiler/RPC errors never masquerade as `0.00σ` clean baselines.
 14. **Automated Clean Hand-Off Protocol**:
     * Generates schema-compliant synthetic UDM security analytics events (`CUSTOM_SECURITY_DATA_ANALYTICS`) under a unique `Hunt Campaign ID`, caught by tenant rule `secops_statistical_hunter_alert_catchall` for seamless alert escalation without case wall pollution.
-15. **Advanced Information-Theoretic & Long-Tail Models**:
-    * Expands analytical reach with Markov 2-Gram Transition Rarity (evaluating $- \ln P(B \mid A)$ conditional process surprisal), Shannon Character-Class Entropy (obfuscated scripts & DGA detection), Power-Law / Zipfian Long-Tail Process Rarity ($f(k) \propto 1/k^s$ asymptotic tail isolation), and Intraday EWMA Burst Velocity ($\alpha = 0.30$ kinetic rate acceleration), bringing the golden pipeline suite to 21 models.
+15. **Advanced Information-Theoretic, Long-Tail, Geospatial & Directional Asymmetry Models**:
+    * Expands analytical reach with Markov 2-Gram Transition Rarity (evaluating $- \ln P(B \mid A)$ conditional process surprisal), Shannon Character-Class Entropy (obfuscated scripts & DGA detection), Power-Law / Zipfian Long-Tail Process Rarity ($f(k) \propto 1/k^s$ asymptotic tail isolation), Intraday EWMA Burst Velocity ($\alpha = 0.30$ kinetic rate acceleration), **Impossible Travel Geodesic Velocity (`impossible_travel_geo_velocity_2stage.yl2`, Haversine `math.geo_distance`)**, and **Producer-Consumer Byte Ratio Inversion (`producer_consumer_ratio_inversion_2stage.yl2`, $\rho = \text{sent} / (\text{sent} + \text{recv})$)**, bringing the golden pipeline suite to 23 models.
 
 ---
 
@@ -69,7 +70,7 @@ secops-statistical-hunter/
 ├── RELEASE_NOTES.md                         # Detailed version changelog & release history
 ├── LICENSE                                  # Apache 2.0 open-source license
 ├── llms.txt                                 # Token-efficient AI agent summary file
-├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (21)
+├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (23)
 │   ├── bayesian_gamma_shrinkage_4stage.yl2  # Poisson-Gamma Bayesian Credibility Shrinkage
 │   ├── beta_binomial_failure_4stage.yl2     # Beta-Binomial Failure Rate Shrinkage
 │   ├── c2_beaconing_jitter_2stage.yl2       # C2 beaconing timing jitter & interval regularity (CV)
@@ -80,6 +81,7 @@ secops-statistical-hunter/
 │   ├── ewma_burst_velocity_2stage.yl2       # Intraday EWMA burst rate velocity & kinetic acceleration
 │   ├── global_threat_intel_enrichment_3stage.yl2 # GCTI Threat Intel & WHOIS NRD egress correlation
 │   ├── hybrid_entropy_concentration_2stage.yl2 # Diversity Deficit & Elephant Flow Concentration
+│   ├── impossible_travel_geo_velocity_2stage.yl2 # Geodesic Haversine Velocity (math.geo_distance / Δt)
 │   ├── log_normal_volume_surge_2stage.yl2   # Parametric Log-Normal Volumetric Standardization & Sigmoid CRI
 │   ├── mad_modified_z_4stage.yl2            # Standalone MAD / Modified Z-Score (4-stage, Iglewicz-Hoaglin MAD=0 fallback)
 │   ├── markov_2gram_transition_rarity_2stage.yl2 # Markov 2-Gram transition probability & information surprisal
@@ -87,6 +89,7 @@ secops-statistical-hunter/
 │   ├── poisson_burst_clustering_2stage.yl2  # Poisson Burst Clustering & Fano Factor (password spray)
 │   ├── poisson_rare_surge_2stage.yl2        # Discrete Poisson Rarity & Low-Volume Spikes
 │   ├── privileged_lateral_expansion_2stage.yl2 # Privileged lateral movement & destination expansion
+│   ├── producer_consumer_ratio_inversion_2stage.yl2 # Directional Byte Asymmetry Ratio (Sent / Total Bytes)
 │   ├── shannon_entropy_character_2stage.yl2 # Shannon character-class entropy & obfuscated script density
 │   ├── two_part_hurdle_2stage.yl2           # Two-Part Hurdle model for zero-inflated dormant entities
 │   ├── zipfian_process_rarity_2stage.yl2    # Power-Law / Zipfian long-tail administrative utility rarity
@@ -108,7 +111,7 @@ secops-statistical-hunter/
 │   ├── calibrated-risk-index-guide.md       # Sigmoid normalization (CRI 0–100) formulas
 │   ├── chart-specifications-guide.md        # Vega-Lite and Chart.js dual-Y visualization schemas
 │   ├── clean-handoff-udm-schema.md          # Synthetic UDM schemas & Chronicle API forwarder contracts
-│   ├── consultative-worksheet.md            # Mapping security intent to 5 behavioral deformations
+│   ├── consultative-worksheet.md            # Mapping security intent to 13 behavioral deformations
 │   ├── cyber-practitioner-glossary.md       # Field manual translating statistics to SOC operations
 │   ├── dynamic-windowing-matrix.md          # Adaptive window bucketing & sample floor matrix
 │   ├── entity-context-graph-guide.md        # GLOBAL_CONTEXT & DERIVED_CONTEXT YARA-L architecture
@@ -122,20 +125,21 @@ secops-statistical-hunter/
 ├── scripts/                                 # Offline CI/testing helper scripts (Option A developer tooling)
 │   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & schema validator
 │   ├── generate_references.py               # Generates taxonomy and windowing reference markdown
-│   └── multistage_query_builder.py          # Python linter, AST validator, & report/chart generator
-└── tests/                                   # Automated unit test suite (127 tests, 100% pass rate)
+│   └── multistage_query_builder.py          # Python linter, AST validator, QueryIntegrityGate & report/chart generator
+└── tests/                                   # Automated unit test suite (173 tests, 100% pass rate)
     ├── test_chart_specifications.py         # Dual-axis visualization spec tests
     ├── test_clean_handoff.py                # Clean Hand-Off UDM schema validation & batching tests
-    ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, bare match identifiers
+    ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, bare match identifiers, QueryIntegrityGate
     ├── test_cri_and_math.py                 # Sigmoid CRI normalization and mathematical derivations
     ├── test_global_context_syntax.py        # Entity Context Graph (GLOBAL_CONTEXT/DERIVED_CONTEXT) syntax tests
     ├── test_guardrail_contracts.py          # Golden pipeline validation, session lock, and guardrail contracts
     ├── test_handoff_endpoint.py             # Federated handoff ingestion and protocol ACK tests
+    ├── test_mad_cross_skill_sync.py         # Cross-skill MAD math & routing parity contract
+    ├── test_mad_modified_z_template.py      # MAD / Modified Z template correctness contract
     ├── test_math_models.py                  # Bayesian, Beta-Binomial, Fano, and norm unit tests
     ├── test_query_auditor.py                # Post-flight intent and raw log dump detection tests
     ├── test_routing_interceptor.py          # Pre-flight routing interceptor and delegation tests
     ├── test_triage_reporting.py             # CommonMark 5-section triage schema & pillar tests
-    ├── test_mad_modified_z_template.py      # MAD / Modified Z template correctness contract
     ├── test_verified_compiler_facts.py      # Chronicle Malachite compiler grammar facts
     └── test_window_adaptation.py            # Dynamic windowing and sample floor adaptation tests
 ```
@@ -155,7 +159,7 @@ git clone https://github.com/GooGKush/secops-statistical-hunter.git ~/.gemini/sk
 ## 🧭 Triggering Threat Hunts & Consultative Guidance
 
 ### 1. Mapping Operational Intent to Statistical Models
-When interacting with an analyst, the skill translates operational hunting hypotheses into mathematical models using plain-English concepts:
+When interacting with an analyst, the skill translates operational hunting hypotheses into mathematical models using plain-English concepts across **13 Behavioral Telemetry Deformations** (`references/consultative-worksheet.md`):
 
 | Analyst Operational Question | Statistical Model | Plain-English Concept & Physical Analogy |
 | :--- | :--- | :--- |
@@ -167,17 +171,159 @@ When interacting with an analyst, the skill translates operational hunting hypot
 | *"Find dormant accounts waking up today"* | Two-Part Hurdle Model | **The Sleeping Giant**: Evaluates binary transition from zero history to positive activity. |
 | *"Correlate spikes with threat intel & newly registered domains"* | Global Threat Intel Correlation | **The Outside Threat**: Cross-references outbound spikes with GCTI intel and WHOIS domain age. |
 | *"Find unusual binaries executed on this machine"* | Enterprise Prevalence Normalization | **The Unfamiliar Machine**: Blends host execution bursts with enterprise-wide novelty (`day_count <= 3`). |
+| *"Find impossible travel logins across distant countries"* | Geodesic Haversine Velocity (`math.geo_distance`) | **The Supersonic Traveler**: Measures physical travel speed ($\text{km/h}$) across consecutive login coordinates. |
+| *"Find workstations flipping from downloading to uploading"* | Producer-Consumer Byte Ratio Inversion | **The Role Flip**: Detects client endpoints whose directional byte ratio $\rho = \text{sent} / (\text{sent} + \text{recv})$ inverts toward $1.0$. |
 
 ### 2. The Two-Tier Scoping Choice
 For asset and endpoint hunts, the skill proactively offers the analyst a structured consultative choice:
 * **Tier A (Pure Local Baseline)**: Evaluates the target host solely against its own historical baseline. Best for isolated machines or bespoke developer servers.
 * **Tier B (Enterprise-Grounded Hunt)**: Correlates local surges with enterprise-wide prevalence via Chronicle's Entity Context Graph (`DERIVED_CONTEXT`), applying a 2.5x threat score boost for rare or novel binaries across the company fleet.
 
-### 3. Natural Language Trigger Examples
+### 3. Natural Language Trigger Examples & Consultative Sample Queries
 
 #### ⏱️ Timing Regularity & C2 Beaconing (CV & Jitter)
 * *"Hunt for low-prevalence C2 beaconing with random timing jitter in outbound proxy connections."*
 * *"Find connections with suspiciously regular inter-arrival timing intervals over the last 24 hours."*
+
+#### ✈️ Impossible Travel & Supersonic Geodesic Velocity (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`)
+* *"Hunt for impossible travel velocity across user logins where the same user authenticates from two distant cities faster than commercial flight speed (`900 km/h`)."*
+* *"Check if `frank.kolzig` logged in from geographically distant IP locations within the same 1-hour bucket."*
+
+```yara
+// Goal: Detect Impossible Travel / Supersonic Geodesic Velocity across consecutive authentication events.
+stage stage1_geo_sessions {
+    metadata.event_type = "USER_LOGIN"
+    target.user.userid = $entity
+    $entity != ""
+    principal.ip = $src_ip
+    $src_ip != ""
+    principal.ip_geo_artifact.location.region_latitude = $lat
+    principal.ip_geo_artifact.location.region_longitude = $lon
+    $ts = metadata.event_timestamp.seconds
+
+  match:
+    $entity by 1h
+
+  outcome:
+    $login_count = count(metadata.id)
+    $distinct_ips = count_distinct($src_ip)
+    $min_lat = min($lat)
+    $max_lat = max($lat)
+    $min_lon = min($lon)
+    $max_lon = max($lon)
+    $first_ts = min($ts)
+    $last_ts = max($ts)
+}
+
+stage stage2_user_baseline {
+    $entity = $stage1_geo_sessions.entity
+
+  match:
+    $entity
+
+  outcome:
+    $active_windows = count($stage1_geo_sessions.window_start)
+    $mean_logins = avg($stage1_geo_sessions.login_count)
+    $sd_logins = stddev($stage1_geo_sessions.login_count)
+}
+
+$entity = $stage1_geo_sessions.entity
+$entity = $stage2_user_baseline.entity
+
+match:
+  $entity by 1h
+
+outcome:
+  $observation_count = max($stage1_geo_sessions.login_count)
+  $baseline_active_samples = max($stage2_user_baseline.active_windows)
+  $baseline_mean = max($stage2_user_baseline.mean_logins)
+  $baseline_dispersion = max($stage2_user_baseline.sd_logins)
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($stage1_geo_sessions.distinct_ips)
+  $lat1 = min($stage1_geo_sessions.min_lat)
+  $lon1 = min($stage1_geo_sessions.min_lon)
+  $lat2 = max($stage1_geo_sessions.max_lat)
+  $lon2 = max($stage1_geo_sessions.max_lon)
+  $distance_meters = math.geo_distance($lon1, $lat1, $lon2, $lat2)
+  $distance_km = $distance_meters / 1000.0
+  $delta_seconds = max($stage1_geo_sessions.last_ts) - min($stage1_geo_sessions.first_ts)
+  $safe_seconds = if($delta_seconds > 60, $delta_seconds, 60.0)
+  $elapsed_hours = $safe_seconds / 3600.0
+  $velocity_kmh = $distance_km / $elapsed_hours
+
+condition:
+  $baseline_active_samples >= 3
+  and $distinct_binaries >= 2
+  and $distance_km >= 500.0
+  and $velocity_kmh >= 900.0
+
+order:
+  $velocity_kmh desc
+```
+
+#### 🔄 Producer-Consumer Byte Ratio Inversion (`PRODUCER_CONSUMER_RATIO_INVERSION`)
+* *"Hunt for workstations that normally act as data consumers flipping into net data producers ($\rho \ge 0.80$) while spiking above their outbound byte baseline."*
+* *"Detect endpoints staging and serving large outbound transfers relative to their inbound traffic."*
+
+```yara
+// Goal: Detect Producer-Consumer Byte Ratio Inversion (Endpoint Shifting from Net Consumer to Data Producer).
+stage stage1_directional_bytes {
+    metadata.event_type = "NETWORK_CONNECTION"
+    principal.asset.hostname = $entity
+    $entity != ""
+    target.ip = $dst_ip
+    $dst_ip != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $event_count = count(metadata.id)
+    $sent_bytes = sum(network.sent_bytes)
+    $recv_bytes = sum(network.received_bytes)
+    $distinct_targets = count_distinct($dst_ip)
+}
+
+stage stage2_entity_baseline {
+    $entity = $stage1_directional_bytes.entity
+
+  match:
+    $entity
+
+  outcome:
+    $active_windows = count($stage1_directional_bytes.window_start)
+    $mean_sent = avg($stage1_directional_bytes.sent_bytes)
+    $sd_sent = stddev($stage1_directional_bytes.sent_bytes)
+}
+
+$entity = $stage1_directional_bytes.entity
+$entity = $stage2_entity_baseline.entity
+
+match:
+  $entity by 1d
+
+outcome:
+  $observation_count = max($stage1_directional_bytes.sent_bytes)
+  $baseline_active_samples = max($stage2_entity_baseline.active_windows)
+  $baseline_mean = max($stage2_entity_baseline.mean_sent)
+  $baseline_dispersion = max($stage2_entity_baseline.sd_sent)
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($stage1_directional_bytes.distinct_targets)
+  $window_recv = max($stage1_directional_bytes.recv_bytes)
+  $total_bytes = $observation_count + $window_recv + 1.0
+  $producer_ratio = $observation_count / $total_bytes
+  $safe_sd = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
+  $z_score = ($observation_count - $baseline_mean) / $safe_sd
+
+condition:
+  $baseline_active_samples >= 5
+  and $observation_count >= 10000000
+  and $producer_ratio >= 0.80
+  and $z_score >= 3.0
+
+order:
+  $z_score desc
+```
 
 #### 🌊 Volumetric Byte Surges (Log-Normal Standardization)
 * *"Hunt for extreme network egress spikes on endpoint dev-ub22-1 using log-normal volume standardization."*
@@ -215,24 +361,33 @@ The skill package is verified through a rigorous three-tier testing hierarchy:
 ```bash
 pytest tests/
 ```
-* **Status**: **168 / 168 passing unit tests** across 17 test modules (100% pass rate).
-* **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, hands-off `run_command` restriction contracts, and template router permutations across all mathematical models.
+* **Status**: **173 / 173 passing unit tests** across 17 test modules (100% pass rate).
+* **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution verification, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, hands-off `run_command` restriction contracts, and template router permutations across all 23 mathematical models.
 
 ### 2. Chronicle Compiler AST & Invariant Validation
 ```bash
 python3 scripts/multistage_query_builder.py
 ```
-* **Status**: **100% clean compilation** across all 21 golden pipeline templates.
+* **Status**: **100% clean compilation** across all 23 golden pipeline templates.
 * **Scope**: Verifies Malachite AST compliance, continuous outcome arithmetic, Function Factory built-ins (`math.*`), bare identifier match binding (`ZERO DOTS IN MATCH`), and safe non-zero dispersion floor guards.
 
 ### 3. Maintainer Dual-Platform Regression Validation
 End-to-end multi-turn conversational regression is validated by the maintainer team via the automated regression testing platform (`secops-regress`):
-* **Status**: **21 / 21 passing scenarios** (100% dual pass rate as of v2.7.3).
-* **Scope**: Evaluates full conversation flows against live Google SecOps customer instances (`gus-sdl`), ensuring zero-stall Turn 2 execution, nominal quiet baseline reporting ($Z=0.00\sigma$), single-surface visualization compliance, and bilateral handoff protocol adherence.
+* **Status**: **23 / 23 passing scenarios** (`46 / 46` combined runs across `AgentAPI` and `Direct-MCP`, 100% dual pass rate as of v2.8.0).
+* **Scope**: Evaluates full conversation flows against live Google SecOps customer instances (`gus-sdl`), ensuring zero-stall Turn 2 execution, `QueryIntegrityGate` enforcement, nominal quiet baseline reporting ($Z=0.00\sigma$), single-surface visualization compliance, and bilateral handoff protocol adherence.
 
 ---
 
 ## 📦 Release Notes
+
+### v2.8.0 (October 20, 2026) — Impossible Travel Geodesic Velocity, Producer-Consumer Ratio Inversion, `QueryIntegrityGate`, 13 Consultative Deformations & Streamlined 5-Section Reports
+* **Two New Golden Statistical Models (`templates/pipelines/`)**:
+  * **Impossible Travel Geodesic Velocity (`impossible_travel_geo_velocity_2stage.yl2`)**: Computes physical travel distance ($\text{km}$) and supersonic velocity ($\text{km/h}$) across consecutive login coordinates using Chronicle's native Haversine function `math.geo_distance($lon1, $lat1, $lon2, $lat2)`.
+  * **Producer-Consumer Byte Ratio Inversion (`producer_consumer_ratio_inversion_2stage.yl2`)**: Detects client endpoints shifting from net data consumers to net data producers ($\rho = \text{sent} / (\text{sent} + \text{recv}) \ge 0.80$) paired with a per-entity outbound byte Z-score spike.
+* **Pre/Post Execution `QueryIntegrityGate` & Data Table Syntax Validation (`scripts/multistage_query_builder.py`, `SKILL.md`)**: Adds `QueryIntegrityGate.verify_pre_dispatch()` and `QueryIntegrityGate.verify_backend_response()` to block unresolved `{{slot}}` placeholders, missing target entity scoping, malformed `%<table_name>.<column>` Data Table joins, or backend query rejections from masquerading as `0.00σ` clean baselines.
+* **Consultative Worksheet Expansion (`references/consultative-worksheet.md`)**: Expands the consultative taxonomy to **13 Behavioral Telemetry Deformations** (adding Producer-Consumer Role Inversion, Geospatial Physical Velocity, and Bipartite Fan-Out/Fan-In) with Executable Disambiguation Controls (`[A]` / `[B]` / `[C]`).
+* **Streamlined 5-Section Triage Report (`SKILL.md`, `scripts/multistage_query_builder.py`)**: Removes the redundant `Executed Multi-Stage Query (Verbatim Provenance)` code block from Section 5 of Turn 2 reports while preserving the 1-Click Manual Raw UDM Drill-Down Query and all 6 forensic evidence pillars.
+* **Test Suite & Live Dual-Engine Regression**: **173/173 unit tests** (100%); **23/23 golden templates**; **`46/46` (`100.0%`)** across `AgentAPI` (`23/23`) and `Direct MCP` (`23/23`).
 
 ### v2.7.5 (October 19, 2026) — Native Float `confidence_score` & Multi-Sector `SECTOR_VECTOR` UDM Hand-Off
 * **Native Float Z-Scores in `security_result` (`scripts/clean_handoff.py`, `references/clean-handoff-udm-schema.md`)**: Single-vector statistical findings now populate `"confidence_score": round(float(z_score), 2)` directly on `security_result[0]` alongside `"risk_score": int(cri_score)`, so YARA-L rules and SecOps Native Dashboards can threshold and aggregate Z-scores numerically without string parsing.

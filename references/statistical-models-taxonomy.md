@@ -159,7 +159,25 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 17. Sensitivity & Anomaly Threshold Map
+## 17. Geodesic Haversine Velocity (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`)
+* **Goal**: Detect impossible travel / supersonic geographic velocity across authentication sessions.
+* **Formula**:
+  $$d_{\text{km}} = \frac{\text{math.geo\_distance}(\text{lon}_1, \text{lat}_1, \text{lon}_2, \text{lat}_2)}{1000.0}, \quad v_{\text{km/h}} = \frac{d_{\text{km}}}{\max(\Delta t, 60) / 3600.0}$$
+* **Interpretation**:
+  - Commercial subsonic flight ceiling is $\approx 900\text{ km/h}$; authentication sessions spanning $\ge 500\text{ km}$ at $v \ge 900\text{ km/h}$ across $\ge 2$ distinct source IPs isolate credential compromise or simultaneous proxy egress.
+
+---
+
+## 18. Producer–Consumer Directional Byte Ratio Inversion (`PRODUCER_CONSUMER_RATIO_INVERSION`)
+* **Goal**: Detect an endpoint shifting from a net data consumer to a net data producer (staging or exfiltration).
+* **Formula**:
+  $$\rho_{\text{producer}} = \frac{\text{SentBytes}}{\text{SentBytes} + \text{ReceivedBytes} + 1.0}, \quad Z_{\text{sent}} = \frac{\text{SentBytes} - \mu_{\text{sent}}}{\sigma_{\text{sent}}}$$
+* **Interpretation**:
+  - Standard client workstations exhibit $\rho_{\text{producer}} \ll 0.30$; inversion to $\rho_{\text{producer}} \ge 0.70$ combined with $Z_{\text{sent}} \ge 2.5\sigma$ isolates active staging and outbound exfiltration.
+
+---
+
+## 19. Sensitivity & Anomaly Threshold Map
 
 | Archetype | Tier | Thresholds & Parameters |
 | :--- | :--- | :--- |
@@ -202,6 +220,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `HEAVY_TAIL_OUTLIERS` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_iqr=50.0`, `min_baseline_days=14` |
 | `HEAVY_TAIL_OUTLIERS` | **BALANCED** | `surge_ratio=2.0`, `min_iqr=10.0`, `min_baseline_days=7` |
 | `HEAVY_TAIL_OUTLIERS` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_iqr=5.0`, `min_baseline_days=3` |
+| `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **CONSERVATIVE** | `velocity_kmh=1200.0`, `min_distance_km=1000.0`, `min_active_samples=14` |
+| `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **BALANCED** | `velocity_kmh=900.0`, `min_distance_km=500.0`, `min_active_samples=7` |
+| `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **AGGRESSIVE** | `velocity_kmh=500.0`, `min_distance_km=250.0`, `min_active_samples=3` |
 | `LOG_NORMAL_VOLUME` | **CONSERVATIVE** | `z_score=3.5`, `min_bytes=100000000.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `LOG_NORMAL_VOLUME` | **BALANCED** | `z_score=2.5`, `min_bytes=10000000.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `LOG_NORMAL_VOLUME` | **AGGRESSIVE** | `z_score=1.8`, `min_bytes=1000000.0`, `min_sd=0.2`, `min_active_samples=3` |
@@ -226,6 +247,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `PRIVILEGED_LATERAL_EXPANSION` | **CONSERVATIVE** | `z_score=3.0`, `min_distinct_targets=5`, `min_sd=1.0`, `min_active_samples=30` |
 | `PRIVILEGED_LATERAL_EXPANSION` | **BALANCED** | `z_score=2.0`, `min_distinct_targets=3`, `min_sd=0.5`, `min_active_samples=14` |
 | `PRIVILEGED_LATERAL_EXPANSION` | **AGGRESSIVE** | `z_score=1.5`, `min_distinct_targets=2`, `min_sd=0.2`, `min_active_samples=7` |
+| `PRODUCER_CONSUMER_RATIO_INVERSION` | **CONSERVATIVE** | `min_producer_ratio=0.85`, `z_score=3.5`, `min_sent_bytes=50000000.0`, `min_active_samples=14` |
+| `PRODUCER_CONSUMER_RATIO_INVERSION` | **BALANCED** | `min_producer_ratio=0.7`, `z_score=2.5`, `min_sent_bytes=10000000.0`, `min_active_samples=7` |
+| `PRODUCER_CONSUMER_RATIO_INVERSION` | **AGGRESSIVE** | `min_producer_ratio=0.55`, `z_score=1.8`, `min_sent_bytes=1000000.0`, `min_active_samples=3` |
 | `SHANNON_ENTROPY_CHARACTER` | **CONSERVATIVE** | `entropy_threshold=7.0`, `min_length=40` |
 | `SHANNON_ENTROPY_CHARACTER` | **BALANCED** | `entropy_threshold=5.5`, `min_length=25` |
 | `SHANNON_ENTROPY_CHARACTER` | **AGGRESSIVE** | `entropy_threshold=4.0`, `min_length=15` |

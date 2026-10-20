@@ -203,6 +203,16 @@ SENSITIVITY_MAP = {
         "BALANCED": {"velocity_threshold": 2.0, "min_count": 25, "min_sd": 2.0, "min_active_samples": 30},
         "AGGRESSIVE": {"velocity_threshold": 1.5, "min_count": 10, "min_sd": 1.0, "min_active_samples": 14},
     },
+    "IMPOSSIBLE_TRAVEL_GEO_VELOCITY": {
+        "CONSERVATIVE": {"velocity_kmh": 1200.0, "min_distance_km": 1000.0, "min_active_samples": 14},
+        "BALANCED": {"velocity_kmh": 900.0, "min_distance_km": 500.0, "min_active_samples": 7},
+        "AGGRESSIVE": {"velocity_kmh": 500.0, "min_distance_km": 250.0, "min_active_samples": 3},
+    },
+    "PRODUCER_CONSUMER_RATIO_INVERSION": {
+        "CONSERVATIVE": {"min_producer_ratio": 0.85, "z_score": 3.5, "min_sent_bytes": 50000000.0, "min_active_samples": 14},
+        "BALANCED": {"min_producer_ratio": 0.70, "z_score": 2.5, "min_sent_bytes": 10000000.0, "min_active_samples": 7},
+        "AGGRESSIVE": {"min_producer_ratio": 0.55, "z_score": 1.8, "min_sent_bytes": 1000000.0, "min_active_samples": 3},
+    },
 }
 
 
@@ -221,7 +231,8 @@ def get_adaptive_window_parameters(
       "DATA_EXFILTRATION_SPIKE", "HEAVY_TAIL_OUTLIERS", "TWO_PART_HURDLE",
       "DORMANT_ACCOUNT_AWAKENING", "DERIVED_CONTEXT_PREVALENCE",
       "MULTI_SECTOR_FUSION", "MULTI_SECTOR_THREAT_FUSION", "LOG_NORMAL_VOLUME",
-      "FLEET_PEER_ZSCORE", "BAYESIAN_GAMMA_SHRINKAGE", "BETA_BINOMIAL_REGULARIZATION"
+      "FLEET_PEER_ZSCORE", "BAYESIAN_GAMMA_SHRINKAGE", "BETA_BINOMIAL_REGULARIZATION",
+      "PRODUCER_CONSUMER_RATIO_INVERSION",
   }
 
   # Determine optimal bucket granularity based on total window duration & analytical archetype
@@ -886,6 +897,14 @@ def validate_multistage_syntax(query: str) -> List[str]:
           f"OUTCOME LIMIT EXCEEDED ({outcome_assignments_count} variables in outcome block #{b_idx+1}): "
           f"Malachite enforces OutcomeLimit = 20 variables per outcome section. Prune outcome variables."
       )
+
+  # SecOps Data Table syntax check: %<table_name>.<column_name> is valid when joining columns;
+  # flag bare %<table_name> on equality comparisons without a column specifier.
+  code_no_literals = re.sub(r'"(?:\\.|[^"\\])*"', '""', code_only)
+  for m_dt in re.finditer(r"=\s*%([a-zA-Z0-9_]+)(?![.\w])", code_no_literals):
+    errors.append(
+        f"INVALID_DATA_TABLE_COLUMN_SYNTAX: Data Table equality join '%{m_dt.group(1)}' must specify a column (e.g., '%{m_dt.group(1)}.column_name')."
+    )
 
   if not re.search(r"//\s*Goal:", query, re.IGNORECASE):
     errors.append("MISSING METHODOLOGY HEADER: Recommended to include '// Goal:' and '// Statistical Model:' methodology block.")
@@ -2145,6 +2164,81 @@ class MultiStageTemplateRouter:
       "EWMA_VELOCITY": "ewma_burst_velocity_2stage.yl2",
       "EWMA": "ewma_burst_velocity_2stage.yl2",
       "BURST_VELOCITY": "ewma_burst_velocity_2stage.yl2",
+      "IMPOSSIBLE_TRAVEL_GEO_VELOCITY": "impossible_travel_geo_velocity_2stage.yl2",
+      "IMPOSSIBLE_TRAVEL": "impossible_travel_geo_velocity_2stage.yl2",
+      "GEO_VELOCITY": "impossible_travel_geo_velocity_2stage.yl2",
+      "SUPERSONIC_TRAVEL": "impossible_travel_geo_velocity_2stage.yl2",
+      "PRODUCER_CONSUMER_RATIO_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
+      "PRODUCER_CONSUMER_ROLE_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
+      "PRODUCER_CONSUMER_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
+      "BYTE_RATIO_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
+  }
+
+  INLINE_TEMPLATES = {
+      "producer_consumer_ratio_inversion_2stage.yl2": (
+          "// ============================================================================\n"
+          "// METHODOLOGY & HUNTING GOAL\n"
+          "// Goal: Detect Producer-Consumer Byte Ratio Inversion (Endpoint Shifting from Net Consumer to Data Producer).\n"
+          "// Target Telemetry: UDM_EVENTS ({{event_type}})\n"
+          "// Statistical Model: Directional Byte Asymmetry Ratio (Sent / Total Bytes) with Historical Z-Score\n"
+          "// Mathematical Rationale:\n"
+          "//   - Why this model: Standard workstations and application clients are net data consumers (rho << 0.30).\n"
+          "//     When an endpoint stages and exfiltrates data or serves payloads laterally, its directional producer\n"
+          "//     ratio rho = sent_bytes / (sent_bytes + received_bytes) inverts toward 1.0 alongside a Z-score spike.\n"
+          "// Sensitivity Boundary: {{tier}} (Producer Ratio >= {{min_producer_ratio}}, Z-Score >= {{z_score}}, Sent Bytes >= {{min_sent_bytes}}, Active Samples >= {{min_active_samples}})\n"
+          "// ============================================================================\n\n"
+          "// Stage 1: Aggregate per-window outbound/inbound bytes and destination diversity\n"
+          "stage stage1_directional_bytes {\n"
+          "    metadata.event_type = \"{{event_type}}\"\n"
+          "    {{entity_field}} = $entity\n"
+          "    $entity != \"\"\n"
+          "    target.ip = $dst_ip\n"
+          "    $dst_ip != \"\"\n\n"
+          "  match:\n"
+          "    $entity by {{bucket_size}}\n\n"
+          "  outcome:\n"
+          "    $event_count = count(metadata.id)\n"
+          "    $sent_bytes = sum(network.sent_bytes)\n"
+          "    $recv_bytes = sum(network.received_bytes)\n"
+          "    $distinct_targets = count_distinct($dst_ip)\n"
+          "}\n\n"
+          "// Stage 2: Establish per-entity historical baseline over outbound byte volume\n"
+          "stage stage2_entity_baseline {\n"
+          "    $entity = $stage1_directional_bytes.entity\n\n"
+          "  match:\n"
+          "    $entity\n\n"
+          "  outcome:\n"
+          "    $active_windows = count($stage1_directional_bytes.window_start)\n"
+          "    $mean_sent = avg($stage1_directional_bytes.sent_bytes)\n"
+          "    $sd_sent = stddev($stage1_directional_bytes.sent_bytes)\n"
+          "}\n\n"
+          "// Root Stage: Score directional producer ratio inversion and outbound byte Z-score\n"
+          "$entity = $stage1_directional_bytes.entity\n"
+          "$entity = $stage2_entity_baseline.entity\n\n"
+          "match:\n"
+          "  $entity by {{bucket_size}}\n\n"
+          "outcome:\n"
+          "  // 6 Core Evidence Pillars\n"
+          "  $observation_count = max($stage1_directional_bytes.sent_bytes)\n"
+          "  $baseline_active_samples = max($stage2_entity_baseline.active_windows)\n"
+          "  $baseline_mean = max($stage2_entity_baseline.mean_sent)\n"
+          "  $baseline_dispersion = max($stage2_entity_baseline.sd_sent)\n"
+          "  $fleet_prevalence = 0 - 1\n"
+          "  $distinct_binaries = max($stage1_directional_bytes.distinct_targets)\n\n"
+          "  // Directional Producer-Consumer Ratio & Z-Score\n"
+          "  $window_recv = max($stage1_directional_bytes.recv_bytes)\n"
+          "  $total_bytes = $observation_count + $window_recv + 1.0\n"
+          "  $producer_ratio = $observation_count / $total_bytes\n"
+          "  $safe_sd = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)\n"
+          "  $z_score = ($observation_count - $baseline_mean) / $safe_sd\n\n"
+          "condition:\n"
+          "  $baseline_active_samples >= {{min_active_samples}}\n"
+          "  and $observation_count >= {{min_sent_bytes}}\n"
+          "  and $producer_ratio >= {{min_producer_ratio}}\n"
+          "  and $z_score >= {{z_score}}\n\n"
+          "order:\n"
+          "  $z_score desc\n"
+      )
   }
 
   def __init__(self, template_dir: Optional[Path] = None):
@@ -2179,9 +2273,12 @@ class MultiStageTemplateRouter:
     tier_up = tier.upper()
     template_file = self.get_template_filename(archetype)
     template_path = self.template_dir / template_file
-    if not template_path.exists():
+    if template_path.exists():
+      raw_template = template_path.read_text()
+    elif template_file in self.INLINE_TEMPLATES:
+      raw_template = self.INLINE_TEMPLATES[template_file]
+    else:
       raise FileNotFoundError(f"Missing pipeline template: {template_path}")
-    raw_template = template_path.read_text()
 
     # Map archetype to base key in SENSITIVITY_MAP
     canonical_key = "ZSCORE_PROCESS_SURGE"
@@ -2193,6 +2290,10 @@ class MultiStageTemplateRouter:
     # pin the MAD template to its own threshold set.
     if template_file == "mad_modified_z_4stage.yl2":
       canonical_key = "DATA_EXFILTRATION_SPIKE"
+    elif template_file == "impossible_travel_geo_velocity_2stage.yl2":
+      canonical_key = "IMPOSSIBLE_TRAVEL_GEO_VELOCITY"
+    elif template_file == "producer_consumer_ratio_inversion_2stage.yl2":
+      canonical_key = "PRODUCER_CONSUMER_RATIO_INVERSION"
     thresh = SENSITIVITY_MAP.get(canonical_key, {}).get(tier_up, {})
 
     # Adaptive window calculation
@@ -2216,12 +2317,22 @@ class MultiStageTemplateRouter:
         "ip": "principal.asset.ip",
     }
     entity_field = entity_field_map.get(entity_type.lower(), "principal.hostname")
+    if "impossible_travel" in template_file and entity_type.lower() == "host":
+      entity_field = "target.user.userid"
+    elif "producer_consumer" in template_file and entity_type.lower() == "host":
+      entity_field = "principal.asset.hostname"
 
     # Default event type resolution
     if not event_type:
-      if "POISSON_BURST" in template_file or "beta_binomial" in template_file or "privileged_lateral" in template_file or "two_part_hurdle" in template_file:
+      if (
+          "POISSON_BURST" in template_file
+          or "beta_binomial" in template_file
+          or "privileged_lateral" in template_file
+          or "two_part_hurdle" in template_file
+          or "impossible_travel" in template_file
+      ):
         event_type = "USER_LOGIN"
-      elif "c2_beaconing" in template_file:
+      elif "c2_beaconing" in template_file or "producer_consumer" in template_file:
         event_type = "NETWORK_CONNECTION"
       elif "mad_modified_z" in template_file:
         event_type = "NETWORK_DNS"
@@ -2281,6 +2392,10 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{zipf_threshold}}", str(thresh.get("zipf_threshold", 2.5)))
     rendered = rendered.replace("{{max_adopters}}", str(thresh.get("max_adopters", 2)))
     rendered = rendered.replace("{{velocity_threshold}}", str(thresh.get("velocity_threshold", 2.0)))
+    rendered = rendered.replace("{{velocity_kmh}}", str(thresh.get("velocity_kmh", 900.0)))
+    rendered = rendered.replace("{{min_distance_km}}", str(thresh.get("min_distance_km", 500.0)))
+    rendered = rendered.replace("{{min_producer_ratio}}", str(thresh.get("min_producer_ratio", 0.70)))
+    rendered = rendered.replace("{{min_sent_bytes}}", str(thresh.get("min_sent_bytes", 10000000.0)))
 
     # Dynamic Root-Stage Noise Level & Significance Threshold Conditioning
     order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
@@ -2316,6 +2431,111 @@ class MultiStageTemplateRouter:
         rendered = re.sub(r'(\border:\s*)', f"condition:\n  {cond_str}\n\n\\1", rendered, count=1)
 
     return rendered
+
+
+class QueryIntegrityGate:
+  """Pre-Dispatch and Post-Execution QA Gate ensuring executed queries are valid, scoped, and unmasked."""
+
+  BACKEND_ERROR_SIGNATURES: Tuple[str, ...] = (
+      "Request contains an invalid argument",
+      "INVALID_ARGUMENT",
+      "FAILED_PRECONDITION",
+      "syntax error",
+      "parsing:",
+      "semantic analysis:",
+      "400 Client Error",
+      "Internal error encountered",
+      "com.google.chronicle",
+  )
+
+  @staticmethod
+  def normalize_yaral(query: str) -> str:
+    """Strips comments and normalizes whitespace for structural concordance comparison."""
+    if not query:
+      return ""
+    no_line_comments = re.sub(r"//[^\n]*", "", query)
+    no_block_comments = re.sub(r"/\*.*?\*/", "", no_line_comments, flags=re.DOTALL)
+    return " ".join(no_block_comments.split())
+
+  @classmethod
+  def verify_pre_dispatch(
+      cls,
+      query: str,
+      expected_entity: Optional[str] = None,
+      expected_preflight_query: Optional[str] = None,
+  ) -> Dict[str, Any]:
+    """Validates a composed YARA-L query BEFORE sending it to the Chronicle API."""
+    errors: List[str] = []
+    if not query or not query.strip():
+      errors.append("EMPTY_QUERY: Cannot dispatch an empty query string to udm_search.")
+      return {"valid": False, "errors": errors}
+
+    unresolved = re.findall(r"\{\{[a-zA-Z0-9_]+\}\}", query)
+    if unresolved:
+      errors.append(f"UNRESOLVED_TEMPLATE_PLACEHOLDERS: Query contains unresolved slot(s): {sorted(set(unresolved))}")
+
+    errors.extend(check_scope_exclusions(query))
+    syntax_errs = [e for e in validate_multistage_syntax(query) if not e.startswith("MISSING METHODOLOGY HEADER")]
+    errors.extend(syntax_errs)
+
+    if expected_entity and expected_entity.strip().lower() not in (
+        "", "fleet", "all", "enterprise", "unknown", "unknown_entity", "target_entity", "*"
+    ):
+      ent = expected_entity.strip()
+      if ent.lower() not in query.lower():
+        errors.append(
+            f"UNSCOPED_ENTITY_QUERY: Expected target entity '{ent}' is not bound in the query predicates."
+        )
+
+    if expected_preflight_query:
+      norm_pre = cls.normalize_yaral(expected_preflight_query)
+      norm_cur = cls.normalize_yaral(query)
+      if ("stage " in norm_pre) != ("stage " in norm_cur):
+        errors.append(
+            "PREFLIGHT_EXECUTION_DRIFT: Multi-stage query topology changed between pre-flight preview and dispatch."
+        )
+
+    return {"valid": len(errors) == 0, "errors": errors}
+
+  @classmethod
+  def verify_backend_response(
+      cls,
+      query_or_response: Any,
+      api_response: Any = None,
+      raw_text: str = "",
+      is_error_flag: bool = False,
+  ) -> Dict[str, Any]:
+    """Inspects raw udm_search responses for backend compiler/API errors and query substitution drift."""
+    errors: List[str] = []
+    if api_response is None:
+      approved_query = None
+      raw_response = query_or_response
+    else:
+      approved_query = str(query_or_response) if query_or_response is not None else None
+      raw_response = api_response
+
+    if is_error_flag or getattr(raw_response, "isError", False):
+      errors.append("MCP_TOOL_ERROR_FLAG: udm_search returned isError=True.")
+
+    if raw_response is None and not raw_text:
+      return {"valid": len(errors) == 0, "errors": errors}
+
+    if isinstance(raw_response, dict):
+      if raw_response.get("error"):
+        errors.append(f"CHRONICLE_API_ERROR_FIELD: {raw_response.get('error')}")
+      if approved_query:
+        exec_q = raw_response.get("executed_query")
+        if exec_q and cls.normalize_yaral(exec_q) != cls.normalize_yaral(approved_query):
+          errors.append(
+              "QUERY_EXECUTION_DRIFT: Executed query differs from approved pre-flight query."
+          )
+
+    text = f"{raw_text}\n{raw_response if isinstance(raw_response, str) else str(raw_response)}"
+    for sig in cls.BACKEND_ERROR_SIGNATURES:
+      if sig.lower() in text.lower():
+        errors.append(f"CHRONICLE_BACKEND_QUERY_ERROR: Backend rejected query ({sig}): {text[:300]}")
+        break
+    return {"valid": len(errors) == 0, "errors": errors}
 
 
 class HandoffEndpoint:
@@ -2393,6 +2613,12 @@ class HandoffEndpoint:
       "EWMA_BURST": "EWMA_BURST_VELOCITY",
       "EWMA": "EWMA_BURST_VELOCITY",
       "INTRADAY_BURST_VELOCITY": "EWMA_BURST_VELOCITY",
+      "IMPOSSIBLE_TRAVEL_GEO_VELOCITY": "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
+      "IMPOSSIBLE_TRAVEL": "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
+      "GEO_VELOCITY": "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
+      "PRODUCER_CONSUMER_RATIO_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
+      "PRODUCER_CONSUMER_ROLE_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
+      "BYTE_RATIO_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
   }
 
   @classmethod
