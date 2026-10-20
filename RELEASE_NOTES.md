@@ -1,5 +1,26 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.8.0 (October 20, 2026) — Impossible Travel Geodesic Velocity, Producer-Consumer Ratio Inversion, `QueryIntegrityGate`, 13 Consultative Deformations & Streamlined 5-Section Reports
+
+* **Two New Golden Statistical Pipeline Templates (`templates/pipelines/`, 21 ──► 23 models)**:
+  * **Impossible Travel / Supersonic Geodesic Velocity (`templates/pipelines/impossible_travel_geo_velocity_2stage.yl2`)**:
+    * Evaluates physical travel distance ($\text{km}$) and geodesic travel velocity ($\text{km/h}$) across consecutive login coordinates within a time bucket using Chronicle's native Haversine function `math.geo_distance($lon1, $lat1, $lon2, $lat2)`.
+    * Flags logins from distinct source IPs exceeding commercial flight velocity (`CONSERVATIVE`: $\ge 1200\text{ km/h}, \ge 800\text{ km}$; `BALANCED`: $\ge 900\text{ km/h}, \ge 500\text{ km}$; `AGGRESSIVE`: $\ge 600\text{ km/h}, \ge 250\text{ km}$).
+  * **Producer-Consumer Byte Ratio Inversion (`templates/pipelines/producer_consumer_ratio_inversion_2stage.yl2`)**:
+    * Evaluates directional byte asymmetry $\rho = \text{sent\_bytes} / (\text{sent\_bytes} + \text{received\_bytes} + 1.0)$ paired with a per-entity historical outbound byte Z-score.
+    * Isolates workstation and client endpoints shifting from net data consumers ($\rho \ll 0.30$) to net data producers ($\rho \ge 0.80$) during staging, exfiltration, or lateral payload hosting.
+* **Pre/Post Execution `QueryIntegrityGate` & Data Table Syntax Validation (`scripts/multistage_query_builder.py`, `SKILL.md`)**:
+  * Added `QueryIntegrityGate.verify_pre_dispatch()` and `QueryIntegrityGate.verify_backend_response()` to block unresolved template placeholders (`{{...}}`), missing target entity scoping, malformed `%<table_name>.<column>` Data Table syntax (`validate_data_table_syntax`), or Chronicle backend compiler/RPC errors from silently degrading into false `0.00σ` clean baselines.
+* **Consultative Worksheet Expansion (`references/consultative-worksheet.md`, `references/statistical-models-taxonomy.md`)**:
+  * Expanded the consultative framework from 10 to **13 Behavioral Telemetry Deformations** (adding Deformation 11 Producer-Consumer Role Inversion, Deformation 12 Geospatial / Physical Velocity, and Deformation 13 Graph / Relational Bipartite Fan-Out & Fan-In) with **Executable Disambiguation Controls (`[A]` / `[B]` / `[C]`)**.
+  * Regenerated `references/statistical-models-taxonomy.md` with Sections 17–18 covering Geodesic Haversine Velocity and Directional Byte Asymmetry Ratio.
+* **Streamlined 5-Section Triage Report (`SKILL.md`, `scripts/multistage_query_builder.py`)**:
+  * Removed the redundant `Executed Multi-Stage Query (Verbatim Provenance)` code dump from Section 5 of Turn 2 reports while preserving the 1-Click Manual Raw UDM Drill-Down Query (`text` block) and all 6 forensic evidence pillars.
+* **Test Suite & Live Dual-Engine Regression**:
+  * **Unit Test Suite**: **173 / 173 unit tests passing (100%)** across 17 test modules.
+  * **Golden Templates**: **23 / 23 golden pipeline templates** passing 100% AST and compiler validation.
+  * **Live Dual-Engine Regression (`secops-regress`)**: **23 / 23 scenarios passing (`100.0%`)** across both `AgentAPI` (`23/23`) and `Direct MCP` (`23/23`) on `gus-sdl`.
+
 ## 📦 Version 2.7.5 (October 19, 2026) — Native Float `confidence_score` & Multi-Sector `SECTOR_VECTOR` UDM Hand-Off
 
 * **`scripts/clean_handoff.py` & `references/clean-handoff-udm-schema.md`**:
