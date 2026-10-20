@@ -143,6 +143,10 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
      - `PRIVILEGED_LATERAL_EXPANSION`: `templates/pipelines/privileged_lateral_expansion_2stage.yl2`
      - `TWO_PART_HURDLE`: `templates/pipelines/two_part_hurdle_2stage.yl2`
      - `HYBRID_ENTROPY_CONCENTRATION` / `DIVERSITY_DEFICIT`: `templates/pipelines/hybrid_entropy_concentration_2stage.yl2`
+     - `ZIPFIAN_PROCESS_RARITY` / `FLEET_PREVALENCE_NORMALIZATION`: `templates/pipelines/zipfian_process_rarity_2stage.yl2`
+     - `MARKOV_2GRAM_TRANSITION_RARITY`: `templates/pipelines/markov_2gram_transition_rarity_2stage.yl2`
+     - `SHANNON_ENTROPY_CHARACTER`: `templates/pipelines/shannon_entropy_character_2stage.yl2`
+     - `EWMA_BURST_VELOCITY`: `templates/pipelines/ewma_burst_velocity_2stage.yl2`
      - `GLOBAL_THREAT_INTEL_ENRICHMENT` / `GLOBAL_CONTEXT`: `templates/pipelines/global_threat_intel_enrichment_3stage.yl2`
      - `DERIVED_CONTEXT_PREVALENCE` / `DERIVED_CONTEXT`: `templates/pipelines/derived_context_prevalence_3stage.yl2`
      - `DERIVED_CONTEXT_FILE_PREVALENCE` / `FILE_PREVALENCE`: `templates/pipelines/derived_context_file_prevalence_3stage.yl2`
@@ -223,8 +227,8 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
 ### 📊 State 2: Deterministic Multi-Stage Execution & 5-Section Triage Report (After Clearance)
 
 When receiving execution clearance from the analyst (such as "Clearance granted", "Proceed", "Go ahead", "Run the hunt", or selection of Mode A/Mode B):
-1. **Immediate Execution Turn**:
-   Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search(query=...)`, regardless of preliminary spot-check counts. When the analyst approves execution without choosing between Mode A or Mode B, proceed using Mode A (Rolling 24-Hour Raw-Event Window, e.g. `startTime=<24_hours_ago>`, `endTime=<now>`) or the timeline matching the investigation hypothesis. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), format the response affirmatively as a nominal baseline. Proceed directly to executing the query.
+1. **Immediate Execution Turn (Single Multi-Stage Dispatch & Zero Follow-Up Raw Dumps)**:
+   Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search(query=...)` once, regardless of preliminary spot-check counts. When the analyst approves execution without choosing between Mode A or Mode B, proceed using Mode A (Rolling 24-Hour Raw-Event Window, e.g. `startTime=<24_hours_ago>`, `endTime=<now>`) or the timeline matching the investigation hypothesis. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), **stop calling tools immediately** and format the response affirmatively as a nominal baseline (`0 Outliers Detected`). Never execute follow-up unaggregated raw `udm_search` queries to inspect event timestamps, and never write or execute Python scripts (`scratch/*.py` or `run_command`) to calculate statistics outside SIEM. Proceed directly to rendering the 5-Section Triage Report.
 2. **Mandatory 5-Section Triage Report Delivery**:
    Synthesize the aggregated `stats` evidence returned by `udm_search` (or nominal baseline metrics if zero events are returned) into all 5 sections in exact order:
 
