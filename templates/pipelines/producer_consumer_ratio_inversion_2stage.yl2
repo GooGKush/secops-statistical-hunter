@@ -1,0 +1,74 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect Producer-Consumer Byte Ratio Inversion (Endpoint Shifting from Net Consumer to Data Producer).
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Directional Byte Asymmetry Ratio (Sent / Total Bytes) with Historical Z-Score
+// Mathematical Rationale:
+//   - Why this model: Standard workstations and application clients are net data consumers (rho << 0.30).
+//     When an endpoint stages and exfiltrates data or serves payloads laterally, its directional producer
+//     ratio rho = sent_bytes / (sent_bytes + received_bytes) inverts toward 1.0 alongside a Z-score spike.
+// Sensitivity Boundary: {{tier}} (Producer Ratio >= {{min_producer_ratio}}, Z-Score >= {{z_score}}, Sent Bytes >= {{min_sent_bytes}}, Active Samples >= {{min_active_samples}})
+// ============================================================================
+
+// Stage 1: Aggregate per-window outbound/inbound bytes and destination diversity
+stage stage1_directional_bytes {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    target.ip = $dst_ip
+    $dst_ip != ""
+
+  match:
+    $entity by {{bucket_size}}
+
+  outcome:
+    $event_count = count(metadata.id)
+    $sent_bytes = sum(network.sent_bytes)
+    $recv_bytes = sum(network.received_bytes)
+    $distinct_targets = count_distinct($dst_ip)
+}
+
+// Stage 2: Establish per-entity historical baseline over outbound byte volume
+stage stage2_entity_baseline {
+    $entity = $stage1_directional_bytes.entity
+
+  match:
+    $entity
+
+  outcome:
+    $active_windows = count($stage1_directional_bytes.window_start)
+    $mean_sent = avg($stage1_directional_bytes.sent_bytes)
+    $sd_sent = stddev($stage1_directional_bytes.sent_bytes)
+}
+
+// Root Stage: Score directional producer ratio inversion and outbound byte Z-score
+$entity = $stage1_directional_bytes.entity
+$entity = $stage2_entity_baseline.entity
+
+match:
+  $entity by {{bucket_size}}
+
+outcome:
+  // 6 Core Evidence Pillars
+  $observation_count = max($stage1_directional_bytes.sent_bytes)
+  $baseline_active_samples = max($stage2_entity_baseline.active_windows)
+  $baseline_mean = max($stage2_entity_baseline.mean_sent)
+  $baseline_dispersion = max($stage2_entity_baseline.sd_sent)
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($stage1_directional_bytes.distinct_targets)
+
+  // Directional Producer-Consumer Ratio & Z-Score
+  $window_recv = max($stage1_directional_bytes.recv_bytes)
+  $total_bytes = $observation_count + $window_recv + 1.0
+  $producer_ratio = $observation_count / $total_bytes
+  $safe_sd = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
+  $z_score = ($observation_count - $baseline_mean) / $safe_sd
+
+condition:
+  $baseline_active_samples >= {{min_active_samples}}
+  and $observation_count >= {{min_sent_bytes}}
+  and $producer_ratio >= {{min_producer_ratio}}
+  and $z_score >= {{z_score}}
+
+order:
+  $z_score desc

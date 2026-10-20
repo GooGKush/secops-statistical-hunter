@@ -536,6 +536,93 @@ class TestCompilerGrammar(unittest.TestCase):
     fatal_errors = [e for e in errors if not e.startswith("MISSING METHODOLOGY HEADER")]
     self.assertEqual(fatal_errors, [], f"Nested if() with aggregations should pass cleanly, got: {fatal_errors}")
 
+  def test_impossible_travel_geo_velocity_template_passes_cleanly(self):
+    """Rendered IMPOSSIBLE_TRAVEL_GEO_VELOCITY pipeline must use math.geo_distance and pass syntax validation."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    for tier in ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]:
+      query = router.build_query("IMPOSSIBLE_TRAVEL_GEO_VELOCITY", tier=tier)
+      self.assertIn("math.geo_distance(", query)
+      self.assertIn("$velocity_kmh", query)
+      self.assertEqual(check_scope_exclusions(query), [])
+      errors = validate_multistage_syntax(query)
+      self.assertEqual(errors, [], f"Rendered impossible travel pipeline ({tier}) had errors: {errors}")
+
+  def test_producer_consumer_ratio_inversion_template_passes_cleanly(self):
+    """Rendered PRODUCER_CONSUMER_RATIO_INVERSION pipeline must compute producer_ratio and pass syntax validation."""
+    from multistage_query_builder import MultiStageTemplateRouter
+    router = MultiStageTemplateRouter()
+    for tier in ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]:
+      query = router.build_query("PRODUCER_CONSUMER_RATIO_INVERSION", tier=tier)
+      self.assertIn("$producer_ratio", query)
+      self.assertEqual(check_scope_exclusions(query), [])
+      errors = validate_multistage_syntax(query)
+      self.assertEqual(errors, [], f"Rendered producer-consumer ratio inversion pipeline ({tier}) had errors: {errors}")
+
+  def test_data_table_column_syntax_validation(self):
+    """Data Table %<table_name>.<column> joins pass while bare = %<table_name> fails."""
+    valid_dt_query = """
+    // Goal: Join entity against %ueba_hunt_bridge
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      $host in %ueba_hunt_bridge.entity_identifier
+      match: $host by 1h
+      outcome: $cnt = count(metadata.id)
+    }
+    $host = $s1.host
+    match: $host by 1h
+    outcome: $obs = max($s1.cnt)
+    condition: $obs >= 1
+    """
+    errors_valid = validate_multistage_syntax(valid_dt_query)
+    self.assertEqual(errors_valid, [], f"Valid %table.column join must pass: {errors_valid}")
+
+    bad_dt_query = """
+    // Goal: Invalid bare data table equality join
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      $host = %ueba_hunt_bridge
+      match: $host by 1h
+      outcome: $cnt = count(metadata.id)
+    }
+    $host = $s1.host
+    match: $host by 1h
+    outcome: $obs = max($s1.cnt)
+    condition: $obs >= 1
+    """
+    errors_bad = validate_multistage_syntax(bad_dt_query)
+    self.assertTrue(any("INVALID_DATA_TABLE_COLUMN_SYNTAX" in e for e in errors_bad),
+                    f"Expected INVALID_DATA_TABLE_COLUMN_SYNTAX, got: {errors_bad}")
+
+  def test_query_integrity_gate_pre_and_post_checks(self):
+    """QueryIntegrityGate must catch unresolved slots, unscoped entities, and backend API errors."""
+    from multistage_query_builder import MultiStageTemplateRouter, QueryIntegrityGate
+    router = MultiStageTemplateRouter()
+    q = router.build_query("IMPOSSIBLE_TRAVEL_GEO_VELOCITY")
+
+    # 1. Valid fleet query passes pre-dispatch
+    res_ok = QueryIntegrityGate.verify_pre_dispatch(q, expected_entity="fleet")
+    self.assertTrue(res_ok["valid"], f"Expected valid pre-dispatch, got: {res_ok}")
+
+    # 2. Missing target entity fails pre-dispatch
+    res_unscoped = QueryIntegrityGate.verify_pre_dispatch(q, expected_entity="alice@corp.com")
+    self.assertFalse(res_unscoped["valid"])
+    self.assertTrue(any("UNSCOPED_ENTITY_QUERY" in e for e in res_unscoped["errors"]))
+
+    # 3. Unresolved placeholder fails pre-dispatch
+    res_slot = QueryIntegrityGate.verify_pre_dispatch(q + "\n// {{unresolved_slot}}")
+    self.assertFalse(res_slot["valid"])
+    self.assertTrue(any("UNRESOLVED_TEMPLATE_PLACEHOLDERS" in e for e in res_slot["errors"]))
+
+    # 4. Backend compiler error string is caught on post-execution
+    res_backend_err = QueryIntegrityGate.verify_backend_response(
+        q, {"raw_text": "Error: Request contains an invalid argument: parsing: line 4"}
+    )
+    self.assertFalse(res_backend_err["valid"])
+    self.assertTrue(any("CHRONICLE_BACKEND_QUERY_ERROR" in e for e in res_backend_err["errors"]))
+
 
 if __name__ == "__main__":
   unittest.main()

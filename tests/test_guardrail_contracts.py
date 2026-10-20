@@ -69,11 +69,11 @@ class TestGuardrailContracts(unittest.TestCase):
     )
 
   def test_literal_query_display_mandate_present(self):
-    """SKILL.md must enforce that Section 2 contains the literal query passed to udm_search."""
+    """SKILL.md must enforce QueryIntegrityGate pre/post validation instead of repeating query in State 2 report."""
     self.assertIn(
-        "Verbatim Query Provenance",
+        "Pre/Post Execution Query Integrity Gate",
         self.skill_content,
-        "SKILL.md must enforce verbatim query provenance."
+        "SKILL.md must enforce Pre/Post Execution Query Integrity Gate."
     )
 
   def test_clean_handoff_contract_present(self):
@@ -177,7 +177,7 @@ class TestGuardrailContracts(unittest.TestCase):
     pipeline_dir = os.path.join(self.repo_dir, "templates", "pipelines")
     self.assertTrue(os.path.exists(pipeline_dir), "templates/pipelines/ directory must exist")
     yl2_files = glob.glob(os.path.join(pipeline_dir, "*.yl2"))
-    self.assertEqual(len(yl2_files), 21, f"Must have exactly 21 golden pipeline templates, found {len(yl2_files)}")
+    self.assertEqual(len(yl2_files), 22, f"Must have 22 golden pipeline templates on disk, found {len(yl2_files)}")
 
     router = MultiStageTemplateRouter(template_dir=pipeline_dir)
     for fpath in yl2_files:
