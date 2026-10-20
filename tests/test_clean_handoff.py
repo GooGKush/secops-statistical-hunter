@@ -88,7 +88,45 @@ class TestCleanHandoffRegression(unittest.TestCase):
         self.assertEqual(udm["target"]["resource"]["resource_type"], "RESOURCE_TYPE_UNSPECIFIED")
         self.assertEqual(udm["security_result"][0]["threat_id_namespace"], "MITRE_ATTACK")
         self.assertEqual(udm["security_result"][0]["risk_score"], 72)
+        self.assertEqual(udm["security_result"][0]["confidence_score"], 3.85)
         self.assertEqual(udm["security_result"][0]["severity"], "HIGH")
+
+  def test_multi_sector_fusion_emits_sector_vector_security_results(self):
+    """Multi-sector findings emit unbundled Peak labels and SECTOR_VECTOR security_result entries."""
+    event = build_synthetic_udm_event(
+        product_event_type="MULTI_SECTOR_THREAT_FUSION",
+        entity_id="win-server.corp.local",
+        entity_type="HOSTNAME",
+        statistical_model="4-Stage Multi-Sector Threat Fusion",
+        z_score=5.8,
+        cri_score=84,
+        observed_value=3,
+        historical_mean=0.2,
+        historical_stddev=0.1,
+        summary="Coordinated multi-sector killchain detected",
+        sector_vectors={
+            "auth": {"z": 3.2, "cri": 52},
+            "process": {"z": 4.9, "cri": 76},
+            "network": {"z": 0.0, "cri": 0},
+        },
+    )
+    errors = validate_clean_handoff_udm(event)
+    self.assertEqual(errors, [])
+    sr = event["udm"]["security_result"]
+    self.assertEqual(len(sr), 3)
+    self.assertEqual(sr[0]["rule_type"], "COMPOSITE_FUSION")
+    self.assertNotIn("confidence_score", sr[0])
+    self.assertEqual(sr[1]["rule_type"], "SECTOR_VECTOR")
+    self.assertEqual(sr[1]["threat_name"], "PROCESS")
+    self.assertEqual(sr[1]["risk_score"], 76)
+    self.assertEqual(sr[1]["confidence_score"], 4.9)
+    self.assertEqual(sr[2]["threat_name"], "AUTH")
+    self.assertEqual(sr[2]["risk_score"], 52)
+    self.assertEqual(sr[2]["confidence_score"], 3.2)
+    labels = {l["key"]: l["value"] for l in event["udm"]["target"]["resource"]["attribute"]["labels"]}
+    self.assertEqual(labels["Peak Vector"], "PROCESS")
+    self.assertEqual(labels["Peak CRI"], "76")
+    self.assertEqual(labels["Peak Z"], "4.90")
 
   def test_rejection_of_unknown_product_event_type(self):
     """Building an event with an unknown product_event_type must raise ValueError."""

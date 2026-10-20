@@ -81,6 +81,7 @@ def build_synthetic_udm_event(
     mitre_tactics: Optional[List[str]] = None,
     mitre_techniques: Optional[List[str]] = None,
     extra_labels: Optional[Dict[str, str]] = None,
+    sector_vectors: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> Dict[str, Any]:
   """Constructs an authentic, schema-validated synthetic UDM event conforming to Google Cloud Chronicle standards."""
   if product_event_type not in CANONICAL_PRODUCT_EVENT_TYPES:
@@ -136,6 +137,24 @@ def build_synthetic_udm_event(
       {"key": "Calibrated Risk Index", "value": str(cri_score)},
   ]
 
+  active_vectors = []
+  if sector_vectors:
+    for sec_name, sec_info in sector_vectors.items():
+      sec_z = float((sec_info or {}).get("z", 0.0) or 0.0)
+      sec_cri = int((sec_info or {}).get("cri", 0) or 0)
+      if sec_z > 0.0 and sec_cri > 0:
+        active_vectors.append((sec_name.upper(), sec_z, sec_cri))
+    active_vectors.sort(key=lambda v: v[1], reverse=True)
+    if active_vectors:
+      peak_name, peak_z, peak_cri = active_vectors[0]
+      breached = [v[0] for v in active_vectors if v[1] >= 3.0]
+      resource_labels.extend([
+          {"key": "Peak Vector", "value": peak_name},
+          {"key": "Peak CRI", "value": str(peak_cri)},
+          {"key": "Peak Z", "value": f"{peak_z:.2f}"},
+          {"key": "Breached Vectors", "value": ", ".join(breached) or "none"},
+      ])
+
   if extra_labels:
     for k, v in extra_labels.items():
       resource_labels.append({"key": k, "value": str(v)})
@@ -159,7 +178,7 @@ def build_synthetic_udm_event(
     for t in mitre_techniques:
       detection_fields.append({"key": "mitre_techniques", "value": t})
 
-  security_result = [{
+  primary_sr: Dict[str, Any] = {
       "threat_name": f"Statistical Outlier: {statistical_model}",
       "threat_id": threat_id,
       "threat_id_namespace": "MITRE_ATTACK",
@@ -175,7 +194,26 @@ def build_synthetic_udm_event(
           f"(Z={z_score:+.2f}σ, CRI={cri_score})."
       ),
       "detection_fields": detection_fields,
-  }]
+  }
+  if active_vectors:
+    primary_sr["rule_type"] = "COMPOSITE_FUSION"
+  else:
+    primary_sr["confidence_score"] = round(float(z_score), 2)
+
+  security_result = [primary_sr]
+  for vec_name, vec_z, vec_cri in active_vectors:
+    security_result.append({
+        "rule_name": f"Statistical Vector: {vec_name}",
+        "rule_type": "SECTOR_VECTOR",
+        "threat_name": vec_name,
+        "category": ["SUSPICIOUS_ACTIVITY"],
+        "action": ["UNKNOWN_ACTION"],
+        "risk_score": int(vec_cri),
+        "confidence_score": round(float(vec_z), 2),
+        "severity": map_cri_to_severity(vec_cri),
+        "threat_status": "ACTIVE" if vec_z >= 3.0 else "CLEARED",
+        "summary": f"Vector {vec_name}: CRI {vec_cri} | Z {vec_z:.2f}σ",
+    })
 
   return {
       "udm": {
@@ -213,6 +251,7 @@ def build_multi_event_batch(
         mitre_tactics=f.get("mitre_tactics"),
         mitre_techniques=f.get("mitre_techniques"),
         extra_labels=f.get("extra_labels"),
+        sector_vectors=f.get("sector_vectors"),
     )
     batch.append(event)
   return batch

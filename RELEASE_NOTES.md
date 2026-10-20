@@ -1,5 +1,12 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.7.5 (October 19, 2026) — Native Float `confidence_score` & Multi-Sector `SECTOR_VECTOR` UDM Hand-Off
+
+* **`scripts/clean_handoff.py` & `references/clean-handoff-udm-schema.md`**:
+  * Single-vector statistical findings now populate `"confidence_score": round(float(z_score), 2)` directly on `security_result[0]` alongside `"risk_score": int(cri_score)`, enabling direct numeric YARA-L (`$top_z = max($e.security_result.confidence_score)`) and SecOps Native Dashboard queries without string/regex parsing.
+  * Multi-sector statistical findings (`MULTI_SECTOR_THREAT_FUSION` when `sector_vectors` is passed to `build_synthetic_udm_event()`) now emit unbundled `Peak Vector`, `Peak CRI`, `Peak Z`, and `Breached Vectors` labels, tag `security_result[0]` as `"rule_type": "COMPOSITE_FUSION"`, and append one `"rule_type": "SECTOR_VECTOR"` entry per non-zero sector sorted descending by Z-score in `security_result[1..N]` with native `risk_score` and `confidence_score`.
+* **Test Suite**: 169/169 unit tests (`test_multi_sector_fusion_emits_sector_vector_security_results` added in `tests/test_clean_handoff.py`).
+
 ## 📦 Version 2.7.4 (October 15, 2026) — Scoped Mode Labels & Cross-Skill Time-Window Clarity
 
 * **Why**: agents that loaded both skills applied this skill's rolling 24-hour window to risk-metrics Mode A hunts. Both skills call their horizons "Mode A" / "Mode B", but this skill's Mode A is a rolling 24-hour raw-event window and the risk-metrics Mode A is today `00:00Z` → now in UTC day buckets.

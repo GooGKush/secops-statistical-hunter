@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.7.4-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-168%2F168%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-21%2F21%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v2.7.5-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-169%2F169%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-21%2F21%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -233,6 +233,11 @@ End-to-end multi-turn conversational regression is validated by the maintainer t
 ---
 
 ## 📦 Release Notes
+
+### v2.7.5 (October 19, 2026) — Native Float `confidence_score` & Multi-Sector `SECTOR_VECTOR` UDM Hand-Off
+* **Native Float Z-Scores in `security_result` (`scripts/clean_handoff.py`, `references/clean-handoff-udm-schema.md`)**: Single-vector statistical findings now populate `"confidence_score": round(float(z_score), 2)` directly on `security_result[0]` alongside `"risk_score": int(cri_score)`, so YARA-L rules and SecOps Native Dashboards can threshold and aggregate Z-scores numerically without string parsing.
+* **Multi-Sector `SECTOR_VECTOR` Array (`MULTI_SECTOR_THREAT_FUSION`)**: When `sector_vectors` is passed to `build_synthetic_udm_event()`, `target.resource.attribute.labels` adds unbundled `Peak Vector`, `Peak CRI`, `Peak Z`, and `Breached Vectors` labels, `security_result[0]` is tagged `"rule_type": "COMPOSITE_FUSION"`, and `security_result[1..N]` emit one `"rule_type": "SECTOR_VECTOR"` entry per non-zero sector with native `risk_score` and `confidence_score`.
+* **Test Suite**: 169/169 unit tests.
 
 ### v2.7.4 (October 15, 2026) — Scoped Mode Labels & Cross-Skill Time-Window Clarity
 * **Mode labels say what the window is**: the clearance question now offers **Mode A (Rolling 24-Hour Raw-Event Window)** or **Mode B (14-Day Raw-Event Timeline)**, and states that these windows belong to this skill only. `secops-risk-metrics-multistage` uses UTC day buckets (today `00:00Z` → now), and agents that loaded both skills were applying this skill's rolling 24 hours to metrics hunts.
