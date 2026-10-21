@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.8.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-173%2F173%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v2.8.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-178%2F178%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -94,7 +94,7 @@ secops-statistical-hunter/
 │   ├── two_part_hurdle_2stage.yl2           # Two-Part Hurdle model for zero-inflated dormant entities
 │   ├── zipfian_process_rarity_2stage.yl2    # Power-Law / Zipfian long-tail administrative utility rarity
 │   └── zscore_process_surge_2stage.yl2      # Parametric Z-Score process surges per host
-├── examples/                                # Working standalone YARA-L search templates (12)
+├── examples/                                # Working standalone YARA-L search templates (13)
 │   ├── bayesian_gamma_shrinkage.yara        # Poisson-Gamma Bayesian Credibility Shrinkage
 │   ├── beta_binomial_failure_regularization.yara # Beta-Binomial failure rate regularization
 │   ├── c2_beaconing_jitter_cv.yara          # Inter-arrival CV + low-prevalence filter
@@ -105,6 +105,7 @@ secops-statistical-hunter/
 │   ├── multi_sector_threat_fusion.yara      # 4-Stage Multi-Sector Fusion (Auth + Endpoint + Net)
 │   ├── poisson_burst_clustering.yara        # Fano Factor (σ² / μ > 4.0) password spray cluster detector
 │   ├── poisson_rare_event_surge.yara        # Discrete Poisson score for sensitive administrative binaries
+│   ├── rare_user_agent_prevalence.yara      # Rare HTTP user-agent prevalence outlier detection
 │   ├── rolling_ratio_spike.yara             # 1-day vs 7-day vs 30-day moving ratio
 │   └── zscore_process_execution_surges.yara # Historical 3-Sigma Z-Score process surges per host
 ├── references/                              # Deep-dive engineering guides (14)
@@ -126,17 +127,19 @@ secops-statistical-hunter/
 │   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & schema validator
 │   ├── generate_references.py               # Generates taxonomy and windowing reference markdown
 │   └── multistage_query_builder.py          # Python linter, AST validator, QueryIntegrityGate & report/chart generator
-└── tests/                                   # Automated unit test suite (173 tests, 100% pass rate)
+└── tests/                                   # Automated unit test suite (178 tests across 17 modules, 100% pass rate)
     ├── test_chart_specifications.py         # Dual-axis visualization spec tests
     ├── test_clean_handoff.py                # Clean Hand-Off UDM schema validation & batching tests
     ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, bare match identifiers, QueryIntegrityGate
     ├── test_cri_and_math.py                 # Sigmoid CRI normalization and mathematical derivations
+    ├── test_fleet_prevalence_unknown.py     # Uncomputed fleet prevalence (-1 sentinel) tier tests
     ├── test_global_context_syntax.py        # Entity Context Graph (GLOBAL_CONTEXT/DERIVED_CONTEXT) syntax tests
     ├── test_guardrail_contracts.py          # Golden pipeline validation, session lock, and guardrail contracts
     ├── test_handoff_endpoint.py             # Federated handoff ingestion and protocol ACK tests
     ├── test_mad_cross_skill_sync.py         # Cross-skill MAD math & routing parity contract
     ├── test_mad_modified_z_template.py      # MAD / Modified Z template correctness contract
     ├── test_math_models.py                  # Bayesian, Beta-Binomial, Fano, and norm unit tests
+    ├── test_negative_literal_and_report_scope.py # Bare negative literal & report scope inference tests
     ├── test_query_auditor.py                # Post-flight intent and raw log dump detection tests
     ├── test_routing_interceptor.py          # Pre-flight routing interceptor and delegation tests
     ├── test_triage_reporting.py             # CommonMark 5-section triage schema & pillar tests

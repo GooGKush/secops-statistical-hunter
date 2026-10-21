@@ -1,5 +1,21 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.8.2 (October 21, 2026) — Full Audit Remediation: Compiler-Safe `if()`/Division Guards, Rectified Multi-Sector Fusion, 10-Day ECG Prevalence Invariant & 28.0 KB Progressive-Loading Ceiling
+
+* **Chronicle YARA-L 2.0 Compiler-Safe Outcome `if()` & Division Guards (`templates/pipelines/*.yl2`, `examples/*.yara`)**:
+  * Extracted all nested arithmetic and logical expressions out of `if()` true/false return branches into intermediate Outcomes-in-Outcomes (OIO) variables and guarded every division denominator across `bayesian_gamma_shrinkage_4stage.yl2`, `beta_binomial_failure_4stage.yl2`, `dual_baseline_delta_z_3stage.yl2`, `ewma_burst_velocity_2stage.yl2`, `hybrid_entropy_concentration_2stage.yl2`, `impossible_travel_geo_velocity_2stage.yl2`, `log_normal_volume_surge_2stage.yl2`, `markov_2gram_transition_rarity_2stage.yl2`, `multi_sector_threat_fusion_4stage.yl2`, `poisson_rare_surge_2stage.yl2`, `privileged_lateral_expansion_2stage.yl2`, `shannon_entropy_character_2stage.yl2`, `two_part_hurdle_2stage.yl2`, `zipfian_process_rarity_2stage.yl2`, and standalone `.yara` examples.
+* **Rectified Euclidean Multi-Sector Threat Fusion (`templates/pipelines/multi_sector_threat_fusion_4stage.yl2`, `examples/multi_sector_threat_fusion.yara`)**:
+  * Rectified per-sector Z-scores (`$pos_z = if($z > 0, $z, 0.0)`) prior to squaring in $D = \sqrt{\sum \max(0, Z_i)^2}$ so below-average activity ($Z < 0$) never inflates composite threat distance.
+* **10-Day Entity Context Graph (`DERIVED_CONTEXT`) Prevalence Invariant & Epoch-Zero Guards**:
+  * Enforced `prevalence.day_count = 10` and `prevalence.rolling_max > 0` across `derived_context_domain_prevalence_3stage.yl2`, `derived_context_file_prevalence_3stage.yl2`, and `derived_context_prevalence_3stage.yl2`, and guarded missing `first_seen_time` / WHOIS `creation_time` (`> 0`) in `global_threat_intel_enrichment_3stage.yl2` so unindexed assets/domains never masquerade as newly registered or infant entities.
+* **Python Builder, Clean Hand-Off & Progressive-Loading Ceiling (`scripts/*.py`, `SKILL.md`, `tests/*.py`)**:
+  * Updated `scripts/multistage_query_builder.py`, `scripts/clean_handoff.py` (`forwarder_id` support and `allow_zero_values = true` catch-all rule), and `scripts/generate_references.py` so all 18 statistical models and 23 golden pipeline templates are exposed and validated.
+  * Updated the `SKILL.md` progressive-loading ceiling in `tests/test_guardrail_contracts.py` to `28.0 KB` (`28,672` bytes) / `275` lines with YAML `description <= 1,024` characters.
+* **Verification**:
+  * **Unit Test Suite**: `178 / 178` unit tests (`18` subtests) passing (`100%`).
+  * **Live Dual-Engine Regression (`secops-regress`)**: `23 / 23` scenarios passing (`100.0%` Invariant Parity across both `AgentAPI` and `Direct MCP` on `gus-sdl`, resolving `SH-P1-10-SHANNON-CHARACTER-ENTROPY`).
+
+
 ## 📦 Version 2.8.1 (October 21, 2026) — Native SecOps UEBA Architectural Demarcation & Silent Zero-BigQuery Guardrail
 
 * **Native SecOps Data Plane Demarcation (`SKILL.md`, `references/scope-exclusions-guardrail.md`)**:
