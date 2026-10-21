@@ -1,5 +1,14 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.8.1 (October 21, 2026) — Native SecOps UEBA Architectural Demarcation & Silent Zero-BigQuery Guardrail
+
+* **Native SecOps Data Plane Demarcation (`SKILL.md`, `references/scope-exclusions-guardrail.md`)**:
+  * Updated the cross-skill Data Plane comparison table and architectural grounding to clarify that both raw UDM multi-stage hunting (`UDM_EVENTS`) and `metrics.*` pre-computed UEBA baselines are 100% native to Google SecOps, leveraging core Google infrastructure.
+  * Added a silent conditional anti-hallucination guardrail: never claim or imply that BigQuery powers, computes, or stores `metrics.*` or SecOps UEBA; do not bring up BigQuery unprompted, and if asked about BigQuery's role, state directly that **BigQuery contributes nothing to SecOps UEBA** (appearing only as a monitored customer cloud target in `GCP_CLOUDAUDIT` telemetry).
+* **Verification**:
+  * **Unit Test Suite**: `173 / 173` unit tests passing (`100%`).
+  * **Live Dual-Engine Regression (`secops-regress`)**: `0 / 83` unprompted BigQuery mentions across all 166 conversations; `23 / 23` (`100%`) passing on `Direct MCP` and `22 / 23` (`95.7%`) overall Dual-Engine (`SH-P0-07-WINDOW-ALIGNMENT` resolved to `PASS`).
+
 ## 📦 Version 2.8.0 (October 20, 2026) — Impossible Travel Geodesic Velocity, Producer-Consumer Ratio Inversion, `QueryIntegrityGate`, 13 Consultative Deformations & Streamlined 5-Section Reports
 
 * **Two New Golden Statistical Pipeline Templates (`templates/pipelines/`, 21 ──► 23 models)**:

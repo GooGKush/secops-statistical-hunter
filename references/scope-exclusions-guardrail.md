@@ -31,10 +31,12 @@ A critical engineering boundary in Google SecOps is understanding what each back
 
 | Dimension | `secops-risk-metrics-multistage` (UEBA Metrics) | `secops-statistical-hunter` (This Skill) |
 | :--- | :--- | :--- |
-| **Data Plane** | Pre-computed daily/hourly summary tables (`metrics.*`) | Raw telemetry (`UDM_EVENTS`) & alerts (`RULE_DETECTIONS`) |
+| **Data Plane** | Native SecOps pre-computed daily/hourly behavioral metrics (`metrics.*`) leveraging core Google infrastructure | Raw telemetry (`UDM_EVENTS`) & alerts (`RULE_DETECTIONS`) |
 | **Lookback Horizon** | **Fixed Rolling 30-Day Windows** (`window: 30d`, `period: 1d`) with $O(1)$ lookups. | **Arbitrary Time Slices**: Can query any timestamp window (`2026-08-01T00:00:00Z` to `2026-08-15T00:00:00Z`). |
 | **Join Restrictions** | Must match exact pre-indexed dimension combinations (e.g. `target.user.userid` + `country`). | Can group by any combination of UDM fields (`principal.hostname`, `target.ip`, `dns.questions.name`). |
 | **Primary Use Case** | Baseline alerting when an entity deviates from their 30-day pre-computed posture or peer cohort. | Interactive threat hunting across un-baselined TTPs (C2 beaconing, DGA, timing jitter, bursts). |
+
+> **Zero BigQuery Involvement in SecOps UEBA (Background Guardrail)**: Both raw UDM search and pre-computed `metrics.*` UEBA baselines are completely native to Google SecOps, leveraging core Google infrastructure. Never claim or imply that BigQuery stores, computes, or powers `metrics.*` or SecOps UEBA. Do not bring up BigQuery unprompted when explaining UEBA; only if asked whether/how BigQuery is involved, state directly that **BigQuery contributes nothing to SecOps UEBA** (it only ever appears as a monitored customer cloud target in `GCP_CLOUDAUDIT` telemetry).
 
 ### Shared Multi-Stage Model Disambiguation
 Both skills execute ad-hoc Multi-Stage YARA-L DAG queries (`stage ... { }` + unwrapped Root Stage) via Chronicle UDM Search (`udm_search`). When an analyst inquiry uses shared mathematical terms, apply this routing matrix:
