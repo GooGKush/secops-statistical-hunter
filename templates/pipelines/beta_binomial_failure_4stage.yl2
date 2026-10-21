@@ -9,7 +9,7 @@
 //   (e.g., 1 failed login out of 1 total attempt = 100% failure rate).
 //   Beta-Binomial conjugate updating regularizes the failure probability toward the population
 //   prior baseline, filtering out transient single-trial mistakes while catching true sustained attacks.
-// Sensitivity Boundary: {{tier}} (Regularized Posterior Failure Prob >= 0.70, Min Trials >= 10)
+// Sensitivity Boundary: {{tier}} (Regularized Posterior Failure Prob >= {{posterior_fail_prob}}, Min Attempts >= {{min_attempts}}, Active Samples >= {{min_active_samples}})
 // ============================================================================
 
 // Stage 1: Aggregate successes and failures per entity in tumbling hourly windows
@@ -78,10 +78,9 @@ outcome:
   $unregularized_raw_rate = max($entity_hourly_trials.failed_trials) / $safe_trials
 
 condition:
-  $baseline_active_samples >= 12
-  and $hourly_trials_count >= 10
-  and $observation_count >= 5
-  and $regularized_failure_prob >= 0.70
+  $baseline_active_samples >= {{min_active_samples}}
+  and $observation_count >= {{min_attempts}}
+  and $regularized_failure_prob >= {{posterior_fail_prob}}
 
 order:
   $regularized_failure_prob desc

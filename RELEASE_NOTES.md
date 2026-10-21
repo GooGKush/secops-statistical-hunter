@@ -60,7 +60,7 @@
   * Removed the `$baseline_dispersion >= {{min_mad}}` gate that silently dropped perfectly steady entities (and made the old fallback dead code).
   * `{{min_mb}}` renamed to `{{min_daily_volume}}` (it is compared to the daily value, not megabytes).
   * Default Modified-Z cut-off is now 3.5 (BALANCED); CONSERVATIVE 5.0, AGGRESSIVE 3.0.
-* **Evidence pillars**: added `$baseline_median` (the 6-pillar `$baseline_mean` slot is retained for the contract and documented as holding the median); `$distinct_binaries` now counts distinct `{{sample_field}}` values on the scored day; `$fleet_prevalence = 1` is explicitly documented as a placeholder (not computed by this per-entity template).
+* **Evidence pillars**: added `$baseline_median` (the 6-pillar `$baseline_mean` slot is retained for the contract and documented as holding the median); `$distinct_binaries` now counts distinct `{{sample_field}}` values on the scored day; `$fleet_prevalence = 0 - 1` is explicitly documented as the uncomputed sentinel (not computed by this per-entity template).
 * **Fleet prevalence "not computed" sentinel**: the MAD template now emits `$fleet_prevalence = 0 - 1` (value -1) instead of a fake `1`; a bare `-1` literal is rejected by the compiler (verified live 2026-10-07). `resolve_fleet_prevalence()` treats missing or negative prevalence as unknown; `evaluate_confidence_tier()` caps unknown prevalence at MODERATE, and the triage report shows `not computed` instead of claiming isolation. Documented in the `SKILL.md` 6-pillar contract.
 * Added `tests/test_mad_cross_skill_sync.py` (copied verbatim from `secops-risk-metrics-multistage`): name-independent guard that the MAD math is identical in both skills; skips if the sibling repo is absent.
 * **Validator**: `validate_multistage_syntax()` now flags `$var = -<number>` (`BARE_NEGATIVE_LITERAL`) and suggests `0 - <number>`. No other template or example in the repo used the pattern.
@@ -134,8 +134,8 @@
   * Adopted Chronicle Malachite namespaced mathematical built-ins natively in raw UDM multi-stage queries:
     * `math.sqrt()`: Computes true Euclidean Threat Distance ($D = \sqrt{Z_{\text{auth}}^2 + Z_{\text{proc}}^2 + Z_{\text{net}}^2}$) in multi-sector threat fusion.
     * `math.log()`: Natural logarithm transformation ($\ln(B + 1)$) for variance stabilization over heavy-tailed network and byte telemetry.
-    * `math.exp()`: Exponential functions for continuous Sigmoid Calibrated Risk Index (CRI) curves and burst decay functions.
-    * `math.min()` & `math.max()`: Dynamic mathematical scalar clamping (e.g. bounding risk index ranges between $[0, 100]$).
+    * `math.pow(2.718281828, x)`: Exponential base-$e$ power evaluation (since `math.exp()` does not exist in YARA-L 2.0).
+    * 3-argument `if($a > $b, $a, $b)`: Dynamic scalar clamping (since `math.min()` and `math.max()` do not exist in YARA-L 2.0).
     * `math.round()` & `math.pow()`: Integer discretization and power operations directly in YARA-L outcomes.
   * Preserved strict syntax guards rejecting bare `sqrt()` without the `math.` namespace.
 * **Outcomes-in-Outcomes (OIO) In-Stage Inlining**:
@@ -170,7 +170,7 @@
   * Added golden pipeline templates:
     * `templates/pipelines/derived_context_file_prevalence_3stage.yl2`: Correlates endpoint `PROCESS_LAUNCH` execution bursts with Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT` on `FILE` via `target.process.file.sha256 = graph.entity.file.sha256`).
     * `templates/pipelines/derived_context_domain_prevalence_3stage.yl2`: Correlates network outbound flows and DNS queries with `DERIVED_CONTEXT` on `DOMAIN_NAME` (`target.hostname = graph.entity.hostname`).
-  * Employs dual-sided enterprise prevalence filtering: suppresses ubiquitous corporate software and domains while applying a 2.5x threat score boost for rare/novel entities with `day_count <= 3`.
+  * Employs dual-sided enterprise prevalence filtering: suppresses ubiquitous corporate software and domains while applying a 2.5x threat score boost for rare/novel entities with `prevalence.rolling_max <= 3` and `> 0` (`prevalence.day_count = 10`).
 * **Enterprise-Grounded Consultative Discovery Pattern**:
   * Expanded `references/consultative-worksheet.md` with the 6th Raw Behavioral Telemetry Deformation: **Enterprise Novelty (First-Contact / Unprecedented Telemetry)**.
   * Cross-pollinated Domains 1 (Endpoint), 3 (Network Egress), and 5 (Identity & Auth) with persistent context and novelty options.

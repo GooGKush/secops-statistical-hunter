@@ -33,7 +33,7 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
    * Formats all `match:` expressions with bare identifiers bound in stage event predicates (e.g. `$entity by 1h`, `$entity, $window_start by 1h`, `$entity by 1d`), completely eliminating match dot-notation syntax errors (`ZERO DOTS IN MATCH`).
    * Enforces Target Entity Scoping directly in primary stage predicates (`principal.hostname = "dev-ub22-1"`) to anchor baselines cleanly to the requested entity.
 6. **Chronicle Malachite Function Factory Modernization & OIO Inlining**:
-   * Leverages Chronicle Function Factory mathematical built-ins (`math.sqrt`, `math.log`, `math.exp`, `math.min`, `math.max`, `math.round`) for true Euclidean Threat Distance ($D = \sqrt{\sum Z_i^2}$) and Log-Normal volumetric transforms ($Z_{\log} = (\ln(B+1) - \mu_{\ln}) / \sigma_{\ln}$).
+   * Leverages Chronicle Function Factory mathematical built-ins (`math.sqrt`, `math.log`, `math.pow`, `math.abs`, `math.round`, `math.floor`, `math.ceil`, `math.geo_distance`) for true Euclidean Threat Distance ($D = \sqrt{\sum Z_i^2}$), Haversine geodesic velocity, and Log-Normal volumetric transforms ($Z_{\log} = (\ln(B+1) - \mu_{\ln}) / \sigma_{\ln}$ with `math.pow(2.718281828, $mean_log)`). Note: `math.exp`, `math.min`, and `math.max` do not exist in YARA-L 2.0.
    * Employs **Outcomes-in-Outcomes (OIO)** in-stage inlining, allowing intermediate outcome variables to directly feed subsequent formulas within the same stage (e.g., `$diff = $obs - $avg`, `$z = $diff / $safe_sd`).
 7. **Purged Dispersion Denominators & Safe Zero-Divisor Floor Guards**:
    * Replaced artificial `+ 1.0` additive dispersion denominators across all 14 golden templates with exact conditional guards (`$safe_sd = if($sd > 0, $sd, 1.0)` or `$safe_dispersion = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)`).
@@ -46,7 +46,7 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
    * Strictly adheres to the **Zero-Code Handoff Invariant**: handoff cards provide conceptual architectural guidance and parameters, leaving YARA-L code generation strictly to the destination skill.
 10. **Entity Context Graph (ECG) & Enterprise-Grounded Novelty Enrichment**:
     * Correlates raw telemetry bursts with Chronicle's persistent Entity Context Graph: `GLOBAL_CONTEXT` (GCTI threat intelligence, WHOIS Newly Registered Domains) and `DERIVED_CONTEXT` (enterprise binary prevalence `FILE`, domain prevalence `DOMAIN_NAME`, entity prevalence `USER`, and asset first-seen/last-seen age `ASSET`).
-    * Supports the Enterprise-Grounded Hunt consultative pattern: offers analysts Tier A (Pure Local Baseline) vs. Tier B (Enterprise-Grounded Hunt) with 2.5x threat score boost for rare/novel binaries or domains (`day_count <= 3`).
+    * Supports the Enterprise-Grounded Hunt consultative pattern: offers analysts Tier A (Pure Local Baseline) vs. Tier B (Enterprise-Grounded Hunt) with 2.5x threat score boost for rare/novel binaries or domains (`prevalence.day_count = 10`, `prevalence.rolling_max <= 3` and `> 0`).
 11. **6 Hybrid Mathematical Models**:
     * Implements Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds, Two-Part Hurdle, and Fleet Prevalence Normalization directly over raw event streams.
 12. **Calibrated Risk Index (CRI [0–100])**:
@@ -170,7 +170,7 @@ When interacting with an analyst, the skill translates operational hunting hypot
 | *"Detect low-and-slow trickles over 14 days"* | Longitudinal CUSUM Drift | **The Slow Creep**: Cumulative baseline drift tracking sub-threshold data movement. |
 | *"Find dormant accounts waking up today"* | Two-Part Hurdle Model | **The Sleeping Giant**: Evaluates binary transition from zero history to positive activity. |
 | *"Correlate spikes with threat intel & newly registered domains"* | Global Threat Intel Correlation | **The Outside Threat**: Cross-references outbound spikes with GCTI intel and WHOIS domain age. |
-| *"Find unusual binaries executed on this machine"* | Enterprise Prevalence Normalization | **The Unfamiliar Machine**: Blends host execution bursts with enterprise-wide novelty (`day_count <= 3`). |
+| *"Find unusual binaries executed on this machine"* | `DERIVED_CONTEXT_FILE_PREVALENCE` / `FLEET_PREVALENCE_NORMALIZATION` (`dual_baseline_delta_z_3stage.yl2`) | **The Unprecedented Binary**: Blends host execution bursts with enterprise-wide rarity (`prevalence.rolling_max <= 3` and `> 0`). |
 | *"Find impossible travel logins across distant countries"* | Geodesic Haversine Velocity (`math.geo_distance`) | **The Supersonic Traveler**: Measures physical travel speed ($\text{km/h}$) across consecutive login coordinates. |
 | *"Find workstations flipping from downloading to uploading"* | Producer-Consumer Byte Ratio Inversion | **The Role Flip**: Detects client endpoints whose directional byte ratio $\rho = \text{sent} / (\text{sent} + \text{recv})$ inverts toward $1.0$. |
 
@@ -349,7 +349,7 @@ order:
 Requests referencing 30-day pre-computed behavioral metric tables, rolling UEBA baselines, or omnibus risk scores automatically emit the Markdown Skill Delegation Card and yield the turn:
 * *"Run a 30-day UEBA baseline check on user Frank Kolzig."*
 * *"Show me Frank's 360-degree risk metrics view across all 6 behavioral sectors."*
-* *"Check for authentication anomalies using pre-computed risk metrics."*
+* *"Detect users with failed logins surging above their 30-day normal baseline"* (routes to `metrics.auth_attempts_fail`; general login volume routes to `metrics.auth_attempts_total`).
 
 ---
 
@@ -420,7 +420,7 @@ End-to-end multi-turn conversational regression is validated by the maintainer t
 * **100% Dual-Engine Regression Parity (17 / 17 Invariants Passed)**: Evaluated across all 17 regression test scenarios in dual-engine mode (`agentapi` + `direct-mcp`) with 6 workers, achieving 100% invariant parity across all P0, P1, and P2 contracts (127/127 automated unit tests passing).
 
 ### v2.7.0 (September 27, 2026) — Function Factory Built-Ins, Outcomes-in-Outcomes Inlining, Daily Temporal Spine & Log-Normal Volumetric Surge
-* **Chronicle Malachite Function Factory Built-Ins**: Adopted namespaced mathematical built-ins natively in raw UDM multi-stage queries (`math.sqrt`, `math.log`, `math.exp`, `math.min`, `math.max`, `math.round`).
+* **Chronicle Malachite Function Factory Built-Ins**: Adopted namespaced mathematical built-ins natively in raw UDM multi-stage queries (`math.sqrt`, `math.log`, `math.pow(2.718281828, ...)`, `math.abs`, `math.round`, `math.floor`, `math.ceil`, `math.geo_distance`; using 3-argument `if()` instead of non-existent `math.min`/`math.max`).
 * **Outcomes-in-Outcomes (OIO) In-Stage Inlining**: Enabled native outcome variable chaining within the same stage (`$diff = $obs - $avg`, `$z = $diff / $safe_sd`).
 * **Safe Non-Zero Dispersion Floors**: Replaced double-padded denominators with exact conditional guards (`if($sd > 0, $sd, 1.0)`).
 * **Log-Normal Volumetric Surge Pipeline**: Added `templates/pipelines/log_normal_volume_surge_2stage.yl2` implementing parametric log-normal standardization for heavy-tailed network egress distributions.

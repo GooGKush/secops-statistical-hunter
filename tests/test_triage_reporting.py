@@ -87,6 +87,9 @@ class TestTriageReporting(unittest.TestCase):
     # Section 4: Chronicle UI Manual Pivot (Triage Reference Only)
     self.assertIn("#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)", report)
     self.assertIn("principal.hostname = \"host-alpha-prod\"", report)
+    sec4 = report.split("#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)")[1].split("<details>")[0]
+    self.assertIn("```text", sec4)
+    self.assertNotIn("```yara", sec4)
 
     # Section 5: Collapsible Technical Appendix
     self.assertIn("<details>", report)

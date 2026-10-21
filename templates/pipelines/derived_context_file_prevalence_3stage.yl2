@@ -1,7 +1,8 @@
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
 // Goal: Hunt for anomalous execution bursts of rare or enterprise-unseen binaries using Derived Context prevalence
-// Statistical Model: Z-Score with Derived Context (Binary Day Count & Age) Prevalence Multiplier
+// Statistical Model: Z-Score with Derived Context (Binary Fleet Prevalence & Age) Multiplier
+// Sensitivity Boundary: {{tier}} (Threat Score >= {{threat_score}}, Min Execs >= {{min_execs}}, Min Active Hours >= {{min_active_hours}}, Rare Multiplier = {{rare_multiplier}}x)
 
 // --- STAGE 1: Event-Plane Process Execution Extraction ---
 stage raw_execution {
@@ -23,6 +24,7 @@ stage file_derived_context {
   $file.graph.entity.file.sha256 = $sha256
   $file.graph.metadata.entity_type = "FILE"
   $file.graph.metadata.source_type = "DERIVED_CONTEXT"
+  $file.graph.entity.file.prevalence.day_count = 10
   $sha256 != ""
 
   match:
@@ -63,15 +65,6 @@ outcome:
   $safe_sd = if($sd_execs > 0, $sd_execs, 1.0)
   $z_score = ($obs_execs - $mean_execs) / $safe_sd
 
-  $enterprise_day_count = min($file_derived_context.day_count)
-  $enterprise_first_seen = min($file_derived_context.first_seen_ts)
-  $file_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
-
-  // Rare Binary Multiplier: 2.5x threat score boost for binaries seen enterprise-wide on <= 3 days
-  $is_rare_binary = if($enterprise_day_count <= 3 and $enterprise_day_count >= 0, 1.0, 0.0)
-  $multiplier = if($is_rare_binary = 1.0, 2.5, 1.0)
-  $threat_score = $z_score * $multiplier
-
   // 6 Standardized Evidence Pillars
   $observation_count = $obs_execs
   $baseline_active_samples = max($host_baseline.active_hours)
@@ -80,9 +73,19 @@ outcome:
   $fleet_prevalence = max($file_derived_context.rolling_max)
   $distinct_binaries = 1
 
+  $enterprise_day_count = min($file_derived_context.day_count)
+  $enterprise_first_seen = min($file_derived_context.first_seen_ts)
+  $file_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
+
+  // Rare Binary Multiplier: Boost threat score for binaries with rolling_max ($fleet_prevalence) <= 3
+  $is_rare_binary = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
+  $multiplier = if($is_rare_binary = 1.0, {{rare_multiplier}}, 1.0)
+  $threat_score = $z_score * $multiplier
+
 condition:
-  $baseline_active_samples >= 12
-  and $threat_score >= 2.5
+  $baseline_active_samples >= {{min_active_hours}}
+  and $observation_count >= {{min_execs}}
+  and $threat_score >= {{threat_score}}
 
 order:
   $threat_score desc

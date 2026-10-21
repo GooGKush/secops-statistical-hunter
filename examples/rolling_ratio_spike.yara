@@ -67,7 +67,7 @@ outcome:
   $baseline_active_samples = max($window_buckets.active_days)
   $baseline_mean = max($window_buckets.sum_30d) / 30.0
   $baseline_dispersion = max($window_buckets.sum_7d) / 7.0
-  $fleet_prevalence = 1
+  $fleet_prevalence = 0 - 1
   $distinct_binaries = max($window_buckets.sum_1d)
   
   // Aggregate Velocity Ratios

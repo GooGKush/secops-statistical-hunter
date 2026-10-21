@@ -135,10 +135,12 @@ def generate_statistical_taxonomy() -> str:
       "",
       "---",
       "",
-      "## 12. Continuous Calibrated Risk Index (CRI [0–100]) In-Stage Translation",
-      "* **Goal**: Translate raw multi-stage $Z$-scores or threat distances into a bounded [0, 100] triage score directly inside YARA-L query outcomes.",
-      "* **Formula**:",
-      "  $$\\text{CRI} = \\text{math.round}\\left(\\frac{100.0}{1.0 + \\text{math.exp}(-0.6 \\cdot (Z - 3.0))}\\right)$$",
+      "## 12. Continuous Calibrated Risk Index (CRI [0–100]) Post-Processing & Translation",
+      "* **Goal**: Translate raw multi-stage $Z$-scores or threat distances into a bounded [0, 100] SOC operational triage index.",
+      "* **Piecewise Logistic Sigmoid Formula** (computed in Python post-processing via `calculate_cri()`, or in YARA-L outcome expressions using `math.pow(2.718281828, ...)` since `math.exp()` is not registered in the Malachite YARA-L 2.0 function factory):",
+      "  $$\\text{CRI}(Z) = \\begin{cases} 0 & Z \\le 0 \\\\ \\text{round}\\left(\\frac{100.0}{1.0 + 2.718281828^{-0.6 \\cdot (Z - 3.0)}}\\right) & Z > 0 \\end{cases}$$",
+      "* **YARA-L 2.0 Outcome Equivalent**:",
+      "  `$cri = if($z_score <= 0, 0, math.round(100.0 / (1.0 + math.pow(2.718281828, (0 - 0.6) * ($z_score - 3.0)))))`",
       "",
       "---",
       "",
@@ -185,7 +187,7 @@ def generate_statistical_taxonomy() -> str:
       "## 17. Geodesic Haversine Velocity (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`)",
       "* **Goal**: Detect impossible travel / supersonic geographic velocity across authentication sessions.",
       "* **Formula**:",
-      "  $$d_{\\text{km}} = \\frac{\\text{math.geo\\_distance}(\\text{lon}_1, \\text{lat}_1, \\text{lon}_2, \\text{lat}_2)}{1000.0}, \\quad v_{\\text{km/h}} = \\frac{d_{\\text{km}}}{\\max(\\Delta t, 60) / 3600.0}$$",
+      "  $$d_{\\text{km}} = \\frac{\\text{math.geo\\_distance}(\\text{lon}_1, \\text{lat}_1, \\text{lon}_2, \\text{lat}_2)}{1000.0}, \\quad v_{\\text{km/h}} = \\frac{d_{\\text{km}}}{\\text{if}(\\Delta t > 60, \\Delta t, 60) / 3600.0}$$",
       "* **Interpretation**:",
       "  - Commercial subsonic flight ceiling is $\\approx 900\\text{ km/h}$; authentication sessions spanning $\\ge 500\\text{ km}$ at $v \\ge 900\\text{ km/h}$ across $\\ge 2$ distinct source IPs isolate credential compromise or simultaneous proxy egress.",
       "",
@@ -200,11 +202,24 @@ def generate_statistical_taxonomy() -> str:
       "",
       "---",
       "",
-      "## 19. Sensitivity & Anomaly Threshold Map",
+      "## 19. Canonical Golden Pipeline Template Mapping (23 Templates)",
+      "",
+      "| Pipeline Template (`.yl2`) | Canonical `SENSITIVITY_MAP` Key |",
+      "| :--- | :--- |",
+  ]
+
+  for tmpl_file, sens_key in sorted(MultiStageTemplateRouter.TEMPLATE_TO_SENSITIVITY_KEY.items()):
+    lines.append(f"| `{tmpl_file}` | `{sens_key}` |")
+
+  lines.extend([
+      "",
+      "---",
+      "",
+      "## 20. Sensitivity & Anomaly Threshold Map",
       "",
       "| Archetype | Tier | Thresholds & Parameters |",
       "| :--- | :--- | :--- |",
-  ]
+  ])
 
   for arch, tiers in sorted(SENSITIVITY_MAP.items()):
     for tier_name, params in tiers.items():

@@ -1,7 +1,8 @@
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
 // Goal: Hunt for anomalous network egress bursts to enterprise-unseen or low-prevalence domains using Derived Context
-// Statistical Model: Z-Score with Derived Context (Domain Day Count & First Seen) Prevalence Multiplier
+// Statistical Model: Z-Score with Derived Context (Domain Fleet Prevalence & First Seen) Multiplier
+// Sensitivity Boundary: {{tier}} (Threat Score >= {{threat_score}}, Min Bytes >= {{min_obs_bytes}}, Min Active Hours >= {{min_active_hours}}, Rare Multiplier = {{rare_multiplier}}x)
 
 // --- STAGE 1: Event-Plane Network Egress Extraction ---
 stage raw_network {
@@ -64,15 +65,6 @@ outcome:
   $safe_sd = if($sd_bytes > 0, $sd_bytes, 1.0)
   $z_score = ($obs_bytes - $mean_bytes) / $safe_sd
 
-  $enterprise_day_count = min($domain_derived_context.day_count)
-  $enterprise_first_seen = min($domain_derived_context.first_seen_ts)
-  $domain_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
-
-  // Rare Domain Multiplier: 2.5x threat score boost for domains observed enterprise-wide on <= 3 days
-  $is_rare_domain = if($enterprise_day_count <= 3 and $enterprise_day_count >= 0, 1.0, 0.0)
-  $multiplier = if($is_rare_domain = 1.0, 2.5, 1.0)
-  $threat_score = $z_score * $multiplier
-
   // 6 Standardized Evidence Pillars
   $observation_count = $obs_bytes
   $baseline_active_samples = max($host_baseline.active_hours)
@@ -81,9 +73,19 @@ outcome:
   $fleet_prevalence = max($domain_derived_context.rolling_max)
   $distinct_binaries = 1
 
+  $enterprise_day_count = min($domain_derived_context.day_count)
+  $enterprise_first_seen = min($domain_derived_context.first_seen_ts)
+  $domain_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
+
+  // Rare Domain Multiplier: Boost threat score for domains with rolling_max ($fleet_prevalence) <= 3
+  $is_rare_domain = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
+  $multiplier = if($is_rare_domain = 1.0, {{rare_multiplier}}, 1.0)
+  $threat_score = $z_score * $multiplier
+
 condition:
-  $baseline_active_samples >= 12
-  and $threat_score >= 2.5
+  $baseline_active_samples >= {{min_active_hours}}
+  and $observation_count >= {{min_obs_bytes}}
+  and $threat_score >= {{threat_score}}
 
 order:
   $threat_score desc

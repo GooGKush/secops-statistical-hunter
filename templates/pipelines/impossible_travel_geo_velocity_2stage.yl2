@@ -20,6 +20,8 @@ stage stage1_geo_sessions {
     $src_ip != ""
     principal.ip_geo_artifact.location.region_latitude = $lat
     principal.ip_geo_artifact.location.region_longitude = $lon
+    $lat != 0
+    $lon != 0
     $ts = metadata.event_timestamp.seconds
 
   match:

@@ -97,7 +97,7 @@ To prevent the accumulation of rigid negative prohibitions, workflows are struct
 ### State 3: Iteration, Entity Shifts & Federated Bridge
 * **Entity Shift**: When the analyst asks to *"run same for user Y"*, immediately loop back to **State 1** for the new entity.
 * **Federated Bridge to `secops-statistical-hunter`**: When the analyst requests micro-mathematical analysis (e.g. C2 beaconing jitter, raw inter-arrival times, inline MAD), emit a Skill Handoff Card and pivot to `secops-statistical-hunter`.
-* **Federated Bridge to `secops-risk-metrics-multistage`**: When an ad-hoc outlier is discovered in raw logs, roll up to a 30-day baseline via `secops-risk-metrics-multistage`.
+* **Federated Bridge to `secops-risk-metrics-multistage`**: When an ad-hoc outlier is discovered in raw logs or an analyst asks for a 30-day baseline, route to `secops-risk-metrics-multistage` (mapping failed-login surges to `metrics.auth_attempts_fail`, general login volume to `metrics.auth_attempts_total`, and peer cohort / fleet normalization to `dual_baseline_delta_z_3stage.yl2`).
 * **Clean Escalation**: Unsolicited case creation is prohibited. Case promotion occurs exclusively after explicit human confirmation.
 
 ---

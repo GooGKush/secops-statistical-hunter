@@ -64,7 +64,7 @@ outcome:
   $baseline_active_samples = max($entity_stats.active_samples)
   $baseline_mean = max($entity_stats.hist_mean)
   $baseline_dispersion = max($entity_stats.hist_stddev)
-  $fleet_prevalence = 1
+  $fleet_prevalence = 0 - 1
   $distinct_binaries = max($current_activity.current_count)
   $sample_commands = array_distinct($current_activity.sample_target)
 

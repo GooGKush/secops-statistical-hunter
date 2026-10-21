@@ -43,7 +43,7 @@ Both skills execute ad-hoc Multi-Stage YARA-L DAG queries (`stage ... { }` + unw
 
 1. **Dual-Baseline Delta-$Z$**:
    * **In `secops-statistical-hunter` (This Skill)**: The *Patch Tuesday Shield*—compares an entity's raw log surge today against the concurrent enterprise fleet shift ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$) to suppress company-wide updates.
-   * **In `secops-risk-metrics-multistage`**: Compares an entity's 30-day personal baseline (`metrics.auth_attempts_*`) against a pre-computed peer department/cohort baseline.
+   * **In `secops-risk-metrics-multistage`**: Compares an entity's 30-day personal baseline (`metrics.auth_attempts_fail` for failed logins, `metrics.auth_attempts_total` for total login volume) against a pre-computed peer department/cohort baseline.
 2. **Multi-Sector Threat Fusion**:
    * **In `secops-statistical-hunter` (This Skill)**: The *Combined Arms Radar*—fuses raw event counts across orthogonal silos (Auth + Process + Network) in a single historical search window.
    * **In `secops-risk-metrics-multistage`**: Fuses decoupled 30-day baseline deviations ($D = \sqrt{\sum Z_i^2}$) across UEBA tables (Auth, Cloud CRUD, Workspace Exfil, Network Egress, Endpoint Tools).

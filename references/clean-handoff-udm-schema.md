@@ -63,6 +63,9 @@ rule secops_statistical_hunter_alert_catchall {
 
   condition:
     $e
+
+  options:
+    allow_zero_values = true
 }
 ```
 
@@ -235,13 +238,23 @@ Before calling any ingestion or case mutation APIs, the agent must present the l
 
 ### ⚡ Phase 4: Ingestion Execution Architecture & Safe Fallback Ladder
 
-1. **Primary Ingestion Vector: Direct In-Band Chronicle API Ingestion**:
-   * Direct Chronicle API ingestion via IAM credentials (`import_logs`) is the primary, robust mechanism.
-   * Direct API ingestion requires no physical forwarder infrastructure or forwarder routing.
-   * Standard Log Type: `CUSTOM_SECURITY_DATA_ANALYTICS`.
-
-2. **Forwarder Appliance Routing (Strict Fallback Only)**:
-   * The use of a forwarder (`forwarderId`) is strictly a fallback mechanism for segmented on-prem networks that explicitly require collector routing.
+1. **Primary Ingestion Vector: Direct In-Band Chronicle UDM Ingestion (`secops-gus:import_logs`)**:
+   * Direct Chronicle ingestion via the SecOps GUS MCP tool `import_logs` uses `log_type="UDM"` with `forwarderId` and wraps each UDM event inside a JSON-serialized `{"events": [{"event": udm_event}]}` envelope:
+   ```python
+   call_mcp_tool(
+       ServerName="secops-gus",
+       ToolName="import_logs",
+       Arguments={
+           "customer_id": "8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5",
+           "project_id": "gus-sdl",
+           "region": "us",
+           "log_type": "UDM",
+           "forwarderId": "<FORWARDER_UUID>",
+           "logs": [json.dumps({"events": [{"event": udm_event}]})],
+       },
+   )
+   ```
+   * When using a custom parser pipeline instead of direct UDM event envelopes, `CUSTOM_SECURITY_DATA_ANALYTICS` may be used as `logType`.
 
 3. **Resilient Operational Fallback Ladder**:
    * If in-band API ingestion encounters an environment restriction or API error:

@@ -9,7 +9,7 @@
 //   (e.g., 1 failed login out of 1 total attempt = 100% failure rate).
 //   Beta-Binomial conjugate updating regularizes the failure probability toward the population
 //   prior baseline, filtering out transient single-trial mistakes while catching true sustained attacks.
-// Sensitivity Boundary: Regularized Posterior Failure Prob >= 0.70, Min Trials >= 10
+// Sensitivity Boundary: BALANCED (Regularized Posterior Failure Prob >= 0.50, Min Attempts >= 15, Active Samples >= 12)
 // ============================================================================
 
 // Stage 1: Aggregate successes and failures per entity in tumbling hourly windows
@@ -41,11 +41,13 @@ stage entity_historical_rates {
 }
 
 // Stage 3: Fleet Context
+// Keyed on the window (NOT the user): grouping by $user and counting distinct
+// users always yields 1. A $dummy = 1 Cartesian key is rejected by the compiler.
 stage fleet_stats {
-  $user = $entity_hourly_trials.user
+  $ws = $entity_hourly_trials.window_start
 
   match:
-    $user
+    $ws by 1h
 
   outcome:
     $fleet_users = count_distinct($entity_hourly_trials.user)
@@ -54,8 +56,8 @@ stage fleet_stats {
 // Root Stage: Beta-Binomial Conjugate Updating & Shrinkage
 $user = $entity_hourly_trials.user
 $user = $entity_historical_rates.user
-$user = $fleet_stats.user
 $ws = $entity_hourly_trials.window_start
+$ws = $fleet_stats.ws
 
 match:
   $user, $ws by 1h
@@ -71,12 +73,14 @@ outcome:
 
   // Regularized Posterior Probability (alpha_0 = 1.0, beta_0 = 9.0)
   $regularized_failure_prob = (max($entity_hourly_trials.failed_trials) + 1.0) / (max($entity_hourly_trials.total_trials) + 10.0)
-  $unregularized_raw_rate = max($entity_hourly_trials.failed_trials) / (max($entity_hourly_trials.total_trials) + 0.001)
   $hourly_trials_count = max($entity_hourly_trials.total_trials)
+  $safe_trials = if($hourly_trials_count > 0, $hourly_trials_count, 1.0)
+  $unregularized_raw_rate = max($entity_hourly_trials.failed_trials) / $safe_trials
 
 condition:
-  // Small-Sample Protection Floor
   $baseline_active_samples >= 12
-  and $hourly_trials_count >= 10
-  and $observation_count >= 5
-  and $regularized_failure_prob >= 0.70
+  and $observation_count >= 15
+  and $regularized_failure_prob >= 0.50
+
+order:
+  $regularized_failure_prob desc

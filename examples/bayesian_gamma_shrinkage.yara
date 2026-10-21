@@ -7,10 +7,10 @@
 // Mathematical Rationale:
 //   Traditional Z-scores can produce false alarms on noisy, erratic endpoints.
 //   Bayesian shrinkage uses the Method of Moments to estimate Gamma prior hyperparameters
-//   (alpha_0, beta_0) from the host's historical baseline, weighting prior stability against
+//   (alpha_0, beta_0) from the host historical baseline, weighting prior stability against
 //   current-day evidence. Small bursts on rock-solid predictable hosts trigger true anomaly shifts,
 //   while erratic hosts require massive evidence.
-// Sensitivity Boundary: Bayesian Belief Shift Ratio >= 3.0, Min Events >= 20, Active Units >= 24
+// Sensitivity Boundary: BALANCED (Bayesian Belief Shift Ratio >= 3.0, Min Events >= 15, Active Units >= 30)
 // ============================================================================
 
 // Stage 1: Extraction & Binning (Hourly activity volume per host)
@@ -38,16 +38,17 @@ stage host_prior_stats {
     $hist_mean = avg($host_hourly_activity.hourly_count)
     $hist_stddev = stddev($host_hourly_activity.hourly_count)
     $active_hours = count($host_hourly_activity.window_start)
-    $beta_prior = avg($host_hourly_activity.hourly_count) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 0.001)
-    $alpha_prior = (avg($host_hourly_activity.hourly_count) * avg($host_hourly_activity.hourly_count)) / (stddev($host_hourly_activity.hourly_count) * stddev($host_hourly_activity.hourly_count) + 0.001)
 }
 
 // Stage 3: Organizational Peer Prevalence Baseline
+// Keyed on the window (NOT the host): grouping by $host and counting distinct
+// hosts always yields 1. A $dummy = 1 Cartesian key is rejected by the compiler.
 stage fleet_context {
-  $host = $host_hourly_activity.host
+  $ws = $host_hourly_activity.window_start
 
   match:
-    $host
+    $ws by 1h
+
   outcome:
     $fleet_hosts = count_distinct($host_hourly_activity.host)
 }
@@ -55,8 +56,8 @@ stage fleet_context {
 // Root Stage: Bayesian Conjugate Updating & Credibility Scoring
 $host = $host_hourly_activity.host
 $host = $host_prior_stats.host
-$host = $fleet_context.host
 $ws = $host_hourly_activity.window_start
+$ws = $fleet_context.ws
 
 match:
   $host, $ws by 1h
@@ -71,14 +72,20 @@ outcome:
   $distinct_binaries = max($host_hourly_activity.distinct_procs)
 
   // Bayesian Posterior Metrics
-  $posterior_arrival_rate = (max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)
-  $prior_weight_pct = max($host_prior_stats.beta_prior) / (max($host_prior_stats.beta_prior) + 1.0)
-  $evidence_weight_pct = 1.0 / (max($host_prior_stats.beta_prior) + 1.0)
-  $anomaly_score = ((max($host_prior_stats.alpha_prior) + max($host_hourly_activity.hourly_count)) / (max($host_prior_stats.beta_prior) + 1.0)) / (max($host_prior_stats.hist_mean) + 0.001)
+  $variance = max($host_prior_stats.hist_stddev) * max($host_prior_stats.hist_stddev)
+  $safe_var = if($variance > 0, $variance, 1.0)
+  $beta_prior = max($host_prior_stats.hist_mean) / $safe_var
+  $alpha_prior = (max($host_prior_stats.hist_mean) * max($host_prior_stats.hist_mean)) / $safe_var
+  $posterior_arrival_rate = ($alpha_prior + max($host_hourly_activity.hourly_count)) / ($beta_prior + 1.0)
+  $prior_weight_pct = $beta_prior / ($beta_prior + 1.0)
+  $evidence_weight_pct = 1.0 / ($beta_prior + 1.0)
+  $safe_hist_mean = if(max($host_prior_stats.hist_mean) > 0, max($host_prior_stats.hist_mean), 1.0)
+  $anomaly_score = $posterior_arrival_rate / $safe_hist_mean
 
 condition:
-  // Small-Sample Protection Floor
-  $baseline_active_samples >= 24
-  and $observation_count >= 20
-  and $baseline_dispersion >= 3.0
+  $baseline_active_samples >= 30
+  and $observation_count >= 15
   and $anomaly_score >= 3.0
+
+order:
+  $anomaly_score desc

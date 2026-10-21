@@ -56,7 +56,9 @@ SYNTAX_TRAPS = [
     (r"\bif\s*\([^)]*==", "SYNTAX ERROR (DOUBLE_EQUALS_IN_IF): '==' inside if() is rejected by the Chronicle compiler. Use a single '=' for equality inside if(cond, a, b), e.g. if($x = 1.0, 1, 0)."),
     (r"\$window_start\s*=\s*(?:min|max|avg|sum|count)\s*\(", "SYNTAX ERROR (WINDOW_START_SHADOWED): '$window_start' is an implicit output of every windowed stage ('match: $k by <dur>'). Defining it in outcome: (e.g. '$window_start = min(metadata.event_timestamp.seconds)') is rejected. Remove the definition and bind '$ws = $stage.window_start' in the consuming stage instead."),
     (r"\b(?:max|min)\s*\(\s*(?:\$?[a-zA-Z0-9_.]*\.(?:hostname|userid|user_agent|full_path|command_line|sha256|md5|sha1|domain|url|email_addresses|ip)|\$(?:host|hostname|user|userid|token|entity|domain|ip|src_ip|dst_ip|hash|sha256|url|cmd|command))\s*\)", "SYNTAX ERROR (INVALID_STRING_AGGREGATION_FUNCTION): max()/min() are numeric only (Int/Float); calling them on a string field or string placeholder is rejected. Project strings with array_distinct(...) or count them with count_distinct(...)."),
-    (r"match:\s*[^;\n]*\bby\s+(?!1d\b)\d+d\b", "SYNTAX ERROR (NONCANONICAL_MATCH_WINDOW): Multi-day tumbling windows ('by 2d', 'by 7d', 'by 14d') are rejected by the compiler. Verified windows: 'by 5m', 'by 1h', 'by 2h', 'by 1d'. Keep the bucket at <= 1d and widen startTime/endTime to cover longer horizons."),
+    (r"match:\s*[^;\n]*\bby\s+(?!1d\b)\d+d\b", "SYNTAX ERROR (NONCANONICAL_MATCH_WINDOW): Multi-day tumbling windows ('by 2d', 'by 7d', 'by 14d') are rejected by the compiler. Verified windows: 'by 5m', 'by 10m', 'by 15m', 'by 1h', 'by 2h', 'by 1d'. Keep the bucket at <= 1d and widen startTime/endTime to cover longer horizons."),
+    (r"\bmath\.exp\s*\(", "SYNTAX ERROR (UNSUPPORTED_MATH_EXP): 'math.exp()' is not registered in the Malachite YARA-L 2.0 function factory. Use 'math.pow(2.718281828, x)' instead."),
+    (r"\bmath\.(?:min|max)\s*\(", "SYNTAX ERROR (UNSUPPORTED_MATH_MIN_MAX): 'math.min()' and 'math.max()' do not exist in YARA-L 2.0. Use 3-argument 'if($a > $b, $a, $b)' for scalar clamping, or 'min() / max()' for stage outcome aggregations."),
 ]
 
 # Default evidence-sampling field for the MAD template ({{sample_field}}), keyed by UDM event type.
@@ -213,6 +215,36 @@ SENSITIVITY_MAP = {
         "BALANCED": {"min_producer_ratio": 0.70, "z_score": 2.5, "min_sent_bytes": 10000000.0, "min_active_samples": 7},
         "AGGRESSIVE": {"min_producer_ratio": 0.55, "z_score": 1.8, "min_sent_bytes": 1000000.0, "min_active_samples": 3},
     },
+    "DUAL_BASELINE_DELTA_Z": {
+        "CONSERVATIVE": {"delta_z": 4.0, "min_count": 50, "min_sd": 5.0, "min_active_samples": 60, "min_active_hosts": 10},
+        "BALANCED": {"delta_z": 3.0, "min_count": 25, "min_sd": 2.0, "min_active_samples": 30, "min_active_hosts": 5},
+        "AGGRESSIVE": {"delta_z": 2.0, "min_count": 10, "min_sd": 1.0, "min_active_samples": 14, "min_active_hosts": 3},
+    },
+    "BAYESIAN_GAMMA_SHRINKAGE": {
+        "CONSERVATIVE": {"bayesian_z": 4.0, "min_count": 30, "min_active_samples": 60},
+        "BALANCED": {"bayesian_z": 3.0, "min_count": 15, "min_active_samples": 30},
+        "AGGRESSIVE": {"bayesian_z": 2.0, "min_count": 5, "min_active_samples": 14},
+    },
+    "BETA_BINOMIAL_FAILURE": {
+        "CONSERVATIVE": {"posterior_fail_prob": 0.65, "min_attempts": 30, "min_fails": 20, "min_active_samples": 24},
+        "BALANCED": {"posterior_fail_prob": 0.50, "min_attempts": 15, "min_fails": 10, "min_active_samples": 12},
+        "AGGRESSIVE": {"posterior_fail_prob": 0.35, "min_attempts": 8, "min_fails": 5, "min_active_samples": 6},
+    },
+    "HYBRID_ENTROPY_CONCENTRATION": {
+        "CONSERVATIVE": {"max_diversity_z": -2.5, "min_concentration_ratio": 0.80, "min_events": 100, "min_active_samples": 48},
+        "BALANCED": {"max_diversity_z": -1.5, "min_concentration_ratio": 0.65, "min_events": 50, "min_active_samples": 24},
+        "AGGRESSIVE": {"max_diversity_z": -1.0, "min_concentration_ratio": 0.50, "min_events": 20, "min_active_samples": 12},
+    },
+    "DIVERSITY_DEFICIT": {
+        "CONSERVATIVE": {"max_diversity_z": -2.5, "min_concentration_ratio": 0.80, "min_events": 100, "min_active_samples": 48},
+        "BALANCED": {"max_diversity_z": -1.5, "min_concentration_ratio": 0.65, "min_events": 50, "min_active_samples": 24},
+        "AGGRESSIVE": {"max_diversity_z": -1.0, "min_concentration_ratio": 0.50, "min_events": 20, "min_active_samples": 12},
+    },
+    "ELEPHANT_FLOW_CONCENTRATION": {
+        "CONSERVATIVE": {"max_diversity_z": -2.5, "min_concentration_ratio": 0.80, "min_events": 100, "min_active_samples": 48},
+        "BALANCED": {"max_diversity_z": -1.5, "min_concentration_ratio": 0.65, "min_events": 50, "min_active_samples": 24},
+        "AGGRESSIVE": {"max_diversity_z": -1.0, "min_concentration_ratio": 0.50, "min_events": 20, "min_active_samples": 12},
+    },
 }
 
 
@@ -231,7 +263,8 @@ def get_adaptive_window_parameters(
       "DATA_EXFILTRATION_SPIKE", "HEAVY_TAIL_OUTLIERS", "TWO_PART_HURDLE",
       "DORMANT_ACCOUNT_AWAKENING", "DERIVED_CONTEXT_PREVALENCE",
       "MULTI_SECTOR_FUSION", "MULTI_SECTOR_THREAT_FUSION", "LOG_NORMAL_VOLUME",
-      "FLEET_PEER_ZSCORE", "BAYESIAN_GAMMA_SHRINKAGE", "BETA_BINOMIAL_REGULARIZATION",
+      "LOG_NORMAL_VOLUME_SURGE", "FLEET_PEER_ZSCORE", "BAYESIAN_GAMMA_SHRINKAGE",
+      "BETA_BINOMIAL_REGULARIZATION", "BETA_BINOMIAL_FAILURE",
       "PRODUCER_CONSUMER_RATIO_INVERSION",
   }
 
@@ -267,6 +300,7 @@ def get_adaptive_window_parameters(
       base_thresh.get("min_active_samples")
       or base_thresh.get("min_baseline_days")
       or base_thresh.get("min_active_hours")
+      or base_thresh.get("min_active_days")
       or 30
   )
   
@@ -779,9 +813,31 @@ def validate_multistage_syntax(query: str) -> List[str]:
   errors = []
   code_only = re.sub(r"//.*", "", query)
 
+  # Strip string/regex literals when checking the '^' exponent operator trap so regex anchors (`^admin`) don't false-positive.
+  code_no_regex_strings = re.sub(r'"[^"\\]*(?:\\.[^"\\]*)*"', '""', code_only)
+  code_no_regex_strings = re.sub(r"'[^'\\]*(?:\\.[^'\\]*)*'", "''", code_no_regex_strings)
+  code_no_regex_strings = re.sub(r"`[^`\\]*(?:\\.[^`\\]*)*`", "``", code_no_regex_strings)
+  code_no_regex_strings = re.sub(r"(?:,\s*|~\s*|=\s*|\(\s*)/[^/\n\\]*(?:\\.[^/\n\\]*)*/", "//", code_no_regex_strings)
+
   for pattern, msg in SYNTAX_TRAPS:
-    if re.search(pattern, code_only, re.DOTALL | re.MULTILINE):
+    target_text = code_no_regex_strings if pattern == r"\^" else code_only
+    if re.search(pattern, target_text, re.DOTALL | re.MULTILINE):
       errors.append(msg)
+
+  # Check for duplicate condition: or order: clauses in the root stage
+  stripped_for_clauses = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", code_only, flags=re.DOTALL)
+  cond_clauses = re.findall(r"^\s*condition\s*:", stripped_for_clauses, flags=re.MULTILINE)
+  if len(cond_clauses) > 1:
+    errors.append(
+        f"SYNTAX ERROR (DUPLICATE_ROOT_CLAUSE): Found {len(cond_clauses)} 'condition:' sections in the root stage. "
+        "Combine all root filtering predicates into a single 'condition:' block using 'and'."
+    )
+  order_clauses = re.findall(r"^\s*order\s*:", stripped_for_clauses, flags=re.MULTILINE)
+  if len(order_clauses) > 1:
+    errors.append(
+        f"SYNTAX ERROR (DUPLICATE_ROOT_CLAUSE): Found {len(order_clauses)} 'order:' sections in the root stage. "
+        "Only one 'order:' section is permitted."
+    )
 
   errors.extend(check_multivector_cramming(query))
   errors.extend(check_ecg_limits(query))
@@ -946,18 +1002,49 @@ def check_search_window(
     if query_text:
       # Match sample floor conditions like $baseline_active_samples >= 120, $active_days >= 7, etc.
       sample_matches = re.findall(
-          r"\$(?:baseline_active_samples|active_samples|active_days|active_hours)\s*>=\s*(\d+)",
+          r"\$(?:baseline_active_samples|baseline_samples|active_samples|active_days|active_hours)\s*>=\s*(\d+)",
           query_text
       )
       for s_val_str in sample_matches:
         req_samples = int(s_val_str)
-        # Check if hourly buckets are used in query
-        if "by 1h" in query_text:
+        if "by 5m" in query_text:
+          max_buckets = int(delta_hours * 12)
+          if req_samples > max_buckets:
+            errors.append(
+                f"AUTOMATIC QUERY FAILURE: Condition requires ${req_samples} active 5-minute samples, "
+                f"but the specified time window ({delta_hours:.1f} hours) has at most {max_buckets} 5-minute intervals. "
+                f"Scale the sample floor down (e.g. >= {max(3, int(max_buckets * 0.25))}) or expand the search window."
+            )
+        elif "by 10m" in query_text:
+          max_buckets = int(delta_hours * 6)
+          if req_samples > max_buckets:
+            errors.append(
+                f"AUTOMATIC QUERY FAILURE: Condition requires ${req_samples} active 10-minute samples, "
+                f"but the specified time window ({delta_hours:.1f} hours) has at most {max_buckets} 10-minute intervals. "
+                f"Scale the sample floor down (e.g. >= {max(3, int(max_buckets * 0.25))}) or expand the search window."
+            )
+        elif "by 15m" in query_text:
+          max_buckets = int(delta_hours * 4)
+          if req_samples > max_buckets:
+            errors.append(
+                f"AUTOMATIC QUERY FAILURE: Condition requires ${req_samples} active 15-minute samples, "
+                f"but the specified time window ({delta_hours:.1f} hours) has at most {max_buckets} 15-minute intervals. "
+                f"Scale the sample floor down (e.g. >= {max(3, int(max_buckets * 0.25))}) or expand the search window."
+            )
+        elif "by 1h" in query_text:
           if req_samples > delta_hours:
             errors.append(
                 f"AUTOMATIC QUERY FAILURE: Condition requires ${req_samples} active hourly samples, "
                 f"but the specified time window ({delta_hours:.1f} hours) has at most {int(delta_hours)} hourly intervals. "
                 f"Scale the sample floor down (e.g. >= {max(3, int(delta_hours * 0.25))}) or expand the search window."
+            )
+        elif "by 2h" in query_text:
+          max_buckets = int(delta_hours / 2.0)
+          if req_samples > max_buckets:
+            errors.append(
+                f"AUTOMATIC QUERY FAILURE: Condition requires ${req_samples} active 2-hour samples, "
+                f"but the specified time window ({delta_hours:.1f} hours) has at most {max_buckets} 2-hour intervals. "
+                f"Scale the sample floor down (e.g. >= {max(3, int(max_buckets * 0.25))}) or expand the search window."
             )
         elif "by day" in query_text or "by 1d" in query_text:
           if req_samples > delta_days:
@@ -1095,14 +1182,68 @@ def evaluate_confidence_tier(row: Dict[str, Any]) -> Tuple[str, str]:
     return "🟡 **MODERATE CONFIDENCE**", "Adequate baseline with acceptable statistical support."
 
 
+PRIMARY_SCORE_KEYS = [
+    "hurdle_anomaly_score",
+    "hurdle_threat_score",
+    "threat_distance",
+    "threat_vector_norm_sq",
+    "threat_score",
+    "markov_threat_score",
+    "bayesian_z",
+    "anomaly_score",
+    "posterior_fail_prob",
+    "regularized_failure_prob",
+    "targeted_delta_z",
+    "delta_z",
+    "m_z_score",
+    "modified_z",
+    "z_log",
+    "velocity_score",
+    "ewma_velocity_score",
+    "velocity_kmh",
+    "rarity_score",
+    "zipf_rarity_score",
+    "entropy_score",
+    "shannon_entropy_score",
+    "concentration_ratio",
+    "diversity_z",
+    "poisson_z",
+    "poisson_z_sq",
+    "fano_factor",
+    "cv",
+    "fleet_z",
+    "z_score",
+    "personal_z",
+    "producer_ratio",
+    "surge_ratio",
+    "ratio_1v30",
+    "score",
+]
+
+
 def get_soc_severity_badge(chosen_key: str, score: float) -> str:
   """Translates statistical score into a standard SOC operational rating."""
-  if chosen_key in ["z_score", "poisson_z", "fleet_z"]:
+  if chosen_key in [
+      "z_score", "poisson_z", "fleet_z", "targeted_delta_z", "delta_z", "personal_z",
+      "bayesian_z", "anomaly_score", "threat_distance", "threat_score", "markov_threat_score",
+      "z_log", "hurdle_anomaly_score", "hurdle_threat_score", "velocity_score",
+      "ewma_velocity_score", "rarity_score", "zipf_rarity_score", "entropy_score",
+      "shannon_entropy_score", "score",
+  ]:
     if score >= 4.0:
       return "🚨 **[CRITICAL OUTLIER]**"
     elif score >= 3.0:
       return "⚠️ **[HIGH SUSPICION]**"
     elif score >= 2.0:
+      return "🟡 **[ELEVATED WATCH]**"
+    else:
+      return "🟢 **[INFORMATIONAL]**"
+  elif chosen_key in ["poisson_z_sq", "threat_vector_norm_sq"]:
+    if score >= 16.0:
+      return "🚨 **[CRITICAL OUTLIER]**"
+    elif score >= 9.0:
+      return "⚠️ **[HIGH SUSPICION]**"
+    elif score >= 4.0:
       return "🟡 **[ELEVATED WATCH]**"
     else:
       return "🟢 **[INFORMATIONAL]**"
@@ -1124,12 +1265,48 @@ def get_soc_severity_badge(chosen_key: str, score: float) -> str:
       return "🟡 **[ELEVATED WATCH]**"
     else:
       return "🟢 **[INFORMATIONAL]**"
-  elif chosen_key == "m_z_score":
+  elif chosen_key in ["m_z_score", "modified_z"]:
     if score >= 3.5:
       return "🚨 **[CRITICAL OUTLIER]**"
     elif score >= 2.5:
       return "⚠️ **[HIGH SUSPICION]**"
     elif score >= 2.0:
+      return "🟡 **[ELEVATED WATCH]**"
+    else:
+      return "🟢 **[INFORMATIONAL]**"
+  elif chosen_key in ["posterior_fail_prob", "regularized_failure_prob", "concentration_ratio", "producer_ratio"]:
+    if score >= 0.80:
+      return "🚨 **[CRITICAL OUTLIER]**"
+    elif score >= 0.65:
+      return "⚠️ **[HIGH SUSPICION]**"
+    elif score >= 0.50:
+      return "🟡 **[ELEVATED WATCH]**"
+    else:
+      return "🟢 **[INFORMATIONAL]**"
+  elif chosen_key == "velocity_kmh":
+    if score >= 1200.0:
+      return "🚨 **[CRITICAL OUTLIER]**"
+    elif score >= 900.0:
+      return "⚠️ **[HIGH SUSPICION]**"
+    elif score >= 500.0:
+      return "🟡 **[ELEVATED WATCH]**"
+    else:
+      return "🟢 **[INFORMATIONAL]**"
+  elif chosen_key == "diversity_z":
+    if score <= -2.5:
+      return "🚨 **[CRITICAL OUTLIER]**"
+    elif score <= -1.5:
+      return "⚠️ **[HIGH SUSPICION]**"
+    elif score <= -1.0:
+      return "🟡 **[ELEVATED WATCH]**"
+    else:
+      return "🟢 **[INFORMATIONAL]**"
+  elif chosen_key in ["surge_ratio", "ratio_1v30"]:
+    if score >= 5.0:
+      return "🚨 **[CRITICAL OUTLIER]**"
+    elif score >= 3.0:
+      return "⚠️ **[HIGH SUSPICION]**"
+    elif score >= 1.5:
       return "🟡 **[ELEVATED WATCH]**"
     else:
       return "🟢 **[INFORMATIONAL]**"
@@ -1202,10 +1379,7 @@ class DataReductionEngine:
 
     sample = raw_results[0]
     score_key = "z_score"
-    for candidate in [
-        "z_score", "targeted_delta_z", "delta_z", "fleet_z", "m_z_score", "poisson_z",
-        "poisson_z_sq", "fano_factor", "surge_ratio", "cv", "personal_z"
-    ]:
+    for candidate in PRIMARY_SCORE_KEYS:
       if candidate in sample:
         score_key = candidate
         break
@@ -1213,9 +1387,9 @@ class DataReductionEngine:
     def get_score(record: Dict[str, Any]) -> float:
       try:
         val = float(record.get(score_key, 0))
-        if score_key == "cv":
+        if score_key in ("cv", "diversity_z"):
           return -val
-        return abs(val)
+        return val
       except (ValueError, TypeError):
         return 0.0
 
@@ -1294,17 +1468,42 @@ def format_triage_report(
   if not rows:
     return "⚡ **STATISTICAL HUNT VERDICT**: No outlier entities exceeded the configured anomaly threshold."
 
-  sort_keys = ["z_score", "poisson_z", "fleet_z", "fano_factor", "m_z_score", "surge_ratio", "ratio_1v30", "cv"]
-  chosen_key = next((k for k in sort_keys if k in rows[0]), None)
+  order_var = None
+  if query_text:
+    m_order = re.search(r"\border\s*:\s*\n?\s*\$([a-zA-Z0-9_]+)", re.sub(r"//.*", "", query_text))
+    if m_order and m_order.group(1) in rows[0]:
+      order_var = m_order.group(1)
+
+  chosen_key = order_var or next((k for k in PRIMARY_SCORE_KEYS if k in rows[0]), None)
   if chosen_key:
-    if chosen_key == "cv":
-      rows.sort(key=lambda x: float(x.get(chosen_key) or 999))
+    if chosen_key in ("cv", "diversity_z"):
+      rows.sort(key=lambda x: float(x.get(chosen_key) if x.get(chosen_key) is not None else 999))
     else:
       rows.sort(key=lambda x: float(x.get(chosen_key) or 0), reverse=True)
 
   total_outliers = len(rows)
   top_rows = rows[:top_n]
-  entity_col = next((c for c in ["host", "user", "src_ip", "dst_ip"] if c in rows[0]), "entity")
+  entity_col = next((c for c in ["host", "user", "src_ip", "dst_ip", "entity", "principal_ip"] if c in rows[0]), "entity")
+
+  def _equiv_cri_score(key: Optional[str], val: float) -> float:
+    if key == "cv":
+      return max(0.0, (0.50 - val) / 0.10) if val > 0 else 0.0
+    if key == "fano_factor":
+      return (val / 4.0) * 3.0
+    if key in ("poisson_z_sq", "threat_vector_norm_sq"):
+      return math.sqrt(val) if val > 0 else 0.0
+    if key in ("posterior_fail_prob", "regularized_failure_prob", "concentration_ratio", "producer_ratio"):
+      return (val / 0.65) * 3.0 if val > 0 else 0.0
+    if key == "velocity_kmh":
+      return (val / 900.0) * 3.0 if val > 0 else 0.0
+    if key == "diversity_z":
+      return max(0.0, (-val / 1.5) * 3.0)
+    return val
+
+  sigma_keys = {
+      "z_score", "poisson_z", "fleet_z", "targeted_delta_z", "delta_z",
+      "personal_z", "bayesian_z", "threat_distance", "z_log",
+  }
 
   out = []
   out.append(f"### ⚡ Statistical Outlier Report: {title}")
@@ -1322,7 +1521,7 @@ def format_triage_report(
   elif "mu" in rows[0] and "stddev_val" in rows[0]:
     out.append(f"* **Normal Baseline Envelope**: Typical Average ($\\mu$) $\\approx {float(rows[0]['mu']):.1f}$ | Typical Variation ($\\sigma$) $\\approx \\pm{float(rows[0]['stddev_val']):.1f}$")
   elif "historical_lambda" in rows[0]:
-    out.append(f"* **Normal Baseline Envelope**: Historical Daily Rate ($\\lambda$) $\\approx {float(rows[0]['historical_lambda']):.2f}\\text{ runs/day}$")
+    out.append(f"* **Normal Baseline Envelope**: Historical Daily Rate ($\\lambda$) $\\approx {float(rows[0]['historical_lambda']):.2f}\\text{{ runs/day}}$")
 
   out.append("")
   out.append("---")
@@ -1351,43 +1550,22 @@ def format_triage_report(
     conf_badge, _ = evaluate_confidence_tier(row)
     score_val = float(row.get(chosen_key, 0.0)) if chosen_key else 0.0
     badge = get_soc_severity_badge(chosen_key, score_val)
-    score_str = f"+{score_val:.2f}σ" if chosen_key in ["z_score", "poisson_z", "fleet_z"] else f"{score_val:.2f}"
-    vbar = f"`{generate_visual_bar(score_val, max_score)}`"
+    score_str = f"+{score_val:.2f}σ" if chosen_key in sigma_keys else f"{score_val:.2f}"
+    vbar = f"`{generate_visual_bar(abs(score_val) if chosen_key == 'diversity_z' else score_val, abs(max_score) if chosen_key == 'diversity_z' else max_score)}`"
 
-    # CRI calculation
-    if chosen_key == "cv":
-      equiv_score = max(0.0, (0.50 - score_val) / 0.10) if score_val > 0 else 0.0
-      cri_val = calculate_cri(equiv_score, 3.0)
-    elif chosen_key == "fano_factor":
-      equiv_score = (score_val / 4.0) * 3.0
-      cri_val = calculate_cri(equiv_score, 3.0)
-    elif chosen_key in ["poisson_z_sq", "threat_vector_norm_sq"]:
-      equiv_score = math.sqrt(score_val) if score_val > 0 else 0.0
-      cri_val = calculate_cri(equiv_score, 3.0)
-    else:
-      cri_val = calculate_cri(score_val, 3.0)
+    cri_val = calculate_cri(_equiv_cri_score(chosen_key, score_val), 3.0)
     cri_badge_str, _ = get_cri_badge(cri_val)
     
     out.append(f"| `{ent}` | {tb[:16]} | **{obs}** | {base_str} | {conf_badge} | {badge} (`{score_str}`) | {cri_badge_str} | {vbar} |")
 
   top_ent = top_rows[0]
   top_score_val = float(top_ent.get(chosen_key, 0.0)) if chosen_key else 0.0
-  top_score_str = f"+{top_score_val:.2f}σ" if chosen_key in ["z_score", "poisson_z", "fleet_z"] else f"{top_score_val:.2f}"
+  top_score_str = f"+{top_score_val:.2f}σ" if chosen_key in sigma_keys else f"{top_score_val:.2f}"
   top_badge = get_soc_severity_badge(chosen_key, top_score_val)
   top_conf_badge, top_conf_desc = evaluate_confidence_tier(top_ent)
   ent_name = str(top_ent.get(entity_col, "unknown"))
 
-  if chosen_key == "cv":
-    equiv_score = max(0.0, (0.50 - top_score_val) / 0.10) if top_score_val > 0 else 0.0
-    top_cri_val = calculate_cri(equiv_score, 3.0)
-  elif chosen_key == "fano_factor":
-    equiv_score = (top_score_val / 4.0) * 3.0
-    top_cri_val = calculate_cri(equiv_score, 3.0)
-  elif chosen_key in ["poisson_z_sq", "threat_vector_norm_sq"]:
-    equiv_score = math.sqrt(top_score_val) if top_score_val > 0 else 0.0
-    top_cri_val = calculate_cri(equiv_score, 3.0)
-  else:
-    top_cri_val = calculate_cri(top_score_val, 3.0)
+  top_cri_val = calculate_cri(_equiv_cri_score(chosen_key, top_score_val), 3.0)
   top_cri_badge, top_cri_tier = get_cri_badge(top_cri_val)
 
   obs_val = top_ent.get("observation_count", top_ent.get("observed_count", top_ent.get("observed_today", top_ent.get("total_fails", top_ent.get("daily_mb", "N/A")))))
@@ -1474,7 +1652,7 @@ def format_triage_report(
   out.append("#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)")
   out.append("*(Passive UDM filter for manual copy-paste into Chronicle SIEM search bar. NOT for automated tool execution; multi-turn follow-ups must remain within the statistical hunting framework.)*")
   out.append("")
-  out.append("```yara")
+  out.append("```text")
   if entity_field:
     pivot_field, pivot_value = entity_field, ent_name
   elif "user" in top_ent and top_ent["user"]:
@@ -2172,6 +2350,34 @@ class MultiStageTemplateRouter:
       "PRODUCER_CONSUMER_ROLE_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
       "PRODUCER_CONSUMER_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
       "BYTE_RATIO_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
+      "OFF_HOURS_BURST": "poisson_burst_clustering_2stage.yl2",
+      "AFTER_HOURS_ACTIVITY": "poisson_burst_clustering_2stage.yl2",
+  }
+
+  TEMPLATE_TO_SENSITIVITY_KEY = {
+      "zscore_process_surge_2stage.yl2": "ZSCORE_PROCESS_SURGE",
+      "poisson_burst_clustering_2stage.yl2": "POISSON_BURST_CLUSTERING",
+      "poisson_rare_surge_2stage.yl2": "POISSON_RARE_SURGE",
+      "c2_beaconing_jitter_2stage.yl2": "C2_BEACONING_JITTER",
+      "mad_modified_z_4stage.yl2": "DATA_EXFILTRATION_SPIKE",
+      "dual_baseline_delta_z_3stage.yl2": "DUAL_BASELINE_DELTA_Z",
+      "bayesian_gamma_shrinkage_4stage.yl2": "BAYESIAN_GAMMA_SHRINKAGE",
+      "beta_binomial_failure_4stage.yl2": "BETA_BINOMIAL_FAILURE",
+      "multi_sector_threat_fusion_4stage.yl2": "MULTI_SECTOR_THREAT_FUSION",
+      "log_normal_volume_surge_2stage.yl2": "LOG_NORMAL_VOLUME_SURGE",
+      "hybrid_entropy_concentration_2stage.yl2": "HYBRID_ENTROPY_CONCENTRATION",
+      "two_part_hurdle_2stage.yl2": "TWO_PART_HURDLE",
+      "privileged_lateral_expansion_2stage.yl2": "PRIVILEGED_LATERAL_EXPANSION",
+      "global_threat_intel_enrichment_3stage.yl2": "GLOBAL_THREAT_INTEL_ENRICHMENT",
+      "derived_context_prevalence_3stage.yl2": "DERIVED_CONTEXT_PREVALENCE",
+      "derived_context_file_prevalence_3stage.yl2": "DERIVED_CONTEXT_FILE_PREVALENCE",
+      "derived_context_domain_prevalence_3stage.yl2": "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
+      "markov_2gram_transition_rarity_2stage.yl2": "MARKOV_2GRAM_TRANSITION_RARITY",
+      "shannon_entropy_character_2stage.yl2": "SHANNON_ENTROPY_CHARACTER",
+      "zipfian_process_rarity_2stage.yl2": "ZIPFIAN_PROCESS_RARITY",
+      "ewma_burst_velocity_2stage.yl2": "EWMA_BURST_VELOCITY",
+      "impossible_travel_geo_velocity_2stage.yl2": "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
+      "producer_consumer_ratio_inversion_2stage.yl2": "PRODUCER_CONSUMER_RATIO_INVERSION",
   }
 
   INLINE_TEMPLATES = {
@@ -2281,20 +2487,14 @@ class MultiStageTemplateRouter:
       raise FileNotFoundError(f"Missing pipeline template: {template_path}")
 
     # Map archetype to base key in SENSITIVITY_MAP
-    canonical_key = "ZSCORE_PROCESS_SURGE"
-    for k in SENSITIVITY_MAP.keys():
-      if k in archetype.upper() or archetype.upper() in k:
-        canonical_key = k
-        break
-    # Aliases like MAD / MODIFIED_Z do not substring-match DATA_EXFILTRATION_SPIKE;
-    # pin the MAD template to its own threshold set.
-    if template_file == "mad_modified_z_4stage.yl2":
-      canonical_key = "DATA_EXFILTRATION_SPIKE"
-    elif template_file == "impossible_travel_geo_velocity_2stage.yl2":
-      canonical_key = "IMPOSSIBLE_TRAVEL_GEO_VELOCITY"
-    elif template_file == "producer_consumer_ratio_inversion_2stage.yl2":
-      canonical_key = "PRODUCER_CONSUMER_RATIO_INVERSION"
-    thresh = SENSITIVITY_MAP.get(canonical_key, {}).get(tier_up, {})
+    canonical_key = self.TEMPLATE_TO_SENSITIVITY_KEY.get(template_file)
+    if not canonical_key:
+      canonical_key = "ZSCORE_PROCESS_SURGE"
+      for k in SENSITIVITY_MAP.keys():
+        if k in archetype.upper() or archetype.upper() in k:
+          canonical_key = k
+          break
+    thresh = dict(SENSITIVITY_MAP.get(canonical_key, {}).get(tier_up, {}))
 
     # Adaptive window calculation
     bucket_size = "1h"
@@ -2302,11 +2502,15 @@ class MultiStageTemplateRouter:
       adapt = get_adaptive_window_parameters(window_hours, canonical_key, tier_up)
       bucket_size = adapt["recommended_bucket"]
       min_samples = adapt["proportional_sample_floor"]
+      for sample_key in ("min_active_samples", "min_baseline_days", "min_active_hours", "min_active_days"):
+        if sample_key in thresh:
+          thresh[sample_key] = min_samples
     else:
       min_samples = (
           thresh.get("min_active_samples")
           or thresh.get("min_baseline_days")
           or thresh.get("min_active_hours")
+          or thresh.get("min_active_days")
           or 30
       )
 
@@ -2317,7 +2521,7 @@ class MultiStageTemplateRouter:
         "ip": "principal.asset.ip",
     }
     entity_field = entity_field_map.get(entity_type.lower(), "principal.hostname")
-    if "impossible_travel" in template_file and entity_type.lower() == "host":
+    if ("impossible_travel" in template_file or "privileged_lateral" in template_file) and entity_type.lower() == "host":
       entity_field = "target.user.userid"
     elif "producer_consumer" in template_file and entity_type.lower() == "host":
       entity_field = "principal.asset.hostname"
@@ -2325,14 +2529,18 @@ class MultiStageTemplateRouter:
     # Default event type resolution
     if not event_type:
       if (
-          "POISSON_BURST" in template_file
+          "poisson_burst" in template_file.lower()
           or "beta_binomial" in template_file
           or "privileged_lateral" in template_file
           or "two_part_hurdle" in template_file
           or "impossible_travel" in template_file
       ):
         event_type = "USER_LOGIN"
-      elif "c2_beaconing" in template_file or "producer_consumer" in template_file:
+      elif (
+          "c2_beaconing" in template_file
+          or "producer_consumer" in template_file
+          or "hybrid_entropy_concentration" in template_file
+      ):
         event_type = "NETWORK_CONNECTION"
       elif "mad_modified_z" in template_file:
         event_type = "NETWORK_DNS"
@@ -2362,11 +2570,30 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_active_samples}}", str(min_samples))
     rendered = rendered.replace("{{min_baseline_days}}", str(max(3, int(min_samples / 4))))
     rendered = rendered.replace("{{min_active_hours}}", str(min_samples))
+    rendered = rendered.replace("{{min_active_days}}", str(thresh.get("min_active_days", max(3, int(min_samples / 4)))))
     rendered = rendered.replace("{{min_count}}", str(thresh.get("min_count", 25)))
     rendered = rendered.replace("{{min_sd}}", str(thresh.get("min_sd", 5.0)))
     rendered = rendered.replace("{{min_distinct_targets}}", str(thresh.get("min_distinct_targets", 3)))
     rendered = rendered.replace("{{dormant_weight}}", str(thresh.get("dormant_weight", 2.0)))
     rendered = rendered.replace("{{z_score}}", str(thresh.get("z_score", 2.0)))
+    rendered = rendered.replace("{{delta_z}}", str(thresh.get("delta_z", 3.0)))
+    rendered = rendered.replace("{{bayesian_z}}", str(thresh.get("bayesian_z", 3.0)))
+    rendered = rendered.replace("{{posterior_fail_prob}}", str(thresh.get("posterior_fail_prob", 0.50)))
+    rendered = rendered.replace("{{min_attempts}}", str(thresh.get("min_attempts", 15)))
+    rendered = rendered.replace("{{max_diversity_z}}", str(thresh.get("max_diversity_z", -1.5)))
+    rendered = rendered.replace("{{min_concentration_ratio}}", str(thresh.get("min_concentration_ratio", 0.65)))
+    rendered = rendered.replace("{{min_events}}", str(thresh.get("min_events", 5)))
+    threat_dist_val = thresh.get("threat_distance", 3.0)
+    rendered = rendered.replace("{{threat_distance}}", str(threat_dist_val))
+    rendered = rendered.replace("{{threat_distance_sq}}", str(round(threat_dist_val * threat_dist_val, 2)))
+    rendered = rendered.replace("{{threat_score}}", str(thresh.get("threat_score", 2.5)))
+    rendered = rendered.replace("{{min_logins}}", str(thresh.get("min_logins", 5)))
+    rendered = rendered.replace("{{new_asset_multiplier}}", str(thresh.get("new_asset_multiplier", 2.0)))
+    rendered = rendered.replace("{{min_execs}}", str(thresh.get("min_execs", 5)))
+    rendered = rendered.replace("{{rare_multiplier}}", str(thresh.get("rare_multiplier", 2.5)))
+    rendered = rendered.replace("{{min_obs_bytes}}", str(thresh.get("min_obs_bytes", 100000.0)))
+    rendered = rendered.replace("{{nrd_multiplier}}", str(thresh.get("nrd_multiplier", 2.5)))
+    rendered = rendered.replace("{{min_bytes}}", str(thresh.get("min_bytes", 10000000.0)))
     rendered = rendered.replace("{{fano_factor}}", str(thresh.get("fano_factor", 4.0)))
     rendered = rendered.replace("{{min_fails}}", str(thresh.get("min_fails", 15)))
     rendered = rendered.replace("{{min_mu}}", str(thresh.get("min_mu", 1.0)))
@@ -2619,6 +2846,8 @@ class HandoffEndpoint:
       "PRODUCER_CONSUMER_RATIO_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
       "PRODUCER_CONSUMER_ROLE_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
       "BYTE_RATIO_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
+      "OFF_HOURS_BURST": "POISSON_BURST_CLUSTERING",
+      "AFTER_HOURS_ACTIVITY": "POISSON_BURST_CLUSTERING",
   }
 
   @classmethod
@@ -2689,6 +2918,46 @@ class HandoffEndpoint:
           "errors": [str(e)],
       }
 
+    # Validate optional custom_filters before Stage 1 injection
+    custom_filters = payload.get("custom_filters")
+    validated_filters: List[str] = []
+    if custom_filters is not None:
+      if isinstance(custom_filters, str):
+        custom_filters = [custom_filters]
+      if not isinstance(custom_filters, list) or not all(isinstance(f, str) for f in custom_filters):
+        return {
+            "status": "HANDOFF_ACK_REJECTED",
+            "request_id": req_id,
+            "action": "RETRY_REQUIRED",
+            "errors": ["custom_filters must be a list of YARA-L event predicate strings."],
+        }
+      for cf in custom_filters:
+        cf_clean = cf.strip()
+        if not cf_clean:
+          continue
+        scope_errs = check_scope_exclusions(cf_clean)
+        if scope_errs:
+          return {
+              "status": "HANDOFF_ACK_REJECTED",
+              "request_id": req_id,
+              "action": "RETRY_REQUIRED",
+              "errors": [f"Invalid custom_filter ({cf_clean}): {scope_errs[0]}"],
+          }
+        if (
+            cf_clean.count('"') % 2 != 0
+            or "{" in cf_clean
+            or "}" in cf_clean
+            or ";" in cf_clean
+            or re.search(r"\b(?:stage|match|outcome|condition|order)\s*:", cf_clean, re.IGNORECASE)
+        ):
+          return {
+              "status": "HANDOFF_ACK_REJECTED",
+              "request_id": req_id,
+              "action": "RETRY_REQUIRED",
+              "errors": [f"Invalid or unsafe YARA-L syntax in custom_filter: '{cf_clean}'"],
+          }
+        validated_filters.append(cf_clean)
+
     target_entity = payload.get("target_entity", {})
     entity_val = target_entity.get("value", "") if isinstance(target_entity, dict) else str(target_entity)
     entity_type = (target_entity.get("type", "host") if isinstance(target_entity, dict) else "host").lower()
@@ -2710,7 +2979,10 @@ class HandoffEndpoint:
 
     tier = "BALANCED"
     if isinstance(model_info, dict):
-      tier = model_info.get("sensitivity", "BALANCED").upper()
+      raw_tier = model_info.get("sensitivity", "BALANCED").upper()
+      tier = {"HIGH": "AGGRESSIVE", "MEDIUM": "BALANCED", "LOW": "CONSERVATIVE"}.get(raw_tier, raw_tier)
+      if tier not in ("CONSERVATIVE", "BALANCED", "AGGRESSIVE"):
+        tier = "BALANCED"
 
     try:
       compiled_query = router.build_query(
@@ -2719,6 +2991,14 @@ class HandoffEndpoint:
           entity_type=entity_type,
           window_hours=window_hours,
       )
+      if validated_filters:
+        filter_block = "\n".join(f"    {cf}" for cf in validated_filters)
+        compiled_query = re.sub(
+            r"(stage\s+[a-zA-Z0-9_]+\s*\{\n)",
+            r"\1" + filter_block + "\n",
+            compiled_query,
+            count=1,
+        )
     except Exception as e:
       return {
           "status": "HANDOFF_ACK_REJECTED",
@@ -2761,9 +3041,29 @@ def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
   """
   prompt_clean = user_prompt.lower()
 
+  has_explicit_30d_or_ueba = any(
+      kw in prompt_clean
+      for kw in ["30-day", "30 day", "30d", "ueba", "metrics.", "pre-computed", "precomputed"]
+  )
+  has_raw_stat_or_short_window = any(
+      kw in prompt_clean
+      for kw in [
+          "single-stage", "single stage", "ad-hoc", "ad hoc",
+          "fano", "poisson", "jitter", "coefficient of variation",
+          "inline mad", "modified z", "modified-z", "tukey", "iqr",
+          "markov", "2-gram", "shannon", "entropy", "zipf", "ewma",
+          "impossible travel", "haversine", "producer-consumer",
+          "24h", "24-hour", "24 hour", "48h", "72h", "weekend",
+          "7d", "7-day", "7 day", "14d", "14-day", "14 day",
+      ]
+  )
+
   # 1. HTTP / Web User-Agent queries & baselines
-  if ("user-agent" in prompt_clean or "user_agent" in prompt_clean or "user agent" in prompt_clean) and \
-     any(kw in prompt_clean for kw in ["network", "http", "web", "traffic", "query", "queries", "compare", "comparison", "volume", "baseline"]):
+  if (
+      ("user-agent" in prompt_clean or "user_agent" in prompt_clean or "user agent" in prompt_clean)
+      and any(kw in prompt_clean for kw in ["network", "http", "web", "traffic", "query", "queries", "compare", "comparison", "volume", "baseline"])
+      and (not has_raw_stat_or_short_window or has_explicit_30d_or_ueba)
+  ):
     return {
         "should_route": True,
         "target_skill": "secops-risk-metrics-multistage",
@@ -2780,12 +3080,20 @@ def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
     }
 
   # 2. Authentication baselines (30d normal / typical login behavior)
-  if any(kw in prompt_clean for kw in ["auth", "login", "logon", "password spray", "credential"]) and \
-     any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "historical baseline", "typical behavior", "normal behavior", "baseline"]):
+  if (
+      any(kw in prompt_clean for kw in ["auth", "login", "logon", "password spray", "credential"])
+      and any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "historical baseline", "typical behavior", "normal behavior", "normal baseline", "typical baseline", "ueba", "metrics."])
+      and (not has_raw_stat_or_short_window or has_explicit_30d_or_ueba)
+  ):
+    is_fail_focused = any(
+        kw in prompt_clean
+        for kw in ["fail", "failed", "failure", "password spray", "spray", "brute", "stuffing"]
+    )
+    auth_metric = "metrics.auth_attempts_fail" if is_fail_focused else "metrics.auth_attempts_total"
     return {
         "should_route": True,
         "target_skill": "secops-risk-metrics-multistage",
-        "recommended_metric": "metrics.auth_attempts_total",
+        "recommended_metric": auth_metric,
         "recommended_pipeline": "standard_z_score_2stage.yl2",
         "target_dimension": "target.user.userid",
         "entity_dimension": "principal.asset.hostname",
@@ -2796,8 +3104,11 @@ def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
     }
 
   # 3. Network byte / flow baselines
-  if any(kw in prompt_clean for kw in ["network byte", "network flow", "outbound byte", "inbound byte", "bandwidth"]) and \
-     any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "baseline", "typical", "normal"]):
+  if (
+      any(kw in prompt_clean for kw in ["network byte", "network flow", "outbound byte", "inbound byte", "bandwidth"])
+      and any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "historical baseline", "normal baseline", "typical baseline", "typical", "normal", "ueba", "metrics."])
+      and (not has_raw_stat_or_short_window or has_explicit_30d_or_ueba)
+  ):
     return {
         "should_route": True,
         "target_skill": "secops-risk-metrics-multistage",
@@ -2827,7 +3138,11 @@ def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
     }
 
   # 5. Entity Risk Score / 360 Health Check
-  if any(kw in prompt_clean for kw in ["risk score", "risk_score", "graph.risk_score", "360 health", "omnibus risk"]):
+  if (
+      any(kw in prompt_clean for kw in ["risk score", "risk_score", "graph.risk_score", "360 health", "omnibus risk"])
+      and "calibrated risk index" not in prompt_clean
+      and "cri" not in re.findall(r"\b[a-z0-9_]+\b", prompt_clean)
+  ):
     return {
         "should_route": True,
         "target_skill": "secops-risk-metrics-multistage",

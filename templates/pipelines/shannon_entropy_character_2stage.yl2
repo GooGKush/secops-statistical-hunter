@@ -62,6 +62,14 @@ outcome:
   $length_factor = if($safe_length >= 25, 2.0, 1.0)
   $shannon_entropy_score = $log_len * $length_factor
 
+  // 6 Core Evidence Pillars
+  $observation_count = $token_executions
+  $baseline_active_samples = $total_activity
+  $baseline_mean = $raw_length
+  $baseline_dispersion = $log_len
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = 1
+
 condition:
   $raw_length >= {{min_length}}
   and $shannon_entropy_score >= {{entropy_threshold}}
