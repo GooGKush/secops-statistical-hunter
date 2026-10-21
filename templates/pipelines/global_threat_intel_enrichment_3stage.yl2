@@ -2,6 +2,7 @@
 // Author: Greg Kushmerek
 // Goal: Hunt for high-volume network exfiltration targeting newly registered domains or GCTI threats
 // Statistical Model: Z-Score with Global Threat Intel (ECG) Enrichment
+// Sensitivity Boundary: {{tier}} (Threat Score >= {{threat_score}}, Min Bytes >= {{min_obs_bytes}}, Min Active Hours >= {{min_active_hours}}, NRD Multiplier = {{nrd_multiplier}}x)
 
 // --- STAGE 1: Event-Plane Traffic Extraction ---
 stage raw_traffic {
@@ -63,12 +64,12 @@ outcome:
   $safe_sd = if($sd_bytes > 0, $sd_bytes, 1.0)
   $z_score = ($obs_bytes - $mean_bytes) / $safe_sd
 
-  $created = max($global_threat_intel.creation_ts)
-  $domain_age_days = (timestamp.current_seconds() - $created) / 86400.0
-  $is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
+  $creation_ts = max($global_threat_intel.creation_ts)
+  $domain_age_days = (timestamp.current_seconds() - $creation_ts) / 86400.0
+  $is_nrd = if($creation_ts > 0 and $domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
 
-  // Context-Boosted Threat Score: Apply 2.5x multiplier for newly registered domains
-  $multiplier = if($is_nrd = 1.0, 2.5, 1.0)
+  // Context-Boosted Threat Score: Apply multiplier for newly registered domains
+  $multiplier = if($is_nrd = 1.0, {{nrd_multiplier}}, 1.0)
   $threat_score = $z_score * $multiplier
 
   // 6 Standardized Evidence Pillars
@@ -76,13 +77,13 @@ outcome:
   $baseline_active_samples = max($host_baseline.active_hours)
   $baseline_mean = $mean_bytes
   $baseline_dispersion = $sd_bytes
-  $fleet_prevalence = 1
-  $distinct_binaries = max($raw_traffic.conn_count)
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = 1
 
 condition:
-  $baseline_active_samples >= 12
-  and $baseline_dispersion >= 1.0
-  and $threat_score >= 3.0
+  $baseline_active_samples >= {{min_active_hours}}
+  and $observation_count >= {{min_obs_bytes}}
+  and $threat_score >= {{threat_score}}
 
 order:
   $threat_score desc

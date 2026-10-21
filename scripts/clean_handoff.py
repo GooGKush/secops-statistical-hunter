@@ -382,7 +382,7 @@ def format_pre_ingestion_clearance_card(
     card_lines.append(f"| {i} | `{entity}` | `{pet}` | {model} | {z}σ | {cri} | **{sev}** |")
 
   card_lines.append("")
-  card_lines.append("> *Would you like me to ingest this Synthetic UDM Security Event batch into Google SecOps (`gus-sdl`) to trigger the Catch-All Alert Rule and spawn a Case?*")
+  card_lines.append(f"> *Would you like me to ingest this Synthetic UDM Security Event batch into Google SecOps (`{project_id}`) to trigger the Catch-All Alert Rule and spawn a Case?*")
   return "\n".join(card_lines)
 
 
@@ -396,6 +396,10 @@ def prepare_chronicle_import_logs_args(
 ) -> Dict[str, Any]:
   """Prepares the arguments dict for calling import_logs."""
   payload_strings = [json.dumps(event) for event in batch]
+  udm_event_envelopes = [
+      json.dumps({"events": [{"event": event.get("udm", event)}]})
+      for event in batch
+  ]
   effective_log_type = log_type or CHRONICLE_INGESTION_LOG_TYPE
 
   args: Dict[str, Any] = {
@@ -404,9 +408,74 @@ def prepare_chronicle_import_logs_args(
       "region": region,
       "logType": effective_log_type,
       "logs": payload_strings,
+      "mcp_import_logs_args": {
+          "customer_id": customer_id,
+          "project_id": project_id,
+          "region": region,
+          "log_type": "UDM",
+          "logs": udm_event_envelopes,
+          **({"forwarderId": forwarder_id} if forwarder_id else {}),
+      },
   }
 
   if forwarder_id:
     args["forwarderId"] = forwarder_id
 
   return args
+
+
+def format_mcp_ingestion_instruction(
+    batch: List[Dict[str, Any]],
+    customer_id: str = "8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5",
+    project_id: str = "gus-sdl",
+    region: str = "us",
+    forwarder_id: Optional[str] = None,
+) -> str:
+  """Formats the exact MCP tool invocation specification for secops-gus:import_logs."""
+  udm_envelopes = [
+      json.dumps({"events": [{"event": item.get("udm", item)}]})
+      for item in batch
+  ]
+  mcp_args: Dict[str, Any] = {
+      "customer_id": customer_id,
+      "project_id": project_id,
+      "region": region,
+      "log_type": "UDM",
+      "logs": udm_envelopes,
+  }
+  if forwarder_id:
+    mcp_args["forwarderId"] = forwarder_id
+
+  return (
+      "### 🚀 Chronicle UDM Ingestion Dispatch (`secops-gus:import_logs`)\n\n"
+      "Invoke `call_mcp_tool(ServerName=\"secops-gus\", ToolName=\"import_logs\", Arguments=...)` "
+      "with `log_type=\"UDM\"`, `logs=[json.dumps({\"events\": [{\"event\": udm_event}]})]`, "
+      "and optional `forwarderId`:\n\n"
+      f"```json\n{json.dumps(mcp_args, indent=2)}\n```"
+  )
+
+
+def generate_catchall_yaral_rule(rule_name: str = CATCHALL_RULE_NAME) -> str:
+  """Generates the canonical YARA-L 2.0 Catch-All Alert Rule for statistical hunter synthetic UDM events."""
+  return (
+      f"rule {rule_name} {{\n"
+      "  meta:\n"
+      "    author = \"Greg Kushmerek\"\n"
+      "    description = \"Catch-All Alert Rule for SecOps Statistical Hunter Clean Hand-Off synthetic UDM events.\"\n"
+      "    severity = \"HIGH\"\n\n"
+      "  events:\n"
+      "    $e.metadata.event_type = \"GENERIC_EVENT\"\n"
+      "    $e.metadata.product_name = \"SecOps Statistical Hunter\"\n"
+      "    $e.security_result.detection_fields[\"source_skill\"] = \"secops-statistical-hunter\"\n"
+      "    $e.security_result.detection_fields[\"hunt_campaign_id\"] = $campaign_id\n\n"
+      "  match:\n"
+      "    $campaign_id over 1h\n\n"
+      "  outcome:\n"
+      "    $risk_score = max($e.security_result.risk_score)\n"
+      "    $event_count = count_distinct($e.metadata.id)\n\n"
+      "  condition:\n"
+      "    $e\n\n"
+      "  options:\n"
+      "    allow_zero_values = true\n"
+      "}\n"
+  )

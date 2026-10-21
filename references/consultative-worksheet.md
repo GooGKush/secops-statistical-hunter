@@ -32,7 +32,7 @@ Every threat—known, emerging, or zero-day—physically deforms raw UDM event s
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 6. Enterprise Novelty       │ Activity involving entities   │ Z-Score with Derived Context         │
 │    ("The Unseen Intruder")  │ with near-zero enterprise     │ Prevalence Multiplier                │
-│                             │ presence (day_count <= 3)     │ (File / Domain 3-stage DAG)          │
+│                             │ presence (rolling_max <= 3)     │ (File / Domain 3-stage DAG)          │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 7. Lineage Surprisal        │ Benign parent spawning rare   │ Markov 2-Gram Transition Rarity      │
 │    ("The Broken Chain")     │ anomalous child process       │ (-ln(P(B|A)) >= 3.0 surprisal score) │
@@ -79,7 +79,7 @@ When an analyst asks *"Did behavior change after event $T_0$ (e.g., IAM role gra
 ### Executable Confounder Disambiguation & SecOps Data Tables (`%<table_name>`)
 
 Pair each of the 4 Common-Sense Confounder Checks with its concrete query-level control:
-1. **Innocent Corporate Explanation (Patch Tuesday / Mass Rollout)** $\rightarrow$ Enforce **Fleet Concurrency Count ($K$)** via `dual_baseline_delta_z_3stage.yl2` ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$) or `DERIVED_CONTEXT` prevalence (`day_count <= 3`).
+1. **Innocent Corporate Explanation (Patch Tuesday / Mass Rollout)** $\rightarrow$ Enforce **Fleet Concurrency Count ($K$)** via `dual_baseline_delta_z_3stage.yl2` ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$) or `DERIVED_CONTEXT` prevalence (`prevalence.day_count = 10`, `prevalence.rolling_max <= 3` and `> 0`).
 2. **Quiet Entity Trap (Zero-Inflated / Dormant Baseline)** $\rightarrow$ Use **Two-Part Hurdle** (`two_part_hurdle_2stage.yl2`) or **Discrete Poisson Rarity** (`poisson_rare_surge_2stage.yl2`) with non-zero dispersion floor (`if($sd > 0, $sd, 1.0)`).
 3. **Past Noise Camouflage (Historical Outlier Pollution)** $\rightarrow$ Switch from parametric $Z$-score to **Median Absolute Deviation (MAD)** (`mad_modified_z_4stage.yl2`, $M_Z = 0.6745 \cdot (x - \tilde{x}) / \text{MAD}$).
 4. **Approved Scanner / VIP Prior Adjustments (SecOps Data Tables `%<table_name>.<column>`)** $\rightarrow$ Suppress authorized scanners via `not principal.hostname in %authorized_scanners.hostname`, join entity risk priors via `%ueba_entity_priors.entity`, or consume Phase 1 bridge cohorts via `%ueba_hunt_bridge.hostname`.
@@ -136,7 +136,7 @@ When engaging the analyst during State 1, use the **Summary View** menus below t
   4. *Obfuscated Scripting & Command Randomness*: Detect base64 encoding and high-entropy parameters (**Shannon Character-Class Entropy** on `PROCESS_LAUNCH`).
   5. *Quiet Server Command Rarity*: Surface rarely executed tools on historically quiet infrastructure (**Discrete Poisson Rarity** on `PROCESS_LAUNCH`).
   6. *Fleet Prevalence Shielding*: Isolate targeted malware execution from company-wide software deployments (**Dual-Baseline Delta-Z** on `PROCESS_LAUNCH`).
-  7. *Unseen Staged Binary Bursts*: Isolate localized execution spikes while using enterprise day count to separate unseen binaries from ubiquitous administrative utilities (**Derived Context File Prevalence** on `PROCESS_LAUNCH`).
+  7. *Unseen Staged Binary Bursts*: Isolate localized execution spikes while using enterprise host prevalence (`prevalence.rolling_max <= 3`) to separate unseen binaries from ubiquitous administrative utilities (**Derived Context File Prevalence** on `PROCESS_LAUNCH`).
 
 ### Domain 4: Scripted Staging & Bulk Data Exfiltration
 * **Why Static Rules Miss It**: Attackers fragment data into sub-threshold uploads or exfiltrate across non-standard protocols.
@@ -153,7 +153,7 @@ When engaging the analyst during State 1, use the **Summary View** menus below t
   3. *Traversal to Newly Commissioned Assets*: Detect privileged accounts expanding laterally into machines seen for the first time within the last 7 days (**Derived Context Asset Age** on `USER_LOGIN`).
 
 ### Domain 6: Persistent Context & Derived Prevalence Hunting
-* **Why Static Rules Miss It**: In-flight telemetry lacks historical enterprise perspective; an unknown binary executed 5 times might look benign in a 1-hour window, but is acutely alarming if it has never been seen in the enterprise before (`day_count <= 3`).
+* **Why Static Rules Miss It**: In-flight telemetry lacks historical enterprise perspective; an unknown binary executed 5 times might look benign in a 1-hour window, but is acutely alarming if it has rare across the enterprise (`prevalence.rolling_max <= 3` and `> 0` over `prevalence.day_count = 10`).
 * **Summary View Options**:
   1. *Unseen Binary Execution Bursts*: Detect localized process execution spikes of binaries with low enterprise-wide prevalence (**Derived Context File Prevalence** on `PROCESS_LAUNCH`).
   2. *First-Seen Domain Egress*: Identify high-volume outbound network transfers to domains never previously contacted by the enterprise (**Derived Context Domain Prevalence** on `NETWORK_CONNECTION`).
@@ -169,7 +169,7 @@ When scoping hunts with analysts, present `DERIVED_CONTEXT` as a dual-sided inte
 Short-horizon raw telemetry searches (e.g. 24h or 7d) are blind to enterprise history:
 - An attacker executing a newly compiled dropper 3 times on a single quiet host looks like a minor statistical fluctuation ($Z \approx 1.5\sigma$).
 - A legitimate monitoring agent executing 500 times an hour looks like a catastrophic statistical surge ($Z > 10.0\sigma$).
-Chronicle's Entity Context Graph (`DERIVED_CONTEXT`) bridges this gap by persisting multi-year enterprise observation counts (`day_count`, `first_seen_time`, `rolling_max`).
+Chronicle's Entity Context Graph (`DERIVED_CONTEXT`) bridges this gap by persisting enterprise prevalence over configured rolling horizons (`prevalence.day_count = 10`, `prevalence.rolling_max`, `first_seen_time`).
 
 ### 2. The Two-Tier Scoping Choice
 When discussing candidate queries with an analyst exploring endpoint or network anomalies, offer the two-tier scoping choice:
@@ -177,13 +177,13 @@ When discussing candidate queries with an analyst exploring endpoint or network 
 * **Tier B (Enterprise-Grounded Hunt)**: Joins Chronicle `DERIVED_CONTEXT` to cross-reference enterprise prevalence, boosting rare tools and suppressing ubiquitous fleet software.
 
 ### 3. Dual-Sided Prevalence Filtering Mechanics
-* **Upward Escalation ($2.5\times$ Boost)**: Applies a multiplier to threat scores when the entity has executed on $\le 3$ calendar days enterprise-wide (`day_count <= 3`), ensuring rare tools break through alerting thresholds.
-* **Downward Suppression (Allowlisting via Prevalence)**: Down-ranks or filters out binaries and domains that exhibit extensive enterprise history (`day_count > 60` or `rolling_max > 500` hosts), protecting the SOC from Patch Tuesday and corporate software deployments.
+* **Upward Escalation ($2.5\times$ Boost)**: Applies a multiplier to threat scores when the entity's peak daily enterprise host count is $\le 3$ (`prevalence.rolling_max <= 3` and `> 0` with `prevalence.day_count = 10`), ensuring rare tools break through alerting thresholds.
+* **Downward Suppression (Allowlisting via Prevalence)**: Down-ranks or filters out binaries and domains that exhibit extensive enterprise history (`prevalence.rolling_max > 500` hosts), protecting the SOC from Patch Tuesday and corporate software deployments.
 
 ---
 
 ## 🔀 Inverted Cooperative Handoff Protocol (Steering to Risk Metrics)
 
-* If the analyst asks for **30-day pre-computed behavioral baselines** (`metrics.*`), emit a **Skill Handoff Card** to `secops-risk-metrics-multistage` (`protocol: secops-threat-hunt-handoff-v1`).
+* If the analyst asks for **30-day pre-computed behavioral baselines** (`metrics.*`), emit a **Skill Handoff Card** to `secops-risk-metrics-multistage` (`protocol: secops-threat-hunt-handoff-v1`; e.g., failed-login 30d baselines route to `metrics.auth_attempts_fail`, while general login volume routes to `metrics.auth_attempts_total`).
 * If the analyst requests **peer/cohort group UEBA comparisons** or **360° entity health check radars** -> steer to `secops-risk-metrics-multistage`.
 * If the analyst needs **ad-hoc custom time slicing**, **sub-second Δt timing**, **command-line arguments**, or **raw UDM event forensics** -> retain execution in `secops-statistical-hunter`.

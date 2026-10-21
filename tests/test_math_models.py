@@ -114,7 +114,7 @@ class TestMathModels(unittest.TestCase):
       self.assertEqual(errs, [], f"Syntax validation failed for {model}: {errs}")
 
   def test_log_normal_volume_model_compiles_cleanly(self):
-    """LOG_NORMAL_VOLUME_SURGE model must compile cleanly with math.log and math.exp."""
+    """LOG_NORMAL_VOLUME_SURGE model must compile cleanly with math.log and math.pow (without math.exp)."""
     from multistage_query_builder import MultiStageTemplateRouter, check_scope_exclusions, validate_multistage_syntax
     router = MultiStageTemplateRouter()
     query = router.build_query("LOG_NORMAL_VOLUME_SURGE", tier="BALANCED")
@@ -122,7 +122,8 @@ class TestMathModels(unittest.TestCase):
     errs = [e for e in validate_multistage_syntax(query) if not e.startswith("MISSING METHODOLOGY HEADER")]
     self.assertEqual(errs, [], f"Syntax validation failed for LOG_NORMAL_VOLUME_SURGE: {errs}")
     self.assertIn("math.log(", query)
-    self.assertIn("math.exp(", query)
+    self.assertNotIn("math.exp(", query)
+    self.assertIn("math.pow(", query)
     self.assertIn("$z_log", query)
 
   def test_euclidean_threat_distance_uses_math_sqrt(self):

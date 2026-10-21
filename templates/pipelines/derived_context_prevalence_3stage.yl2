@@ -1,12 +1,12 @@
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Hunt for anomalous privileged authentication spikes to newly commissioned or rare assets
-// Statistical Model: Z-Score with Derived Context (Asset First Seen) Enrichment
+// Goal: Hunt for authentication anomalies targeting newly seen or low-prevalence assets using Derived Context
+// Statistical Model: Z-Score with Derived Context (Asset First Seen) Prevalence Multiplier
+// Sensitivity Boundary: {{tier}} (Threat Score >= {{threat_score}}, Min Logins >= {{min_logins}}, Min Active Days >= {{min_active_days}}, New Asset Multiplier = {{new_asset_multiplier}}x)
 
 // --- STAGE 1: Event-Plane Authentication Extraction ---
 stage raw_auth {
   $login.metadata.event_type = "USER_LOGIN"
-  $login.security_result.action = "ALLOW"
   $user = $login.target.user.userid
   $host = $login.target.asset.hostname
   $user != ""
@@ -64,10 +64,10 @@ outcome:
 
   $first_seen = min($asset_derived_context.first_seen_ts)
   $asset_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
-  $is_new_asset = if($asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
+  $is_new_asset = if($first_seen > 0 and $asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
 
-  // Context-Boosted Threat Score: Apply 2.0x multiplier for connections to brand-new assets
-  $multiplier = if($is_new_asset = 1.0, 2.0, 1.0)
+  // Context-Boosted Threat Score: Apply multiplier for connections to brand-new assets
+  $multiplier = if($is_new_asset = 1.0, {{new_asset_multiplier}}, 1.0)
   $threat_score = $z_score * $multiplier
 
   // 6 Standardized Evidence Pillars
@@ -75,12 +75,13 @@ outcome:
   $baseline_active_samples = max($user_auth_baseline.active_days)
   $baseline_mean = $mean_logins
   $baseline_dispersion = $sd_logins
-  $fleet_prevalence = 1
+  $fleet_prevalence = 0 - 1
   $distinct_binaries = 1
 
 condition:
-  $baseline_active_samples >= 7
-  and $threat_score >= 2.5
+  $baseline_active_samples >= {{min_active_days}}
+  and $observation_count >= {{min_logins}}
+  and $threat_score >= {{threat_score}}
 
 order:
   $threat_score desc

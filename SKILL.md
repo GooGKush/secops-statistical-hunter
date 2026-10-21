@@ -3,86 +3,56 @@ name: secops-statistical-hunter
 author: Greg Kushmerek
 version: 2.8.1
 description: |
-  Guides and executes multi-stage statistical anomaly detection, Bayesian credibility updating,
-  outlier hunting, and Entity Context Graph (GLOBAL_CONTEXT and DERIVED_CONTEXT) enrichment in Google Security
-  Operations (SecOps) over raw UDM telemetry across custom time slices.
-  Supports Z-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, standalone Median Absolute Deviation (MAD)
-  over raw fields or custom windows (30d-baseline MAD on a metric-catalog vector: secops-risk-metrics-multistage),
-  Coefficient of Variation (CV), Poisson-Gamma Bayesian Shrinkage, Beta-Binomial Ratio Regularization,
-  Dual-Baseline Delta-Z (Patch Tuesday Shield), Multi-Sector Threat Fusion, Markov 2-Gram Transition Rarity,
-  Shannon Character-Class Entropy, Zipfian Long-Tail Process Rarity, Intraday EWMA Burst Velocity, and 6 Hybrid
-  Mathematical Models (Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds,
-  Two-Part Hurdle, and Fleet Prevalence Normalization). Supports dynamic root-stage condition filtering and noise level steering.
-  Enforces strict 5-Section CommonMark Triage Reporting (with 6 standardized forensic evidence pillars,
-  Calibrated Risk Index [0-100] normalization, Unicode visual bars, and 1-click drilldowns),
-  strict visual axis-type isolation, and post-query intent and stage degradation auditing.
-  Triggers: "hunt for beaconing with jitter", "inline C2 timing regularity", "calculate MAD on DNS",
-  "Tukey fence anomaly", "impossible travel velocity", "rolling volume ratio", "pre-flight boundary probe",
-  "poisson burst clustering", "fano factor password spray", "rare admin tool surge",
-  "bayesian gamma prior updating", "beta-binomial failure rate shrinkage", "dual-baseline delta-z",
-  "patch tuesday immunity", "multi-sector threat fusion", "4-stage killchain hunter",
-  "service account out of normal behavioral scope", "unexpected host origin or abnormal access patterns",
-  "unusual data repository access", "service account origin rarity", "source code repository anomaly",
-    "diversity deficit", "elephant flow concentration", "orthogonal threat space", "two-part hurdle", "privileged lateral expansion", "unseen endpoint login", "admin destination breadth",
-    "global threat intel enrichment", "gcti threat match", "whois newly registered domain surge", "derived context asset age", "unfamiliar machine login",
-    "derived context file prevalence", "enterprise unseen binary burst", "derived context domain prevalence", "first seen domain egress", "binary enterprise prevalence",
-    "markov process transition", "parent child transition surprisal", "living off the land chain", "shannon character entropy", "obfuscated command line entropy", "zipfian process rarity", "power law process tail", "ewma burst velocity", "intraday kinetic burst".
+  Multi-stage statistical outlier hunting, Bayesian updating, and Entity Context Graph (GLOBAL_CONTEXT, DERIVED_CONTEXT) enrichment in Google SecOps over raw UDM telemetry. Supports Z-Score, Fano, Poisson, standalone Median Absolute Deviation (MAD) over raw fields or custom windows (30d MAD: secops-risk-metrics-multistage), CV, Gamma, Beta-Binomial, Delta-Z, Multi-Sector, Markov, Shannon, Zipf, EWMA, and Hybrid Models with 5-Section Triage Reporting (6 pillars, CRI [0-100]). Triggers: beaconing with jitter, MAD on DNS, Tukey fence, impossible travel, poisson burst, fano factor, bayesian gamma, beta-binomial, dual-baseline delta-z, multi-sector threat fusion, service account out of normal behavioral scope, diversity deficit, elephant flow, two-part hurdle, global threat intel, derived context, markov process transition, shannon character entropy, zipfian process rarity, ewma burst velocity.
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
 ---
 
 # SecOps Statistical Hunter (`secops-statistical-hunter`)
 
-This skill empowers an LLM agent and SOC analyst to execute **ad-hoc multi-stage statistical outlier hunting** in Google SecOps over raw UDM telemetry without requiring pre-computed machine-learning pipelines or UEBA batch metrics. *(Background Grounding: Both raw UDM multi-stage hunting and `metrics.*` SecOps UEBA are completely native to Google SecOps, leveraging core Google infrastructure. Never claim BigQuery powers or stores UEBA; do not mention BigQuery unprompted, but if asked about it, state that BigQuery contributes nothing to SecOps UEBA.)*
+Executes **ad-hoc multi-stage statistical outlier hunting** in Google SecOps over raw UDM telemetry without pre-computed ML or UEBA batch metrics. *(Both raw UDM multi-stage hunting and `metrics.*` UEBA are native to Google SecOps; never mention BigQuery unprompted, and if asked, state BigQuery contributes nothing to SecOps UEBA.)*
 
 > [!IMPORTANT]
 > ### 🚨 Telemetry Scope & Mandatory Pre-Flight Delegation Gate
-> This skill executes **ad-hoc multi-stage statistical anomaly detection strictly over raw in-flight event telemetry** (`UDM_EVENTS`).
-> **Skill Delegation Boundary (Immediate Yield):**
-> If an analyst prompt references `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, `"risk score"`, `"peer cohort"`, or asks for a behavioral risk review across 30 days:
-> **Emit the Skill Delegation Card below and yield the turn (0 tool calls), reserving query formulation and execution strictly for the designated destination skill:**
+> Executes **ad-hoc multi-stage statistical anomaly detection strictly over raw in-flight event telemetry** (`UDM_EVENTS`).
+> If an analyst prompt references `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, `"risk score"`, `"peer cohort"`, asks for a 30-day behavioral risk review, or asks to baseline/compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`), **emit the Skill Delegation Card below and yield the turn (0 tool calls — NEVER run a compiler probe when delegating)**:
 >
 > ### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`
->
 > > [!NOTE]
 > > **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**
-> > • **Routing Rationale**: Rolling 30-day behavioral baselines and UEBA metric functions are pre-computed in Google SecOps and exclusively maintained in secops-risk-metrics-multistage.
-> > • **Target Skill**: `secops-risk-metrics-multistage`
-> > • **Recommended Metric / Function**: `metrics.*`
-> > • **Target Dimension**: `[target user, host, or metric]`
->
-> > [!IMPORTANT]
-> > **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the behavioral baseline query.
-> > *Please switch to the `secops-risk-metrics-multistage` skill to execute this behavioral baseline hunt.*
+> > • **Routing Rationale**: Rolling 30-day behavioral baselines and UEBA `metrics.*` functions are maintained in `secops-risk-metrics-multistage`.
+> > • **Target Skill**: `secops-risk-metrics-multistage` | **Recommended Metric / Function**: `metrics.*` | **Target Dimension**: `[target user, host, or metric]`
+> >
+> > **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the 30-day behavioral baseline query.
 
 ---
 
 ## 🎯 Non-Statistician Intent & Trigger Catalog
 
-When interacting with a cybersecurity analyst, **match their operational hypothesis to the optimal statistical model** and explain the choice using plain-English physical analogies:
+Match the analyst's hypothesis to the optimal statistical model and explain using plain-English analogies:
 
 | Analyst Operational Question | Statistical Model | Plain-English Concept & Analogy |
 | :--- | :--- | :--- |
-| *"Find password sprays or brute force pulsing in intermittent waves to evade rate limits."* | **`POISSON_BURST_CLUSTERING`** ($F = \sigma^2 / \mu > 4.0$) | **Rainfall downpour vs. steady trickle**: Normal login mistakes trickle in steadily; automated attack waves arrive in synchronized, clumpy bursts. |
-| *"Detect sensitive admin commands (`vssadmin`, `whoami`) surging on quiet servers without division-by-zero."* | **`POISSON_RARE_SURGE`** (Poisson $Z > 3.5$) | **Mathematical rarity on quiet baselines**: Evaluates the improbability of seeing $N$ events today given a near-zero historical arrival rate. |
-| *"Hunt for C2 beaconing where the implant uses randomized sleep delays to avoid fixed-interval alerts."* | **`C2_BEACONING_JITTER`** ($\text{CV} \le 0.20$) | **Robotic timing regularity**: Automated implants exhibit low timing variance ($\text{CV} \le 0.20$), while human browsing is chaotic ($\text{CV} > 0.50$). |
-| *"Find sudden surges on volatile hosts while ignoring false alarms on erratic machines."* | **`BAYESIAN_GAMMA_SHRINKAGE`** ($\text{Shift} \ge 3.0$) | **The Seasoned SOC Detective**: Gamma prior weights host stability against current evidence; stable machines alert on small shifts. |
-| *"Hunt for password spray / error ratios without false alarms from single-trial mistakes (1 fail / 1 try)."* | **`BETA_BINOMIAL_REGULARIZATION`** ($P_{\text{fail}} \ge 0.70$) | **Small-Sample Ratio Regularizer**: Beta-Binomial conjugate updating regularizes single-trial mistakes toward population error baselines. |
-| *"Isolate targeted endpoint spikes from company-wide software deployments or Patch Tuesday."* | **`DUAL_BASELINE_DELTA_Z`** ($\Delta Z \ge 3.0\sigma$) | **The Patch Tuesday Immunity Shield**: Subtracts concurrent fleet shift from personal surge ($\Delta Z = Z_p - Z_f$), ignoring company-wide updates. |
-| *"Detect coordinated low-and-slow kill chains across Auth, Endpoint, and Network silos."* | **`MULTI_SECTOR_FUSION`** ($D = \sqrt{\sum Z_i^2} \ge 3.0\sigma$) | **The Combined Arms Radar**: Computes orthogonal Euclidean distance across domains, catching multi-vector attacks where point detectors miss. |
-| *"Find service accounts accessing source code or data repositories (GitHub, GitLab, internal shares) from unexpected host origins or out of normal scope."* | **`POISSON_ORIGIN_RARITY`** (Poisson $Z > 3.5$) | **The Train on a New Track**: Service accounts operate like trains on fixed rails (fixed CI runners, deterministic IPs). Accessing a repository from an unseen host has a near-zero historical arrival rate ($\lambda \to 0$), triggering an acute statistical rarity alert over raw `USER_RESOURCE_ACCESS`. |
-| *"Find automated scripted exfiltration where an entity touches many destinations with minimal vocabulary entropy or elephant flows."* | **`DIVERSITY_DEFICIT`** ($k/(N+1) \le 0.20$) & **`ELEPHANT_FLOW_CONCENTRATION`** ($\text{Peak}/\text{Sum} \ge 0.70$) | **The High-Speed Conveyor**: Attackers scripting data exfiltration generate repetitive, low-entropy transfers with high volume concentration. |
-| *"Detect privileged or administrative accounts logging into unseen endpoints or expanding their machine radius."* | **`PRIVILEGED_LATERAL_EXPANSION`** ($Z_{\text{breadth}} \ge 2.0\sigma$) | **The Explorer off the Beaten Path**: Admins routinely touch a small, bounded cluster of machines; a sudden surge in unique target workstations/servers reveals lateral traversal. |
-| *"Detect dormant accounts or service accounts suddenly awakening with unusual activity."* | **`TWO_PART_HURDLE`** ($H \ge 2.5$) | **The Sleeper Awakening**: Historically dormant accounts incur a discrete activation penalty; active accounts are evaluated on continuous baseline deviation with exact conditional zero-dispersion protection. |
-| *"Hunt for network exfiltration targeting newly registered domains or Google Cloud Threat Intelligence (GCTI) indicators."* | **`GLOBAL_THREAT_INTEL`** ($Z_{\text{threat}} \ge 3.0$) | **The Flash in the Dark**: Combines raw network burst velocity with Chronicle's persistent Entity Context Graph (WHOIS NRD age $< 30$d or GCTI feed matches) to boost threat severity on suspicious destinations. |
-| *"Find anomalous logins targeting brand-new, rare, or recently commissioned assets."* | **`DERIVED_CONTEXT_PREVALENCE`** ($Z_{\text{auth}} \ge 2.5$) | **The Unfamiliar Machine**: Uses Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to verify true enterprise first-seen age, separating routine logins from first-contact connections to unestablished endpoints. |
-| *"Hunt for anomalous execution bursts of rare or enterprise-unseen binaries."* | **`DERIVED_CONTEXT_FILE_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The Unprecedented Binary**: Uses Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to evaluate enterprise-wide file prevalence (`day_count <= 3`), applying a 2.5x threat score multiplier for rare binaries executing on local endpoints. |
-| *"Detect high-volume network egress bursts to enterprise-unseen or newly contacted domains."* | **`DERIVED_CONTEXT_DOMAIN_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The First-Contact Outbound Flow**: Employs Chronicle's persistent Entity Context Graph (`DERIVED_CONTEXT`) to cross-reference domain history (`day_count <= 3`), prioritizing network surges targeting domains never previously accessed across the fleet. |
-| *"Detect anomalous process lineages or rare living-off-the-land parent-child executions (e.g. Word -> cmd, SQL Server -> PowerShell)."* | **`MARKOV_2GRAM_TRANSITION_RARITY`** (Surprisal $I \ge 3.0$) | **The Broken Lineage Chain**: Parent-child execution transitions follow conditional probability $P(B \mid A)$. Normal administrative transitions have high probability; anomalous adversary execution chains trigger extreme information surprisal. |
-| *"Detect obfuscated command-line arguments, base64 payloads, or algorithmic DGA domains."* | **`SHANNON_ENTROPY_CHARACTER`** (Entropy $\ge 5.5$) | **The Scrambled Script**: Natural language commands exhibit predictable character patterns and redundancy; encoded scripts and DGA tokens exhibit collapsed compression redundancy and elevated character entropy. |
-| *"Find rare administrative utilities executing in the asymptotic fleet tail (<= 2 hosts enterprise-wide)."* | **`ZIPFIAN_PROCESS_RARITY`** (Zipf Rarity $\ge 2.5$) | **The Long-Tail Tool**: Enterprise process execution follows a power-law distribution ($f(k) \propto 1/k^s$); standard tools dominate volume while stealthy admin utilities sit in the extreme asymptotic tail. |
-| *"Detect acute intraday rate acceleration without lagging trailing historical baselines."* | **`EWMA_BURST_VELOCITY`** (Velocity $V \ge 2.0\sigma$) | **The Sudden Kinetic Thrust**: Exponentially weighted moving average ($\alpha = 0.30$) captures instantaneous velocity shifts, isolating sudden burst acceleration from smoothed baseline trajectories. |
-| *"Detect consecutive user logins from geographically distant locations faster than physical flight speed (> 900 km/h)."* | **`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`** ($V \ge 900\text{ km/h}$) | **The Supersonic Commuter**: Evaluates Haversine geodesic distance (`math.geo_distance`) across login intervals to isolate stolen credentials used across continents. |
-| *"Detect endpoints that normally consume data suddenly inverting their directional byte ratio to become net data producers."* | **`PRODUCER_CONSUMER_RATIO_INVERSION`** ($\rho \ge 0.70$, $Z \ge 2.5\sigma$) | **The Role Reversal**: Workstations normally download far more than they upload ($\rho < 0.20$); exfiltration or staging flips the directional byte ratio ($\rho = \text{sent} / (\text{sent} + \text{received}) \ge 0.70$). |
+| *"Password sprays pulsing in intermittent waves."* | **`POISSON_BURST_CLUSTERING`** ($F = \sigma^2 / \mu > 4.0$) | **Rainfall downpour vs. steady trickle**: Normal login errors trickle in; automated sprays arrive in synchronized bursts. |
+| *"Sensitive admin commands (`vssadmin`, `whoami`) surging on quiet servers."* | **`POISSON_RARE_SURGE`** (Poisson $Z > 3.5$) | **Mathematical rarity on quiet baselines**: Improbability of $N$ events today given a near-zero arrival rate ($\lambda$). |
+| *"C2 beaconing with randomized sleep jitter."* | **`C2_BEACONING_JITTER`** ($\text{CV} \le 0.20$) | **Robotic timing regularity**: Implants exhibit low timing variance ($\text{CV} \le 0.20$); human browsing is chaotic ($\text{CV} > 0.50$). |
+| *"Sudden surges on volatile hosts while ignoring noisy machines."* | **`BAYESIAN_GAMMA_SHRINKAGE`** ($\text{Shift} \ge 3.0$) | **The Seasoned SOC Detective**: Gamma prior weights host stability against current evidence; stable hosts alert on small shifts. |
+| *"Password spray failure ratios without single-trial (1/1) false alarms."* | **`BETA_BINOMIAL_REGULARIZATION`** ($P_{\text{fail}} \ge 0.70$) | **Small-Sample Ratio Regularizer**: Beta-Binomial updating shrinks single-trial mistakes toward population error baselines. |
+| *"Isolate endpoint spikes from company-wide Patch Tuesday rollouts."* | **`DUAL_BASELINE_DELTA_Z`** ($\Delta Z \ge 3.0\sigma$) | **The Patch Tuesday Immunity Shield**: Subtracts fleet shift from personal surge ($\Delta Z = Z_p - Z_f$), ignoring fleet updates. |
+| *"Coordinated low-and-slow kill chains across Auth, Endpoint, and Network."* | **`MULTI_SECTOR_FUSION`** ($D = \sqrt{\sum Z_i^2} \ge 3.0\sigma$) | **The Combined Arms Radar**: Orthogonal Euclidean distance across domains catches multi-vector attacks where point rules miss. |
+| *"Service accounts accessing repositories from unexpected origins or service account out of normal behavioral scope."* | **`POISSON_ORIGIN_RARITY`** (Poisson $Z > 3.5$) | **The Train on a New Track**: Service accounts run on fixed rails; repository access from an unseen host has $\lambda \to 0$ over `USER_RESOURCE_ACCESS`. |
+| *"Scripted exfiltration with low vocabulary entropy or elephant flows."* | **`DIVERSITY_DEFICIT`** ($k/(N+1) \le 0.20$) & **`ELEPHANT_FLOW_CONCENTRATION`** ($\text{Peak}/\text{Sum} \ge 0.70$) | **The High-Speed Conveyor**: Scripted exfiltration generates repetitive, low-entropy transfers with high single-flow concentration. |
+| *"Privileged accounts logging into unseen endpoints or expanding machine radius."* | **`PRIVILEGED_LATERAL_EXPANSION`** ($Z_{\text{breadth}} \ge 2.0\sigma$) | **The Explorer off the Beaten Path**: Admins touch a bounded cluster of machines; a surge in unique target hosts reveals lateral traversal. |
+| *"Dormant or service accounts suddenly awakening with unusual activity."* | **`TWO_PART_HURDLE`** ($H \ge 2.5$) | **The Sleeper Awakening**: Dormant accounts incur a discrete activation penalty; active accounts are scored on continuous deviation. |
+| *"Egress to newly registered domains (WHOIS) or GCTI threat indicators."* | **`GLOBAL_THREAT_INTEL`** ($Z_{\text{threat}} \ge 3.0$) | **The Flash in the Dark**: Combines raw network burst velocity with `GLOBAL_CONTEXT` (WHOIS NRD age $< 30$d or GCTI matches). |
+| *"Anomalous logins targeting brand-new or recently commissioned assets."* | **`DERIVED_CONTEXT_PREVALENCE`** ($Z_{\text{auth}} \ge 2.5$) | **The Unfamiliar Machine**: Uses `DERIVED_CONTEXT` asset `first_seen_time` to separate routine logins from unestablished endpoints. |
+| *"Execution bursts of rare or enterprise-unseen binaries."* | **`DERIVED_CONTEXT_FILE_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The Unprecedented Binary**: Uses `DERIVED_CONTEXT` file prevalence (`day_count = 10`, `rolling_max <= 3` and `> 0`) for a 2.5x multiplier. |
+| *"Outbound egress bursts to enterprise-unseen or rare domains."* | **`DERIVED_CONTEXT_DOMAIN_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The First-Contact Outbound Flow**: Cross-references `DERIVED_CONTEXT` domain prevalence (`day_count = 10`, `rolling_max <= 3` and `> 0`). |
+| *"Anomalous process lineages or rare parent-child executions (Word -> cmd)."* | **`MARKOV_2GRAM_TRANSITION_RARITY`** (Surprisal $I \ge 3.0$) | **The Broken Lineage Chain**: Parent-child transitions follow $P(B \mid A)$; rare adversary chains trigger high information surprisal. |
+| *"Obfuscated command lines, base64 payloads, or algorithmic DGA domains."* | **`SHANNON_ENTROPY_CHARACTER`** (Entropy $\ge 5.5$) | **The Scrambled Script**: Encoded payloads and DGA tokens exhibit elevated character-class entropy proxy scores. |
+| *"Rare admin utilities executing in the asymptotic fleet tail (<= 2 hosts)."* | **`ZIPFIAN_PROCESS_RARITY`** (Zipf Rarity $\ge 2.5$) | **The Long-Tail Tool**: Process execution follows a power law ($f(k) \propto 1/k^s$); stealthy utilities sit in the fleet tail. |
+| *"Acute intraday rate acceleration without lagging trailing baselines."* | **`EWMA_BURST_VELOCITY`** (Velocity $V \ge 2.0\sigma$) | **The Sudden Kinetic Thrust**: Exponentially weighted moving average ($\alpha = 0.30$) captures instantaneous intraday velocity shifts. |
+| *"Consecutive user logins faster than physical flight speed (> 900 km/h)."* | **`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`** ($V \ge 900\text{ km/h}$) | **The Supersonic Commuter**: Haversine geodesic distance (`math.geo_distance`) across logins isolates cross-continent credential theft. |
+| *"Workstations inverting directional byte ratio to become net producers."* | **`PRODUCER_CONSUMER_RATIO_INVERSION`** ($\rho \ge 0.70$, $Z \ge 2.5\sigma$) | **The Role Reversal**: Workstations normally consume data ($\rho < 0.20$); exfiltration flips $\rho = \text{sent}/(\text{sent}+\text{received}) \ge 0.70$. |
 
 ---
 
@@ -90,71 +60,28 @@ When interacting with a cybersecurity analyst, **match their operational hypothe
 
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Interactive Verification Gate)
 
-When an analyst initiates a threat hunt or selects an archetype, proceed through the interactive pre-flight gate:
 0. **Pre-Flight Routing Interceptor (Risk Metrics Delegation Gate - Strict Precedence)**:
-   Always evaluate this routing interceptor first. When this interceptor matches, routing handoff takes absolute precedence over consultative discovery or specification.
-   When the analyst request matches any pre-computed baseline or UEBA indicators below, immediately present the Markdown **Skill Delegation Card** and conclude your response (0 tool calls):
-   - **Explicit UEBA / 30-Day Baselines / Risk Metrics**: Any request containing the terms `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, or `"risk score"`, or asking for a behavioral risk review across 30 days. Statistical Hunter operates over short-horizon raw telemetry (typically 1h to 7d); rolling 30-day baselines belong to `secops-risk-metrics-multistage`.
-   - **MAD Against a 30-Day / `metrics.*` Baseline**: MAD/modified-Z requested against a 30-day or pre-computed baseline on a metric-catalog vector (outbound bytes, auth attempts, DNS volume) belongs to `secops-risk-metrics-multistage` (true MAD plus 30d Z cross-check). Standalone MAD over raw fields or custom windows stays here, even when the same events also feed a metrics vector.
-   - **Web / HTTP Traffic**: Requests asking to baseline or compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`, `metrics.http_queries_success`, `metrics.http_queries_fail`).
-   - **Authentication Volume**: Requests comparing logins/failures to an entity's 30-day normal/typical baseline (`metrics.auth_attempts_*`).
-   - **Network Bytes/Flows**: Outbound/inbound data transfer baselines (`metrics.network_bytes_*`, `metrics.network_flows_*`).
-   - **DNS Queries**: DNS resolution volume or payload bytes over 30 days (`metrics.dns_*`).
-   - **File Executions**: Process execution baselines (`metrics.file_executions_*`).
-   - **Workspace / Cloud Activity**: Administrative settings changes, file downloads, email volume (`metrics.workspace_*`).
-   - **Peer Cohorts & Entity Risk Scores**: Inquiries comparing an entity to their department/role peer group, or referencing omnibus entity risk scores (`graph.risk_score`) / 360° health checks.
-
-   **Affirmative Delegation Output**:
-   When any indicator above matches, output the canonical delegation card directly in Markdown and yield the turn:
-   ```markdown
-   ### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`
-
-   > [!NOTE]
-   > **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**
-   > • **Routing Rationale**: Rolling 30-day behavioral baselines and UEBA metric functions are pre-computed in Google SecOps and exclusively maintained in secops-risk-metrics-multistage.
-   > • **Target Skill**: `secops-risk-metrics-multistage`
-   > • **Recommended Metric / Function**: `metrics.*`
-   > • **Target Dimension**: `[target user, host, or metric]`
-
-   > [!IMPORTANT]
-   > **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the behavioral baseline query.
-   > *Please switch to the `secops-risk-metrics-multistage` skill to execute this behavioral baseline hunt.*
-   ```
+   Always evaluate this routing interceptor first. When any pre-computed baseline or UEBA indicator below matches, immediately emit the **Skill Delegation Card** above and conclude your response (**0 tool calls** — do NOT run a `udm_search` probe):
+   - **Explicit UEBA / 30-Day Baselines / Risk Metrics**: Any request containing `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, `"risk score"`, or asking for a 30-day behavioral risk review.
+   - **MAD Against a 30-Day / `metrics.*` Baseline**: MAD/modified-Z against a 30-day or pre-computed baseline on a metric-catalog vector belongs to `secops-risk-metrics-multistage`. Standalone MAD over raw fields or custom windows (1h–14d) stays here.
+   - **Web / HTTP Traffic**: Requests asking to baseline or compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`, `metrics.http_queries_success`, `metrics.http_queries_fail`) — even if `"30-day"` is not explicitly stated.
+   - **Authentication, Network, DNS, File & Workspace Baselines**: Requests comparing logins/failures (`metrics.auth_attempts_total`, `metrics.auth_attempts_fail`), network bytes/flows (`metrics.network_bytes_*`, `metrics.network_flows_*`), DNS queries (`metrics.dns_*`), process executions (`metrics.file_executions_*`), or Workspace/Cloud activity (`metrics.workspace_*`) to a 30-day baseline.
+   - **Peer Cohorts & Entity Risk Scores**: Inquiries comparing an entity to their department/role peer group, or referencing `graph.risk_score` / 360° health checks.
 1. **Universal Pre-Flight Gate & Interactive Scoping Protocol**:
-   All analytical, investigative, and statistical inquiries (including direct operational requests such as *"Hunt for..."*, *"Check our servers for..."*, *"Evaluate spikes on server X and show the evidence pillars"*, or *"Detect anomalies..."*) enter State 1: Pre-Flight Clearance & Specification.
-   Turn 1 is reserved for formulating the hunting methodology: presenting the approach overview, operational analogy, structured pre-flight specification card, candidate query preview, and soliciting execution clearance. Tool execution on Turn 1 evaluates exclusively simple single-event filters via at most ONE 1-shot schema validation probe (`udm_search(..., maxEvents=1)`). Candidate queries remain strictly Markdown previews (` ```yara `) on Turn 1; historical telemetry analysis and multi-stage query execution take place on Turn 2 upon receiving user clearance.
+   Turn 1 is strictly reserved for approach overview, operational analogy, pre-flight specification card, candidate query preview (` ```yara `), and soliciting execution clearance. Tool execution on Turn 1 evaluates **exclusively simple single-event UDM filters** via at most ONE 1-shot schema validation probe (`udm_search(query="metadata.event_type = ...", maxEvents=1)`). **NEVER pass `stage ... { ... }`, `match:`, or `outcome:` to `udm_search` on Turn 1** (submitting a multi-stage query on Turn 1—even with `maxEvents=1`—is a `ZERO_UNSOLICITED_EXECUTION` violation). Multi-stage query execution occurs strictly on Turn 2 after user clearance.
 2. **Consultative Support & Expert Bypass Rule**:
-   * *Consultative Discovery*: For open-ended requests that remain within raw telemetry scope after clearing Step 0, inspect `references/consultative-worksheet.md` to classify the objective across the 6 Raw Behavioral Telemetry Deformations and 6 Raw Hunting Domains, presenting 2–3 targeted Summary View options.
-   * *Enterprise-Grounded Hunt Consultative Pattern*: When an analyst explores endpoint or network anomalies (such as process execution spikes, data egress, or authentication bursts), offer the two-tier scoping choice:
-     - **Tier A (Pure Local Baseline)**: Evaluates statistical volume deviations strictly against that endpoint's local historical mean and standard deviation.
-     - **Tier B (Enterprise-Grounded Hunt)**: Joins Chronicle `DERIVED_CONTEXT` enterprise prevalence to correlate local spikes with enterprise-wide day counts (`day_count <= 3`), applying a 2.5x threat score boost for unseen binaries or domains while suppressing ubiquitous corporate software.
-   * *Expert Bypass Rule*: If the analyst specifies both the target telemetry (e.g. `PROCESS_LAUNCH`) and statistical model (e.g. `MAD` or `Z-score`), proceed directly to emitting the Pre-Flight Card.
-3. **Plain-English Operational Analogy**: Explain the detection mechanics in 1-2 intuitive sentences.
+   * *Consultative Discovery*: For open-ended raw telemetry requests, inspect `references/consultative-worksheet.md` (13 Raw Behavioral Telemetry Deformations across 6 Raw Hunting Domains) and offer 2–3 Summary View options.
+   * *Enterprise-Grounded Hunt Consultative Pattern*: Offer **Tier A (Pure Local Baseline)** vs **Tier B (Enterprise-Grounded Hunt)** joining `DERIVED_CONTEXT` prevalence (`day_count = 10`, `rolling_max <= 3` and `> 0`) for a 2.5x rarity multiplier.
+   * *Expert Bypass Rule*: If target telemetry and statistical model are specified, emit the Pre-Flight Card directly.
+3. **Plain-English Operational Analogy**: Explain detection mechanics in 1–2 intuitive sentences.
 4. **Structured Pre-Flight Hunting Specification Card & Candidate Query Preview**:
-   * *Template-First Formulation Directive*: Before formulating a candidate query, inspect the matching canonical pipeline template using `view_file` on `templates/pipelines/<model_name>.yl2` (or consult `references/multi-stage-query-guide.md` via `view_file`) to adopt verified variable bindings, match keys, and outcome formulas:
-     - `MAD_EXFILTRATION` / `MAD` / `MODIFIED_Z`: `templates/pipelines/mad_modified_z_4stage.yl2` (standalone MAD over any window/raw field; set `{{daily_aggregation}}` e.g. `sum(network.sent_bytes)` for bytes, default `count(metadata.id)`)
-     - `POISSON_BURST_CLUSTERING`: `templates/pipelines/poisson_burst_clustering_2stage.yl2`
-     - `POISSON_RARE_SURGE` / `POISSON_ORIGIN_RARITY`: `templates/pipelines/poisson_rare_surge_2stage.yl2`
-     - `C2_BEACONING_JITTER`: `templates/pipelines/c2_beaconing_jitter_2stage.yl2`
-     - `BAYESIAN_GAMMA_SHRINKAGE`: `templates/pipelines/bayesian_gamma_shrinkage_4stage.yl2`
-     - `BETA_BINOMIAL_FAILURE`: `templates/pipelines/beta_binomial_failure_4stage.yl2`
-     - `DUAL_BASELINE_DELTA_Z`: `templates/pipelines/dual_baseline_delta_z_3stage.yl2`
-     - `MULTI_SECTOR_THREAT_FUSION`: `templates/pipelines/multi_sector_threat_fusion_4stage.yl2`
-     - `PRIVILEGED_LATERAL_EXPANSION`: `templates/pipelines/privileged_lateral_expansion_2stage.yl2`
-     - `TWO_PART_HURDLE`: `templates/pipelines/two_part_hurdle_2stage.yl2`
-     - `HYBRID_ENTROPY_CONCENTRATION` / `DIVERSITY_DEFICIT`: `templates/pipelines/hybrid_entropy_concentration_2stage.yl2`
-     - `ZIPFIAN_PROCESS_RARITY` / `FLEET_PREVALENCE_NORMALIZATION`: `templates/pipelines/zipfian_process_rarity_2stage.yl2`
-     - `MARKOV_2GRAM_TRANSITION_RARITY`: `templates/pipelines/markov_2gram_transition_rarity_2stage.yl2`
-     - `SHANNON_ENTROPY_CHARACTER`: `templates/pipelines/shannon_entropy_character_2stage.yl2`
-     - `EWMA_BURST_VELOCITY`: `templates/pipelines/ewma_burst_velocity_2stage.yl2`
-     - `GLOBAL_THREAT_INTEL_ENRICHMENT` / `GLOBAL_CONTEXT`: `templates/pipelines/global_threat_intel_enrichment_3stage.yl2`
-     - `DERIVED_CONTEXT_PREVALENCE` / `DERIVED_CONTEXT`: `templates/pipelines/derived_context_prevalence_3stage.yl2`
-     - `DERIVED_CONTEXT_FILE_PREVALENCE` / `FILE_PREVALENCE`: `templates/pipelines/derived_context_file_prevalence_3stage.yl2`
-     - `DERIVED_CONTEXT_DOMAIN_PREVALENCE` / `DOMAIN_PREVALENCE`: `templates/pipelines/derived_context_domain_prevalence_3stage.yl2`
-     - `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` / `IMPOSSIBLE_TRAVEL`: `templates/pipelines/impossible_travel_geo_velocity_2stage.yl2`
-     - `PRODUCER_CONSUMER_RATIO_INVERSION` / `ROLE_INVERSION`: `templates/pipelines/producer_consumer_ratio_inversion_2stage.yl2`
-     - `ZSCORE_PROCESS_SURGE` / `Z_SCORE`: `templates/pipelines/zscore_process_surge_2stage.yl2`
-   * *Canonical Pre-Flight Specification Card Structure*: Present the hunting plan using the standard pre-flight specification card layout:
+   * *Template-First Formulation Directive*: Inspect the canonical template via `read_file` on `~/.gemini/config/skills/secops-statistical-hunter/templates/pipelines/<model>.yl2` (or `references/multi-stage-query-guide.md`):
+     - **Parametric/Robust**: `zscore_process_surge_2stage.yl2`, `mad_modified_z_4stage.yl2` (`MAD_EXFILTRATION`), `log_normal_volume_surge_2stage.yl2`, `ewma_burst_velocity_2stage.yl2`
+     - **Poisson/Timing**: `poisson_burst_clustering_2stage.yl2`, `poisson_rare_surge_2stage.yl2` (`POISSON_ORIGIN_RARITY`), `c2_beaconing_jitter_2stage.yl2`
+     - **Bayesian/Fleet**: `bayesian_gamma_shrinkage_4stage.yl2`, `beta_binomial_failure_4stage.yl2`, `dual_baseline_delta_z_3stage.yl2`
+     - **Multi-Sector/Hybrid**: `multi_sector_threat_fusion_4stage.yl2`, `privileged_lateral_expansion_2stage.yl2`, `two_part_hurdle_2stage.yl2`, `hybrid_entropy_concentration_2stage.yl2`, `impossible_travel_geo_velocity_2stage.yl2`, `producer_consumer_ratio_inversion_2stage.yl2`
+     - **Info-Theoretic & ECG**: `zipfian_process_rarity_2stage.yl2`, `markov_2gram_transition_rarity_2stage.yl2`, `shannon_entropy_character_2stage.yl2`, `global_threat_intel_enrichment_3stage.yl2`, `derived_context_prevalence_3stage.yl2`, `derived_context_file_prevalence_3stage.yl2`, `derived_context_domain_prevalence_3stage.yl2`
+   * *Canonical Pre-Flight Specification Card Structure*:
      ```markdown
      PRE-FLIGHT HUNTING SPECIFICATION:
      • Target Entity / Scope:  `[Entity]` ([Entity Type])
@@ -167,70 +94,27 @@ When an analyst initiates a threat hunt or selects an archetype, proceed through
      ### Candidate Multi-Stage YARA-L Query Preview
      ```
    * *6 Mandatory Root Outcome Variables Protocol*:
-     Every candidate multi-stage YARA-L query emits the 6 standardized root outcome variables:
-     - `$observation_count` (observed window count, e.g. `max($host_hourly.hourly_count)`)
-     - `$baseline_active_samples` (active sample depth, e.g. `max($host_stats.active_samples)`)
-     - `$baseline_mean` (baseline central tendency, e.g. `max($host_stats.host_mean)`)
-     - `$baseline_dispersion` (baseline spread / deviation, e.g. `max($host_stats.host_stddev)`)
-     - `$fleet_prevalence` (fleet breadth active in window, e.g. `max($fleet_breadth.fleet_hosts)`)
-     - `$distinct_binaries` (distinct programs or destination targets, e.g. `max($host_hourly.distinct_procs)` for process activity or `max($host_hourly.distinct_destinations)` for network traffic)
-     Retain these 6 exact outcome variable names across all telemetry types (process launches, network connections, authentication, DNS, file events).
-     If a pipeline cannot compute fleet breadth, emit `$fleet_prevalence = 0 - 1` (not computed; a bare `-1` literal is rejected by the compiler); reporting treats it as unknown and it never counts toward HIGH CONFIDENCE.
-   * *Target Entity Scoping & Bare Identifier Match Binding*:
-     When scoping to a specific entity (such as host `dev-ub22-1` or user `frank.kolzig`), filter directly in the primary stage predicates and bind the entity variable for matching:
-     ```yara
-     stage host_hourly {
-         metadata.event_type = "NETWORK_CONNECTION"
-         principal.hostname = "dev-ub22-1"
-         principal.hostname = $entity
-         $entity != ""
-
-       match:
-         $entity by 1h
-     ```
-     Format all `match:` expressions with bare identifiers bound in stage predicates (e.g. `$entity by 1h`, `$entity, $window_start by 1h`).
+     Every multi-stage query emits all 6 root outcome variables: `$observation_count`, `$baseline_active_samples`, `$baseline_mean`, `$baseline_dispersion`, `$fleet_prevalence`, and `$distinct_binaries`. When fleet breadth is not computed, emit `$fleet_prevalence = 0 - 1` (bare `-1` fails compilation; never emit literal `1` as a placeholder).
    * *Affirmative Compiler Grammar Protocols*:
-     - **Stage and Root Declarations**: Multi-stage YARA-L queries place event predicates directly inside named stages (`stage <name> { $e.metadata.event_type = "..." ... }`) and declare cross-stage bindings directly before `match:` in the root stage.
-     - **Match Binding Structure**: Match blocks accept simple bare identifiers (`$host by 1h`, `$src_ip, $dst_ip by 1h`, `$entity, $ws by 1h`, `$host by 1d`), keeping member expressions and dotted paths inside stage event filtering.
-     - **Outcome `if()` Grammar**: The `then` clause of `if()` accepts simple placeholders or constants. Compound arithmetic inside `then` assigns to an intermediate variable first.
-     - **Outcomes-in-Outcomes (OIO) In-Stage Inlining**: Chronicle Malachite natively evaluates in-stage algebraic outcome derivations (`$diff = $obs - $avg`, `$z = $diff / $safe_sd`). Intermediate and root stages may cleanly reference earlier outcome variables within the same stage.
-     - **Function Factory Mathematical Built-Ins**: Multi-stage YARA-L supports native mathematical functions under the `math.` namespace: `math.sqrt()` for true Euclidean Threat Distance (`$threat_distance = math.sqrt($dist_sq)`), `math.log()` for Log-Normal volumetric transforms, `math.exp()` for continuous CRI sigmoids and burst decay, `math.pow()` for exponentiation, and `math.min()` / `math.max()` for scalar clamps. Euclidean Threat Distance calculations require native math built-ins (`math.sqrt`, `math.pow`).
-     - **Safe Non-Zero Dispersion Floors**: Outcome divisions by dispersion or standard deviation must be protected against zero-variance crashes using non-zero floor guards (`$safe_sd = if($sd > 0, $sd, 1.0)`) to preserve variance scale without blunting.
-     - **Partition Alignment Keys**: Multi-stage queries align stages using real partition keys (e.g. `$token by 1d` or `$ws by 1h` with `$ws = $stage.window_start`) across all stages.
-     - **Stage Keying Architecture**: An intermediate stage keyed on a real entity without a window (`match: $host`) provides canonical per-entity baseline collapse (`avg`/`stddev` across an entity's hourly buckets). For fleet-wide breadth, key the stage on the window (`$ws = $stage1.window_start` … `match: $ws by 1h` … `count_distinct($stage1.host)`).
-     - **Implicit `window_start` Attribute**: Every windowed stage automatically exposes `$stage.window_start`. Reference this attribute directly in downstream stages and root (`$ws = $stage.window_start`).
-     - **Stage & Variable Namespace Separation**: Assign distinct names to stages and root outcome variables (for example, name the breadth stage `stage fleet_breadth` and name the root outcome variable `$fleet_prevalence = max($fleet_breadth.fleet_hosts)`).
-     - **Raw Stage Consolidation**: Structure multi-sector hunts with a unified raw stage using per-sector conditional sums (`sum(if($e.metadata.event_type = "USER_LOGIN" and $e.security_result.action = "BLOCK", 1, 0))`) or join at most two independent raw stages at root.
-     - **Canonical Match Windows**: Multi-stage queries use supported match windows (`by 5m`, `by 1h`, `by 2h`, `by 1d`). Extend observation horizons by widening `startTime`/`endTime`. Daily buckets are written `by 1d` (`by 24h` compiles to the same buckets but is non-canonical). To collapse the whole search window into one row per key, leave the key unbucketed (`match: $binary`) rather than sizing a bucket to the window.
-     - **Equality Syntax**: Comparisons inside `if()` use single equals (`if($flag = 1.0, …)`).
-     - **Numeric Aggregation**: Functions `max()` and `min()` apply to numeric variables; categorical values project via `array_distinct(...)` or count via `count_distinct(...)`.
-     - **Categorical Outlier & Entity Rarity Architecture**: To detect rare categorical strings (e.g., browser user-agent strings, rare domains, JA3 hashes, commands):
-       * *Option 1 (High-Performance Single-Stage Rarity Hunt)*: `match: $token by 1h`, `outcome: $device_count = count_distinct(principal.ip)`, `condition: $device_count <= 2 and $event_count >= 5`.
-       * *Option 2 (2-Stage Token-Centric Fleet Adoption Pipeline)*: Stage 1 groups by `$host, $token by 1d`, Stage 2 groups by `$token by 1d`, and Root joins on `$token by 1d` (see `examples/rare_user_agent_prevalence.yara`).
-     - **Linear & Deviance Formulations**: Multi-stage YARA-L expresses distance and rarity through linear operations and squared deviance (for example, squared Euclidean distance `$dist_sq = ($z1 * $z1) + ($z2 * $z2)` and squared Poisson deviance `$poisson_z_sq = $diff_sq / $safe_lambda` with condition `$poisson_z_sq >= 12.25`).
-     - **Regular Expression Syntax**: Multi-stage queries formulate string and path pattern matching in event predicates using `re.regex(<field>, `(?i)...`)`.
-     - **Cross-Stage Window Filtering & Poisson Alignment**: When isolating current window activity against historical arrival baselines (e.g. Poisson rarity across daily buckets), calculate `$max_day = max($day_id)` in Stage 2, bind `$max_day` before `match:` in Stage 3, and evaluate `sum(if($day_id = $max_day, $stage1.daily_count, 0))` following `templates/pipelines/poisson_rare_surge_2stage.yl2`.
-     - **Table Headers Plain Unicode**: In summary tables, format column headers with plain Unicode (`Mean (μ)`, `StdDev (σ)`, `Rate (λ)`).
-   * *Noise Level & Significance Threshold Steering*: Analysts may adjust sensitivity thresholds or define sensitivity bands (e.g. `$z_score >= 2.0 and $z_score < 3.0` for investigative anomalies, or `$z_score >= 3.0` for critical outliers), enforced via root-stage `condition:`.
+     - **Entity Scoping & Stage Bindings**: Filter target entities in Stage 1 (`principal.hostname = "dev-ub22-1"`, `principal.hostname = $entity`, `$entity != ""`), bind `match:` with bare identifiers (`$entity by 1h`, `$entity, $ws by 1h`, `$host by 1d`), and place cross-stage bindings before `match:` in root (max 3 named stages + 1 root stage = 4 stages).
+     - **Outcome `if()`, OIO & Safe Dispersion**: `if()` `then` clauses require simple placeholders/constants (bind compound math to an intermediate variable first). In-stage OIO derivations (`$diff = $obs - $avg`, `$z = $diff / $safe_sd`) are supported. Guard division with `$safe_sd = if($sd > 0, $sd, 1.0)` and divide directly (`/ $safe_sd`).
+     - **Function Factory Math Built-Ins**: Supports `math.sqrt()`, `math.log()`, `math.pow(base, exp)` (`math.pow(2.718281828, x)` for $e^x$; `math.exp()` does NOT exist), `math.abs()`, `math.round()`, `math.floor()`, `math.ceil()`, and `math.geo_distance()`. `math.min()`/`math.max()` do NOT exist; use `if($a > $b, $a, $b)` for scalar clamps.
+     - **Stage Keying, Windows & Aggregations**: Unwindowed stages (`match: $host`) collapse entity baselines; windowed breadth stages key on `$ws = $stage1.window_start` (`match: $ws by 1h`). Join at most 2 raw stages at root (use `sum(if(metadata.event_type = "...", 1, 0))` for 3+ sectors) and canonical windows (`by 5m`, `by 1h`, `by 2h`, `by 1d`). Use single `=` in `if($flag = 1.0, ...)`, `re.regex(<field>, `(?i)...`)`, `max()`/`min()` on numbers, `array_distinct()`/`count_distinct()` on strings, `$max_day = max($day_id)` for daily isolation, and plain Unicode in table headers (`Mean (μ)`, `StdDev (σ)`).
 5. **Compile-Time Verification Protocol & Single-Cycle Self-Healing Ceiling**:
-   * *Pre-Preview Compiler Probe Mandate*: Execute a 1-shot schema validation probe with strict ISO 8601 timestamps: `udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Use absolute ISO 8601 timestamps; relative offsets like 'now-10m' are unsupported by the API). The Turn 1 probe uses the primary single-event UDM filter only (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `principal.asset.hostname = "..."`) because its purpose is fast schema and time-boundary verification, not analysis. For Entity Context Graph inquiries, validate graph accessibility with a 1-shot probe (e.g. `graph.metadata.source_type = "DERIVED_CONTEXT" AND graph.metadata.entity_type = "FILE"`). Formulate candidate YARA-L queries following successful execution of this schema validation probe.
-   * *Turn 2 Execution Contract (Full Multi-Stage Submission)*: `udm_search` natively accepts multi-stage YARA-L (`stage ... { ... }` + root stage) and returns aggregated `stats` rows. After clearance, submit the **complete multi-stage query verbatim** as the `query` argument over the cleared horizon. Submitting the full multi-stage query produces aggregated statistical evidence for all 5 sections of the triage report (see Section 1, *Statistical Aggregation Integrity*).
-   * *Single-Cycle Self-Healing Ceiling & Single-Event Boundary on Turn 1*: Limit compiler probes on Turn 1 to at most **ONE initial probe + ONE retry (maximum 2 probes total)** evaluating the single-event filter with `maxEvents=1`. Multi-stage queries (`stage ...`) execute strictly on Turn 2 upon receiving clearance. When the probe returns either an event or zero results (`{}`), treat the schema validation as complete—zero results reflect nominal baseline activity—and proceed immediately to formulate the Markdown Pre-Flight Card and candidate query preview without additional tool calls.
+   Execute at most ONE initial 1-shot schema validation probe (+ at most ONE retry = max 2 probes) on Turn 1 using strict ISO 8601 timestamps and a **flat single-event filter only** (`udm_search(query="metadata.event_type = \"...\" AND ...", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)` — **NEVER include `stage`, `match:`, or `outcome:` in the Turn 1 probe**), then emit the Pre-Flight Card and candidate query preview. On Turn 2 after clearance, submit the multi-stage query verbatim via `udm_search`.
 6. **Explicit Clearance Question & Turn 1 Yield Invariant**:
-   Conclude Turn 1 by presenting the clearance inquiry:
+   Conclude Turn 1 with:
    *"Would you like me to proceed with executing this search in **Mode A (Rolling 24-Hour Raw-Event Window)** or **Mode B (14-Day Raw-Event Timeline)**?"*
-   These raw-event windows belong to this skill only; `secops-risk-metrics-multistage` defines its own Mode A/B (UTC day buckets, today `00:00Z` → now) and they do not transfer.
-   Immediately upon outputting this clearance inquiry in Markdown, yield the turn to the analyst. Yielding after the candidate preview allows the analyst to verify the query plan and select their preferred time horizon before the multi-stage historical search executes in State 2.
+   *(Recommend **Mode B (7-to-14-Day Raw-Event Timeline)** by default for `by 1d` models since 24h yields `N = 1` day; hourly models support Mode A or B. Raw-event modes belong to this skill only.)* Yield the turn immediately.
 
 ---
 
 ### 📊 State 2: Deterministic Multi-Stage Execution & 5-Section Triage Report (After Clearance)
 
-When receiving execution clearance from the analyst (such as "Clearance granted", "Proceed", "Go ahead", "Run the hunt", or selection of Mode A/Mode B):
 1. **Immediate Execution Turn (Single Multi-Stage Dispatch & Zero Follow-Up Raw Dumps)**:
-   Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search(query=...)` once, regardless of preliminary spot-check counts. When the analyst approves execution without choosing between Mode A or Mode B, proceed using Mode A (Rolling 24-Hour Raw-Event Window, e.g. `startTime=<24_hours_ago>`, `endTime=<now>`) or the timeline matching the investigation hypothesis. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), **stop calling tools immediately** and format the response affirmatively as a nominal baseline (`0 Outliers Detected`). Never execute follow-up unaggregated raw `udm_search` queries to inspect event timestamps, and never write or execute Python scripts (`scratch/*.py` or `run_command`) to calculate statistics outside SIEM. Proceed directly to rendering the 5-Section Triage Report.
-2. **Mandatory 5-Section Triage Report Delivery**:
-   Synthesize the aggregated `stats` evidence returned by `udm_search` (or nominal baseline metrics if zero events are returned) into all 5 sections in exact order:
+   Dispatch the approved multi-stage query via `udm_search` once (Mode B 14d default for `by 1d`; Mode A 24h for `by 1h`/`by 5m`). If `{}` or `{"stats": []}` returns, stop calling tools and render the 5-Section Triage Report as a nominal baseline (`0 Outliers Detected`). Never run follow-up raw dumps or Python scripts.
+2. **Mandatory 5-Section Triage Report Delivery (All Models & Zero-Outlier Runs)**:
+   Even when a hunt returns 0 outlier rows (True Negative / zero results / `{}`) or runs an information-theoretic model (`SHANNON_ENTROPY_CHARACTER`, `MARKOV_2GRAM_TRANSITION_RARITY`, `ZIPFIAN_PROCESS_RARITY`), the post-execution response on Turn 2 MUST ALWAYS emit all 5 canonical sections in exact order (`Statistical Outlier Report`, `Ranked Outlier Summary`, `Top Outlier Spotlight`, `Chronicle UI Manual Pivot`, `Statistical & Mathematical Appendix`):
 
 ```markdown
 ### ⚡ Statistical Outlier Report: [Hunt Topic]
@@ -252,24 +136,21 @@ When receiving execution clearance from the analyst (such as "Clearance granted"
 ##### 🏛️ Forensic Evidence Breakdown (6 Mandatory Evidence Pillars)
 | Evidence Pillar | Observed Value | What this Means for Your Investigation |
 | :--- | :--- | :--- |
-| **1. Activity Spike** | `850` | Exact event count observed during spike window |
-| **2. Baseline History** | `168 hours` | Depth of historical data evaluated |
-| **3. Typical Normal Level** | `250.0` | Expected baseline average volume |
-| **4. Normal Daily Spread** | `±35.0` | Normal deviation range |
-| **5. Company-Wide Breadth**| `1 host` | Isolated vs fleet-wide prevalence |
-| **6. Variety of Programs** | `42 unique` | Distinct binaries or IPs involved |
+| **1. Activity Spike** | `850` | Exact event count or score observed during spike window (`$observation_count`) |
+| **2. Baseline History** | `168 hours` | Depth of historical data evaluated (`$baseline_active_samples`) |
+| **3. Typical Normal Level** | `250.0` | Expected baseline average volume (`$baseline_mean`) |
+| **4. Normal Daily Spread** | `±35.0` | Normal deviation range (`$baseline_dispersion`) |
+| **5. Company-Wide Breadth**| `1 host` | Isolated vs fleet-wide prevalence (`$fleet_prevalence`; `Unknown / N/A` if `-1`) |
+| **6. Variety of Programs** | `42 unique` | Distinct binaries, tokens, or targets involved (`$distinct_binaries`) |
 
 [Potential Attack Scenarios | Legitimate Business Explanations | Step-by-Step SOC Action Plan]
 
----
 > [!NOTE]
-> **Zero Outliers (Nominal Baseline)**: When no entities breach the statistical threshold ($N=0$ outliers), all 5 sections remain mandatory. Format Section 3 as:
-> `#### 🔍 Top Outlier Spotlight: Nominal Baseline (0 Outliers Detected)`
-> retaining the 6 Forensic Evidence Pillars with their canonical labels (`1. Activity Spike`, `2. Baseline History`, `3. Typical Normal Level`, `4. Normal Daily Spread`, `5. Company-Wide Breadth`, `6. Variety of Programs`) reflecting normal baseline metrics and confirming clean status.
+> **Zero Outliers (Nominal Baseline)**: When $N=0$ outliers breach the threshold, all 5 sections remain mandatory. Format Section 3 as `#### 🔍 Top Outlier Spotlight: Nominal Baseline (0 Outliers Detected)` and populate all 6 Forensic Evidence Pillars (`1. Activity Spike` through `6. Variety of Programs`) with nominal baseline values.
 
 ---
 #### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)
-*(Passive UDM filter provided strictly as an analyst copy-paste reference for manual triage within the Chronicle SIEM console. Automated multi-turn agent execution is reserved for multi-stage statistical pipelines. Use a ```text fence here.)*
+*(Passive UDM filter for manual triage in Chronicle SIEM console. Use a ```text fence — NEVER ```yara.)*
 ```text
 principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 ```
@@ -284,80 +165,65 @@ principal.hostname = "host-alpha" AND metadata.event_type = "PROCESS_LAUNCH"
 $$\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right) = \mathbf{100}$$
 ##### 🌐 Multiple-Comparison Fleet Correction ($Z_{\text{adj}} \approx \sqrt{2 \ln N}$)
 ##### 🛡️ Statistical Validity & Safeguard Verification
+##### 📜 Verbatim Executed Multi-Stage YARA-L Query
+*(This is the ONLY ```yara code block permitted in the Turn 2 post-execution report.)*
+```yara
+stage host_hourly { ... }
+```
 </details>
 ```
 
 ---
 
-
-
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock)
 
-* **Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT)**: When analyst asks to *"run same for user X"*, *"what about admin?"*, or shifts entities, RETAIN SESSION AFFINITY and re-enter State 1 for the new entity (operational analogy ──► compiler probe ──► spec card ──► clearance question). Maintain execution exclusively within the structured statistical hunting framework rather than unconstrained raw searches.
-* **Federated Bridge to Macro Analysis**: When analyst requests 30-day pre-computed baselines, peer cohort comparisons, longitudinal CUSUM drift, or 360° health checks, emit Skill Handoff Card steering to `secops-risk-metrics-multistage` (enforcing Zero-Code Handoff Invariant).
-* **Bilateral Cooperative Framework**: Consult `references/statistical-hunting-cooperative-framework.md` for macro vs. micro division of labor and mutual delegation protocols.
+* **Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT)**: When the analyst asks to *"run same for user X"*, *"what about admin?"*, or shifts entities, RETAIN SESSION AFFINITY and re-enter State 1 for the new entity (operational analogy ──► compiler probe ──► spec card ──► clearance question).
+* **Federated Bridge to Macro Analysis**: When the analyst requests 30-day pre-computed baselines, peer cohort comparisons, longitudinal CUSUM drift, or 360° health checks, emit the Skill Handoff Card steering to `secops-risk-metrics-multistage` (enforcing Zero-Code Handoff Invariant).
+* **Bilateral Cooperative Framework**: Consult `references/statistical-hunting-cooperative-framework.md` for macro vs. micro division of labor.
 
 ---
 
-## 🎨 Strict Visual Axis-Type Isolation Rules
+## 🎨 Strict Visual Axis-Type Isolation & Post-Query Verification
 
-When generating Vega-Lite or Chart.js charts:
-* **Left Y-Axis**: Map numeric event volume (`quantitative` / `linear`).
-* **Right Y-Axis ($y_1$)**: Map statistical anomaly scores ($Z, \sigma, Fano$).
-* **X-Axis**: Map timestamps (`temporal`) or categories (`nominal`).
-* **Categorical Mapping**: Assign categorical string identifiers (`host`, `user`, `extension_id`) exclusively to the X-axis, color encodings, or facet dimensions.
-
----
-
-## 🔍 Post-Query Intent & Architecture Verification
-
-Ensure that the executed query matches the promised architecture and narrative directly within chat before finalizing execution:
-* **Concordance & Anti-Degradation**: Validate that the executed query runs as a true multi-stage DAG with named stages and root aggregation, matching the architecture presented in the pre-flight card and preventing degradation into single-stage stats searches. All verification is conducted natively in chat.
+* **Visual Axis-Type Isolation (Vega-Lite / Chart.js)**: Map numeric volume (`quantitative`) to the **Left Y-Axis**, anomaly scores ($Z, \sigma, Fano$) to the **Right Y-Axis ($y_1$)**, timestamps (`temporal`) or categories (`nominal`) to the **X-Axis**, and categorical IDs (`host`, `user`, `extension_id`) exclusively to X-axis, color, or facet encodings.
+* **Post-Query Intent & Concordance Verification**: Validate natively in chat that the executed query runs as a true multi-stage DAG matching the pre-flight specification card.
 
 ---
 
 ## 🛡️ Non-Negotiable Execution & Integrity Contracts
 
 ### 0. THE DUAL GROUNDING INVARIANTS (THE NON-NEGOTIABLE INTEGRITY CORE)
-* **Invariant 1: Empirical Data Grounding (Zero Data Simulation)**: Extract all reporting metrics ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) directly from verified Chronicle SIEM API responses (`udm_search`). When an API response is empty (`{}`) or returns zero matches, report normal operational baseline (`0 observed events`, `Z = 0.00σ`, `🟢 Nominal Baseline`). Truth Over Completion — reporting zero anomalies confirms that the target entity is behaving within normal historical parameters, which constitutes a successful, complete threat hunt.
-* **Invariant 2: Verified Compiler Grammar (Zero Schema/Syntax Fantasy)**: Construct queries strictly from validated UDM schemas and compilable YARA-L 2.0 grammar (e.g. ISO 8601 timestamps, safe intermediate denominators in root outcome, valid linear derivations). Validate every query against the live Chronicle compiler via a 10-minute background probe before presenting it in the specification card.
-
+* **Invariant 1: Empirical Data Grounding (Zero Data Simulation)**: Derive all metrics ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) from `udm_search` responses. When `udm_search` returns `{}` or zero matches, report nominal baseline (`0 observed events`, `Z = 0.00σ`, `🟢 Nominal Baseline`). Truth Over Completion.
+* **Invariant 2: Verified Compiler Grammar (Zero Schema/Syntax Fantasy)**: Construct queries from validated UDM schemas and compilable YARA-L 2.0 grammar (ISO 8601 timestamps, safe denominators). Validate via a 10-minute 1-shot probe.
 
 ### 1. Native Execution & Truth in Reporting
-* **Empirical Metric Derivation Contract**: Derive all summary numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) directly from `udm_search` query outputs. When a search yields no outliers, report the normal baseline status accurately.
-* **Transparent Error Surfacing**: When an API query returns an error, surface the exact error response and diagnostic details directly to the analyst with proposed template adjustments.
-* **Tool Orchestration Protocol**: Fulfill all threat hunting workflows exclusively through chat Markdown and SecOps MCP tool calls (`udm_search`, `import_logs`, `create_case_comment`). Inspect canonical pipeline templates and reference guides using `view_file` on `templates/pipelines/*.yl2` and `references/*.md`. Formulate, validate, and compute all mathematical models, baseline statistics, and triage reports entirely within native chat reasoning and Chronicle SIEM execution. There is no blanket approval for `run_command`, only explicit exemptions. Reserve shell execution tools (`run_command`) and local filesystem modification tools (`write_to_file`, `replace_file_content`) exclusively for offline repository development and CI test suites (`pytest tests/`).
-* **Native SIEM Engine Execution Guarantee**: Execute all multi-stage baseline aggregations, standard deviation calculations, and threshold evaluations natively within Google SecOps Chronicle SIEM via `udm_search`. Conduct all hunting, query formulation, and report generation natively through SecOps MCP tools and direct Markdown responses. Formulate all mathematical reasoning, syntax verification against references, and baseline derivations directly within the conversation turn using the canonical `.yl2` pipeline templates and markdown references.
-* **Pre/Post Execution Query Integrity Gate (`QueryIntegrityGate`)**: Before dispatching `udm_search` on Turn 2, `QueryIntegrityGate` verifies that the query contains zero unresolved `{{placeholders}}`, passes AST grammar validation, and preserves the target entity scope. After execution, `QueryIntegrityGate` inspects the backend response for Chronicle compiler/API errors (preventing false-clean `0.00σ` reports). Because the candidate query is already previewed in State 1 and locked by `QueryIntegrityGate`, repeating the executed YARA-L query block in the delivered report is omitted.
-* **Statistical Aggregation Integrity**: Format the 5-Section Triage Report exclusively from aggregated `stats` buckets. If `udm_search` returns unaggregated raw events, present the auto-corrected multi-stage query (selected from `templates/pipelines/`) and solicit analyst clearance to execute the aggregated pipeline.
-* **Search Query Nomenclature**: Identify and structure all threat hunting artifacts as ad-hoc Multi-Stage Queries (`stage ... { ... }` + Root stage). Continuous detection rules (`rule ... { ... }`) are reserved for detection engineering workflows.
+* **Empirical Metric Derivation Contract**: Derive all summary numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) directly from `udm_search` outputs.
+* **Transparent Error Surfacing**: When an API query returns an error, surface the exact error response and diagnostics directly to the analyst.
+* **Tool Orchestration Protocol**: Use chat Markdown and SecOps MCP tools (`udm_search`, `import_logs`, `create_case_comment`) and `read_file` on `~/.gemini/config/skills/secops-statistical-hunter/templates/pipelines/*.yl2`. There is no blanket approval for `run_command`, only explicit exemptions.
+* **Native SIEM Engine Execution Guarantee**: Execute all multi-stage baseline aggregations, standard deviations, and thresholds natively within Google SecOps Chronicle SIEM via `udm_search`.
+* **Pre/Post Execution Query Integrity Gate (`QueryIntegrityGate`)**: Verify zero unresolved `{{placeholders}}`, AST compliance, and aggregated `stats` buckets. Section 5 (`Statistical & Mathematical Appendix`) carries the verbatim executed multi-stage query as the ONLY ```` ```yara ```` block in Turn 2.
+* **Search Query Nomenclature**: Structure all threat hunting artifacts as ad-hoc Multi-Stage Queries (`stage ... { ... }` + Root stage); `rule ... { ... }` is reserved for detection engineering.
 
 ### 2. Calibrated Risk Index (CRI [0–100]) Standard
-* **CRI Normalization**: The Calibrated Risk Index maps raw statistical deviations ($Z$-scores, $\text{MAD } Z$, Poisson deviance, $\text{CV}$) onto a standardized [0–100] S-Curve:
-  $$\text{CRI}(Z) = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$$
-* **Anchoring Invariant**: Strictly anchors the 3-Sigma alertable boundary ($Z = 3.0\sigma$) at exactly $\text{CRI} = 50$.
-* **CRI Derivation Standard**: Derive the CRI either via the standardized sigmoid formula or via piecewise outcome tiers in the query root stage, formatting the normalized [0–100] score directly into the Markdown triage report.
+* **CRI Normalization & Zero-Floor Clamp**: Maps raw deviations ($Z$-scores, $\text{MAD } Z$, Poisson deviance, $\text{CV}$) onto a [0–100] S-Curve with a zero floor ($\text{CRI}(Z) = 0$ for $Z \le 0$) and $Z = 3.0\sigma$ anchored at $\text{CRI} = 50$:
+  $$\text{CRI}(Z) = \begin{cases} 0 & \text{if } Z \le 0 \\ \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right) & \text{if } Z > 0 \end{cases}$$
+* **In-Query Derivation**: Inside YARA-L `outcome:` blocks (where `math.exp()` does not exist), compute CRI via piecewise step-function tiers (`if($z >= 6.5, 95, ...)`) or `math.pow(2.718281828, ...)`.
 
 ### 3. Clean Hand-Off (CH) Protocol (Synthetic UDM Event Ingestion vs. Active Case Wall)
-Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill analyst requests to alert, notify, or escalate findings (*"create a UDM alert"*, *"alert on this"*, *"send this in"*, *"escalate"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off. Always consult `references/clean-handoff-udm-schema.md` for synthetic event definitions:
-* **Path A (Standard Escalation Default — Synthetic Event Ingestion)**: Map outliers to enriched synthetic UDM events (`product_name: "SecOps Statistical Hunter"`, `resource_type: "RESOURCE_TYPE_UNSPECIFIED"`, batching multiple findings under a shared `Hunt Campaign ID`). Preview the Pre-Ingestion Clearance Card to the analyst (yield turn, 0 tools). Upon approval, perform direct Chronicle API ingestion via `import_logs` (logType: `CUSTOM_SECURITY_DATA_ANALYTICS`; forwarders are strictly fallback).
-* **Path B (Explicit Active Case Attachment)**: When the analyst is actively reviewing a specific case and explicitly instructs findings to be attached (e.g. *"Attach this finding to Case 11075"*), call `create_case_comment(case_id="<ID>", comment=...)` targeting that designated case.
-* **Case Attachment Targeting**: Call `create_case_comment` exclusively when provided with an explicit, analyst-confirmed `case_id`. Case comments route strictly to confirmed, active case IDs.
-* **Conceptual Handoff Contract (Cross-Skill Steering Protocol)**: Maintain Skill Handoff Cards to peer skills as purely architectural and conceptual envelopes (specifying protocol, intent, target entity, and parameters). Query formulation and code emission belong exclusively to the destination skill once invoked. Zero-Code Handoff Invariant: Skill steering never emits candidate queries or code blocks.
+Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill escalation requests (*"create a UDM alert"*, *"alert on this"*, *"escalate"*, *"open a case"*, *"handoff"*) via Clean Hand-Off (`references/clean-handoff-udm-schema.md`):
+* **Path A (Standard Escalation Default — Synthetic Event Ingestion)**: Map outliers to synthetic UDM events (`product_name: "SecOps Statistical Hunter"`, `resource_type: "RESOURCE_TYPE_UNSPECIFIED"`, shared `Hunt Campaign ID`). Preview the Pre-Ingestion Clearance Card (yield turn, 0 tools), then ingest via `import_logs` (`log_type: "UDM"` with `forwarderId` wrapping `{"events": [{"event": ...}]}`).
+* **Path B (Explicit Active Case Attachment)**: Only when explicitly instructed for an active case (*"Attach to Case 11075"*), call `create_case_comment(case_id="<ID>", comment=...)`.
+* **Conceptual Handoff Contract (Cross-Skill Steering Protocol)**: Maintain Skill Handoff Cards to peer skills as purely architectural envelopes. Zero-Code Handoff Invariant: Skill steering never emits candidate queries or code blocks.
 
 ---
 
 ## 📚 Specialized Deep-Dive Reference Guides
 
-* **Mathematical Models & Formulations**: See [references/statistical-models-taxonomy.md](references/statistical-models-taxonomy.md)
-* **Calibrated Risk Index (CRI) Guide**: See [references/calibrated-risk-index-guide.md](references/calibrated-risk-index-guide.md)
-* **Clean Hand-Off & Synthetic Ingestion**: See [references/clean-handoff-udm-schema.md](references/clean-handoff-udm-schema.md)
-* **Multi-Stage Query Grammar & Compiler Invariants**: See [references/multi-stage-query-guide.md](references/multi-stage-query-guide.md)
-* **Dynamic Time-Window Adaptation Matrix**: See [references/dynamic-windowing-matrix.md](references/dynamic-windowing-matrix.md)
-* **Chart Specs (Vega-Lite & Chart.js)**: See [references/chart-specifications-guide.md](references/chart-specifications-guide.md)
-* **Query Auditing & Intent Verification**: See [references/query-auditing-guide.md](references/query-auditing-guide.md)
-* **Cyber Glossary & SOC Playbooks**: See [references/cyber-practitioner-glossary.md](references/cyber-practitioner-glossary.md)
-* **Bilateral Cooperative Framework**: See [references/statistical-hunting-cooperative-framework.md](references/statistical-hunting-cooperative-framework.md)
+* [statistical-models-taxonomy.md](references/statistical-models-taxonomy.md) | [calibrated-risk-index-guide.md](references/calibrated-risk-index-guide.md) | [clean-handoff-udm-schema.md](references/clean-handoff-udm-schema.md)
+* [multi-stage-query-guide.md](references/multi-stage-query-guide.md) | [malachite-function-factory-matrix.md](references/malachite-function-factory-matrix.md) | [entity-context-graph-guide.md](references/entity-context-graph-guide.md)
+* [scope-exclusions-guardrail.md](references/scope-exclusions-guardrail.md) | [consultative-worksheet.md](references/consultative-worksheet.md) | [dynamic-windowing-matrix.md](references/dynamic-windowing-matrix.md)
+* [chart-specifications-guide.md](references/chart-specifications-guide.md) | [query-auditing-guide.md](references/query-auditing-guide.md) | [cyber-practitioner-glossary.md](references/cyber-practitioner-glossary.md)
+* [statistical-hunting-cooperative-framework.md](references/statistical-hunting-cooperative-framework.md)
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

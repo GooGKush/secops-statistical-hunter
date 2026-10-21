@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.8.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-173%2F173%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v2.8.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-178%2F178%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -33,7 +33,7 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
    * Formats all `match:` expressions with bare identifiers bound in stage event predicates (e.g. `$entity by 1h`, `$entity, $window_start by 1h`, `$entity by 1d`), completely eliminating match dot-notation syntax errors (`ZERO DOTS IN MATCH`).
    * Enforces Target Entity Scoping directly in primary stage predicates (`principal.hostname = "dev-ub22-1"`) to anchor baselines cleanly to the requested entity.
 6. **Chronicle Malachite Function Factory Modernization & OIO Inlining**:
-   * Leverages Chronicle Function Factory mathematical built-ins (`math.sqrt`, `math.log`, `math.exp`, `math.min`, `math.max`, `math.round`) for true Euclidean Threat Distance ($D = \sqrt{\sum Z_i^2}$) and Log-Normal volumetric transforms ($Z_{\log} = (\ln(B+1) - \mu_{\ln}) / \sigma_{\ln}$).
+   * Leverages Chronicle Function Factory mathematical built-ins (`math.sqrt`, `math.log`, `math.pow`, `math.abs`, `math.round`, `math.floor`, `math.ceil`, `math.geo_distance`) for true Euclidean Threat Distance ($D = \sqrt{\sum Z_i^2}$), Haversine geodesic velocity, and Log-Normal volumetric transforms ($Z_{\log} = (\ln(B+1) - \mu_{\ln}) / \sigma_{\ln}$ with `math.pow(2.718281828, $mean_log)`). Note: `math.exp`, `math.min`, and `math.max` do not exist in YARA-L 2.0.
    * Employs **Outcomes-in-Outcomes (OIO)** in-stage inlining, allowing intermediate outcome variables to directly feed subsequent formulas within the same stage (e.g., `$diff = $obs - $avg`, `$z = $diff / $safe_sd`).
 7. **Purged Dispersion Denominators & Safe Zero-Divisor Floor Guards**:
    * Replaced artificial `+ 1.0` additive dispersion denominators across all 14 golden templates with exact conditional guards (`$safe_sd = if($sd > 0, $sd, 1.0)` or `$safe_dispersion = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)`).
@@ -46,7 +46,7 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
    * Strictly adheres to the **Zero-Code Handoff Invariant**: handoff cards provide conceptual architectural guidance and parameters, leaving YARA-L code generation strictly to the destination skill.
 10. **Entity Context Graph (ECG) & Enterprise-Grounded Novelty Enrichment**:
     * Correlates raw telemetry bursts with Chronicle's persistent Entity Context Graph: `GLOBAL_CONTEXT` (GCTI threat intelligence, WHOIS Newly Registered Domains) and `DERIVED_CONTEXT` (enterprise binary prevalence `FILE`, domain prevalence `DOMAIN_NAME`, entity prevalence `USER`, and asset first-seen/last-seen age `ASSET`).
-    * Supports the Enterprise-Grounded Hunt consultative pattern: offers analysts Tier A (Pure Local Baseline) vs. Tier B (Enterprise-Grounded Hunt) with 2.5x threat score boost for rare/novel binaries or domains (`day_count <= 3`).
+    * Supports the Enterprise-Grounded Hunt consultative pattern: offers analysts Tier A (Pure Local Baseline) vs. Tier B (Enterprise-Grounded Hunt) with 2.5x threat score boost for rare/novel binaries or domains (`prevalence.day_count = 10`, `prevalence.rolling_max <= 3` and `> 0`).
 11. **6 Hybrid Mathematical Models**:
     * Implements Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds, Two-Part Hurdle, and Fleet Prevalence Normalization directly over raw event streams.
 12. **Calibrated Risk Index (CRI [0–100])**:
@@ -94,7 +94,7 @@ secops-statistical-hunter/
 │   ├── two_part_hurdle_2stage.yl2           # Two-Part Hurdle model for zero-inflated dormant entities
 │   ├── zipfian_process_rarity_2stage.yl2    # Power-Law / Zipfian long-tail administrative utility rarity
 │   └── zscore_process_surge_2stage.yl2      # Parametric Z-Score process surges per host
-├── examples/                                # Working standalone YARA-L search templates (12)
+├── examples/                                # Working standalone YARA-L search templates (13)
 │   ├── bayesian_gamma_shrinkage.yara        # Poisson-Gamma Bayesian Credibility Shrinkage
 │   ├── beta_binomial_failure_regularization.yara # Beta-Binomial failure rate regularization
 │   ├── c2_beaconing_jitter_cv.yara          # Inter-arrival CV + low-prevalence filter
@@ -105,6 +105,7 @@ secops-statistical-hunter/
 │   ├── multi_sector_threat_fusion.yara      # 4-Stage Multi-Sector Fusion (Auth + Endpoint + Net)
 │   ├── poisson_burst_clustering.yara        # Fano Factor (σ² / μ > 4.0) password spray cluster detector
 │   ├── poisson_rare_event_surge.yara        # Discrete Poisson score for sensitive administrative binaries
+│   ├── rare_user_agent_prevalence.yara      # Rare HTTP user-agent prevalence outlier detection
 │   ├── rolling_ratio_spike.yara             # 1-day vs 7-day vs 30-day moving ratio
 │   └── zscore_process_execution_surges.yara # Historical 3-Sigma Z-Score process surges per host
 ├── references/                              # Deep-dive engineering guides (14)
@@ -126,17 +127,19 @@ secops-statistical-hunter/
 │   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & schema validator
 │   ├── generate_references.py               # Generates taxonomy and windowing reference markdown
 │   └── multistage_query_builder.py          # Python linter, AST validator, QueryIntegrityGate & report/chart generator
-└── tests/                                   # Automated unit test suite (173 tests, 100% pass rate)
+└── tests/                                   # Automated unit test suite (178 tests across 17 modules, 100% pass rate)
     ├── test_chart_specifications.py         # Dual-axis visualization spec tests
     ├── test_clean_handoff.py                # Clean Hand-Off UDM schema validation & batching tests
     ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, bare match identifiers, QueryIntegrityGate
     ├── test_cri_and_math.py                 # Sigmoid CRI normalization and mathematical derivations
+    ├── test_fleet_prevalence_unknown.py     # Uncomputed fleet prevalence (-1 sentinel) tier tests
     ├── test_global_context_syntax.py        # Entity Context Graph (GLOBAL_CONTEXT/DERIVED_CONTEXT) syntax tests
     ├── test_guardrail_contracts.py          # Golden pipeline validation, session lock, and guardrail contracts
     ├── test_handoff_endpoint.py             # Federated handoff ingestion and protocol ACK tests
     ├── test_mad_cross_skill_sync.py         # Cross-skill MAD math & routing parity contract
     ├── test_mad_modified_z_template.py      # MAD / Modified Z template correctness contract
     ├── test_math_models.py                  # Bayesian, Beta-Binomial, Fano, and norm unit tests
+    ├── test_negative_literal_and_report_scope.py # Bare negative literal & report scope inference tests
     ├── test_query_auditor.py                # Post-flight intent and raw log dump detection tests
     ├── test_routing_interceptor.py          # Pre-flight routing interceptor and delegation tests
     ├── test_triage_reporting.py             # CommonMark 5-section triage schema & pillar tests
@@ -170,7 +173,7 @@ When interacting with an analyst, the skill translates operational hunting hypot
 | *"Detect low-and-slow trickles over 14 days"* | Longitudinal CUSUM Drift | **The Slow Creep**: Cumulative baseline drift tracking sub-threshold data movement. |
 | *"Find dormant accounts waking up today"* | Two-Part Hurdle Model | **The Sleeping Giant**: Evaluates binary transition from zero history to positive activity. |
 | *"Correlate spikes with threat intel & newly registered domains"* | Global Threat Intel Correlation | **The Outside Threat**: Cross-references outbound spikes with GCTI intel and WHOIS domain age. |
-| *"Find unusual binaries executed on this machine"* | Enterprise Prevalence Normalization | **The Unfamiliar Machine**: Blends host execution bursts with enterprise-wide novelty (`day_count <= 3`). |
+| *"Find unusual binaries executed on this machine"* | `DERIVED_CONTEXT_FILE_PREVALENCE` / `FLEET_PREVALENCE_NORMALIZATION` (`dual_baseline_delta_z_3stage.yl2`) | **The Unprecedented Binary**: Blends host execution bursts with enterprise-wide rarity (`prevalence.rolling_max <= 3` and `> 0`). |
 | *"Find impossible travel logins across distant countries"* | Geodesic Haversine Velocity (`math.geo_distance`) | **The Supersonic Traveler**: Measures physical travel speed ($\text{km/h}$) across consecutive login coordinates. |
 | *"Find workstations flipping from downloading to uploading"* | Producer-Consumer Byte Ratio Inversion | **The Role Flip**: Detects client endpoints whose directional byte ratio $\rho = \text{sent} / (\text{sent} + \text{recv})$ inverts toward $1.0$. |
 
@@ -349,7 +352,7 @@ order:
 Requests referencing 30-day pre-computed behavioral metric tables, rolling UEBA baselines, or omnibus risk scores automatically emit the Markdown Skill Delegation Card and yield the turn:
 * *"Run a 30-day UEBA baseline check on user Frank Kolzig."*
 * *"Show me Frank's 360-degree risk metrics view across all 6 behavioral sectors."*
-* *"Check for authentication anomalies using pre-computed risk metrics."*
+* *"Detect users with failed logins surging above their 30-day normal baseline"* (routes to `metrics.auth_attempts_fail`; general login volume routes to `metrics.auth_attempts_total`).
 
 ---
 
@@ -420,7 +423,7 @@ End-to-end multi-turn conversational regression is validated by the maintainer t
 * **100% Dual-Engine Regression Parity (17 / 17 Invariants Passed)**: Evaluated across all 17 regression test scenarios in dual-engine mode (`agentapi` + `direct-mcp`) with 6 workers, achieving 100% invariant parity across all P0, P1, and P2 contracts (127/127 automated unit tests passing).
 
 ### v2.7.0 (September 27, 2026) — Function Factory Built-Ins, Outcomes-in-Outcomes Inlining, Daily Temporal Spine & Log-Normal Volumetric Surge
-* **Chronicle Malachite Function Factory Built-Ins**: Adopted namespaced mathematical built-ins natively in raw UDM multi-stage queries (`math.sqrt`, `math.log`, `math.exp`, `math.min`, `math.max`, `math.round`).
+* **Chronicle Malachite Function Factory Built-Ins**: Adopted namespaced mathematical built-ins natively in raw UDM multi-stage queries (`math.sqrt`, `math.log`, `math.pow(2.718281828, ...)`, `math.abs`, `math.round`, `math.floor`, `math.ceil`, `math.geo_distance`; using 3-argument `if()` instead of non-existent `math.min`/`math.max`).
 * **Outcomes-in-Outcomes (OIO) In-Stage Inlining**: Enabled native outcome variable chaining within the same stage (`$diff = $obs - $avg`, `$z = $diff / $safe_sd`).
 * **Safe Non-Zero Dispersion Floors**: Replaced double-padded denominators with exact conditional guards (`if($sd > 0, $sd, 1.0)`).
 * **Log-Normal Volumetric Surge Pipeline**: Added `templates/pipelines/log_normal_volume_surge_2stage.yl2` implementing parametric log-normal standardization for heavy-tailed network egress distributions.

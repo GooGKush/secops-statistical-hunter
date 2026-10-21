@@ -33,7 +33,7 @@ stage median_stats {
   match:
     $host
   outcome:
-    $host_median = window.median($daily_stats.distinct_subdomains, true)
+    $host_median = window.median($daily_stats.distinct_subdomains, false)
 }
 
 // Stage 3: Compute Median Absolute Deviation (MAD) across all daily deviations
@@ -44,7 +44,7 @@ stage mad_stats {
   match:
     $host
   outcome:
-    $mad = window.median(math.abs($daily_stats.distinct_subdomains - $median_stats.host_median), true)
+    $mad = window.median(math.abs($daily_stats.distinct_subdomains - $median_stats.host_median), false)
     $host_median_val = max($median_stats.host_median)
     $active_days = count_distinct($daily_stats.window_start)
 }
@@ -62,7 +62,7 @@ outcome:
   $baseline_active_samples = max($mad_stats.active_days)
   $baseline_mean = max($mad_stats.host_median_val)
   $baseline_dispersion = max($mad_stats.mad)
-  $fleet_prevalence = 1
+  $fleet_prevalence = 0 - 1
   $distinct_binaries = max($daily_stats.distinct_subdomains)
   
   // Aggregate Modified Z-Score (0.6745 * |x - median| / MAD)

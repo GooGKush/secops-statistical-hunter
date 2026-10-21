@@ -57,7 +57,7 @@ outcome:
   $baseline_active_samples = max($iqr_fences.active_days)
   $baseline_mean = max($iqr_fences.median_mb)
   $baseline_dispersion = max($iqr_fences.iqr)
-  $fleet_prevalence = 1
+  $fleet_prevalence = 0 - 1
   $distinct_binaries = max($daily_egress.daily_mb)
   
   // Aggregate Surge Ratio

@@ -2,15 +2,17 @@
 // METHODOLOGY & HUNTING GOAL
 // Goal: Hunt for targeted host volume surges isolated from company-wide shifts (Delta-Z)
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH / NETWORK_HTTP / NETWORK_CONNECTION)
-// Statistical Model: 3-Stage Dual-Baseline Population Normalization (Delta-Z = Z_Personal - Z_Fleet)
+// Statistical Model: 3-Stage Dual-Baseline Population Normalization (Delta-Z = Z_Personal - max(0, Z_Fleet_Shift))
 // Operational Analogy: "The Patch Tuesday Immunity Shield"
 // Mathematical Rationale:
 //   If a corporate-wide software deployment (e.g. Patch Tuesday or agent rollout) occurs,
 //   all endpoints experience massive concurrent surges. Standard Z-scores flag the entire fleet.
-//   Dual-Baseline Delta-Z subtracts the concurrent fleet shift from the personal surge:
-//   when the entire fleet spikes, Delta-Z remains near zero; when a single host spikes while
-//   the fleet remains calm, Delta-Z explodes, isolating targeted attacks with zero false alarms.
-// Sensitivity Boundary: Delta-Z >= 3.0σ, Min Events >= 25, Min Fleet Hosts >= 15
+//   Dual-Baseline Delta-Z scales the concurrent fleet mean shift ($f_mean - $p_mean) in units of
+//   personal standard deviations ($safe_personal_sd) and subtracts positive fleet-wide shifts from
+//   the personal Z-score: when the entire fleet spikes together, Delta-Z remains near zero; when a
+//   single host spikes while the fleet remains at baseline, Delta-Z isolates the targeted anomaly.
+//   Note: The scored window is included in the personal baseline estimation (in-sample baseline).
+// Sensitivity Boundary: BALANCED (Delta-Z >= 3.0σ, Min Events >= 25, Min Fleet Hosts >= 5, Min Active Samples >= 30)
 // ============================================================================
 
 // Stage 1: Individual Host Activity Volume in tumbling hourly windows
@@ -72,15 +74,28 @@ outcome:
   $fleet_prevalence = max($fleet_concurrent_baseline.active_fleet_hosts)
   $distinct_binaries = max($host_hourly_extract.distinct_procs)
 
-  // Dual-Baseline Metrics
-  $personal_z_score = (max($host_hourly_extract.hourly_count) - max($host_personal_baseline.personal_avg)) / (max($host_personal_baseline.personal_stddev) + 0.001)
-  $fleet_concurrent_z = (max($host_hourly_extract.hourly_count) - max($fleet_concurrent_baseline.fleet_hour_avg)) / (max($fleet_concurrent_baseline.fleet_hour_stddev) + 0.001)
-  $targeted_delta_z = ((max($host_hourly_extract.hourly_count) - max($host_personal_baseline.personal_avg)) / (max($host_personal_baseline.personal_stddev) + 0.001)) - ((max($host_hourly_extract.hourly_count) - max($fleet_concurrent_baseline.fleet_hour_avg)) / (max($fleet_concurrent_baseline.fleet_hour_stddev) + 0.001))
+  // Dual-Baseline Metrics (Common Personal Dispersion Scale)
+  $obs = max($host_hourly_extract.hourly_count)
+  $p_mean = max($host_personal_baseline.personal_avg)
+  $f_mean = max($fleet_concurrent_baseline.fleet_hour_avg)
+  $raw_personal_sd = max($host_personal_baseline.personal_stddev)
+  $safe_personal_sd = if($raw_personal_sd > 0, $raw_personal_sd, 1.0)
+
+  $personal_z = ($obs - $p_mean) / $safe_personal_sd
+  $f_shift = $f_mean - $p_mean
+  $fleet_z = $f_shift / $safe_personal_sd
+  $pos_fleet_z = if($fleet_z > 0, $fleet_z, 0.0)
+  $delta_z = $personal_z - $pos_fleet_z
+
+  $personal_z_score = $personal_z
+  $fleet_concurrent_z = $fleet_z
+  $targeted_delta_z = $delta_z
 
 condition:
-  // Fleet Population Floor: At least 15 active hosts
-  $fleet_prevalence >= 15
-  and $baseline_active_samples >= 24
+  $baseline_active_samples >= 30
+  and $fleet_prevalence >= 5
   and $observation_count >= 25
-  and $baseline_dispersion >= 5.0
-  and $targeted_delta_z >= 3.0
+  and $delta_z >= 3.0
+
+order:
+  $delta_z desc

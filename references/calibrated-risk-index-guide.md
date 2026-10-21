@@ -25,7 +25,7 @@ In enterprise security telemetry, many high-risk behaviors (e.g. rare administra
 > CRI is strictly a **post-query presentation and triage transformation** executed in Python reporting scripts (`scripts/multistage_query_builder.py`), triage reports, and SOAR playbooks.
 > - **YARA-L Responsibility**: Chronicle queries calculate raw statistical deviations ($Z$-score, $\text{MAD } Z$, Poisson $Z^2$, Coefficient of Variation $\text{CV}$, Euclidean distance norm $D^2$) and order results via `order: <score> desc`.
 > - **Post-Processing Responsibility**: Python / reporting layers consume the raw statistical outputs and apply the logistic sigmoid function to normalize scores into the [0–100] CRI range.
-> - **Do NOT implement CRI in YARA-L**: Chronicle YARA-L does not support `math.exp()`, and computing non-linear sigmoid curves inside database queries is unnecessary and anti-idiomatic.
+> - **Do NOT use `math.exp()`, `math.min()`, or `math.max()` in YARA-L**: Chronicle YARA-L does not support `math.exp()`, `math.min()`, or `math.max()`. When exponential calculations are needed in YARA-L outcomes, use `math.pow(2.718281828, ...)` (and 3-argument `if($a > $b, $a, $b)` for scalar clamping), or compute CRI via piecewise step-function tiers (`if($z >= 6.5, 95, ...)`).
 
 ---
 

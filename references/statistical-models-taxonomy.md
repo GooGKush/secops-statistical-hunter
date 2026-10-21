@@ -112,10 +112,12 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 12. Continuous Calibrated Risk Index (CRI [0–100]) In-Stage Translation
-* **Goal**: Translate raw multi-stage $Z$-scores or threat distances into a bounded [0, 100] triage score directly inside YARA-L query outcomes.
-* **Formula**:
-  $$\text{CRI} = \text{math.round}\left(\frac{100.0}{1.0 + \text{math.exp}(-0.6 \cdot (Z - 3.0))}\right)$$
+## 12. Continuous Calibrated Risk Index (CRI [0–100]) Post-Processing & Translation
+* **Goal**: Translate raw multi-stage $Z$-scores or threat distances into a bounded [0, 100] SOC operational triage index.
+* **Piecewise Logistic Sigmoid Formula** (computed in Python post-processing via `calculate_cri()`, or in YARA-L outcome expressions using `math.pow(2.718281828, ...)` since `math.exp()` is not registered in the Malachite YARA-L 2.0 function factory):
+  $$\text{CRI}(Z) = \begin{cases} 0 & Z \le 0 \\ \text{round}\left(\frac{100.0}{1.0 + 2.718281828^{-0.6 \cdot (Z - 3.0)}}\right) & Z > 0 \end{cases}$$
+* **YARA-L 2.0 Outcome Equivalent**:
+  `$cri = if($z_score <= 0, 0, math.round(100.0 / (1.0 + math.pow(2.718281828, (0 - 0.6) * ($z_score - 3.0)))))`
 
 ---
 
@@ -162,7 +164,7 @@ This reference details the mathematical physics, derivations, and formulas used 
 ## 17. Geodesic Haversine Velocity (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`)
 * **Goal**: Detect impossible travel / supersonic geographic velocity across authentication sessions.
 * **Formula**:
-  $$d_{\text{km}} = \frac{\text{math.geo\_distance}(\text{lon}_1, \text{lat}_1, \text{lon}_2, \text{lat}_2)}{1000.0}, \quad v_{\text{km/h}} = \frac{d_{\text{km}}}{\max(\Delta t, 60) / 3600.0}$$
+  $$d_{\text{km}} = \frac{\text{math.geo\_distance}(\text{lon}_1, \text{lat}_1, \text{lon}_2, \text{lat}_2)}{1000.0}, \quad v_{\text{km/h}} = \frac{d_{\text{km}}}{\text{if}(\Delta t > 60, \Delta t, 60) / 3600.0}$$
 * **Interpretation**:
   - Commercial subsonic flight ceiling is $\approx 900\text{ km/h}$; authentication sessions spanning $\ge 500\text{ km}$ at $v \ge 900\text{ km/h}$ across $\ge 2$ distinct source IPs isolate credential compromise or simultaneous proxy egress.
 
@@ -177,10 +179,46 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 19. Sensitivity & Anomaly Threshold Map
+## 19. Canonical Golden Pipeline Template Mapping (23 Templates)
+
+| Pipeline Template (`.yl2`) | Canonical `SENSITIVITY_MAP` Key |
+| :--- | :--- |
+| `bayesian_gamma_shrinkage_4stage.yl2` | `BAYESIAN_GAMMA_SHRINKAGE` |
+| `beta_binomial_failure_4stage.yl2` | `BETA_BINOMIAL_FAILURE` |
+| `c2_beaconing_jitter_2stage.yl2` | `C2_BEACONING_JITTER` |
+| `derived_context_domain_prevalence_3stage.yl2` | `DERIVED_CONTEXT_DOMAIN_PREVALENCE` |
+| `derived_context_file_prevalence_3stage.yl2` | `DERIVED_CONTEXT_FILE_PREVALENCE` |
+| `derived_context_prevalence_3stage.yl2` | `DERIVED_CONTEXT_PREVALENCE` |
+| `dual_baseline_delta_z_3stage.yl2` | `DUAL_BASELINE_DELTA_Z` |
+| `ewma_burst_velocity_2stage.yl2` | `EWMA_BURST_VELOCITY` |
+| `global_threat_intel_enrichment_3stage.yl2` | `GLOBAL_THREAT_INTEL_ENRICHMENT` |
+| `hybrid_entropy_concentration_2stage.yl2` | `HYBRID_ENTROPY_CONCENTRATION` |
+| `impossible_travel_geo_velocity_2stage.yl2` | `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` |
+| `log_normal_volume_surge_2stage.yl2` | `LOG_NORMAL_VOLUME_SURGE` |
+| `mad_modified_z_4stage.yl2` | `DATA_EXFILTRATION_SPIKE` |
+| `markov_2gram_transition_rarity_2stage.yl2` | `MARKOV_2GRAM_TRANSITION_RARITY` |
+| `multi_sector_threat_fusion_4stage.yl2` | `MULTI_SECTOR_THREAT_FUSION` |
+| `poisson_burst_clustering_2stage.yl2` | `POISSON_BURST_CLUSTERING` |
+| `poisson_rare_surge_2stage.yl2` | `POISSON_RARE_SURGE` |
+| `privileged_lateral_expansion_2stage.yl2` | `PRIVILEGED_LATERAL_EXPANSION` |
+| `producer_consumer_ratio_inversion_2stage.yl2` | `PRODUCER_CONSUMER_RATIO_INVERSION` |
+| `shannon_entropy_character_2stage.yl2` | `SHANNON_ENTROPY_CHARACTER` |
+| `two_part_hurdle_2stage.yl2` | `TWO_PART_HURDLE` |
+| `zipfian_process_rarity_2stage.yl2` | `ZIPFIAN_PROCESS_RARITY` |
+| `zscore_process_surge_2stage.yl2` | `ZSCORE_PROCESS_SURGE` |
+
+---
+
+## 20. Sensitivity & Anomaly Threshold Map
 
 | Archetype | Tier | Thresholds & Parameters |
 | :--- | :--- | :--- |
+| `BAYESIAN_GAMMA_SHRINKAGE` | **CONSERVATIVE** | `bayesian_z=4.0`, `min_count=30`, `min_active_samples=60` |
+| `BAYESIAN_GAMMA_SHRINKAGE` | **BALANCED** | `bayesian_z=3.0`, `min_count=15`, `min_active_samples=30` |
+| `BAYESIAN_GAMMA_SHRINKAGE` | **AGGRESSIVE** | `bayesian_z=2.0`, `min_count=5`, `min_active_samples=14` |
+| `BETA_BINOMIAL_FAILURE` | **CONSERVATIVE** | `posterior_fail_prob=0.65`, `min_attempts=30`, `min_fails=20`, `min_active_samples=24` |
+| `BETA_BINOMIAL_FAILURE` | **BALANCED** | `posterior_fail_prob=0.5`, `min_attempts=15`, `min_fails=10`, `min_active_samples=12` |
+| `BETA_BINOMIAL_FAILURE` | **AGGRESSIVE** | `posterior_fail_prob=0.35`, `min_attempts=8`, `min_fails=5`, `min_active_samples=6` |
 | `C2_BEACONING_JITTER` | **CONSERVATIVE** | `cv=0.05`, `min_conns=50`, `prevalence=1`, `min_active_hours=12` |
 | `C2_BEACONING_JITTER` | **BALANCED** | `cv=0.2`, `min_conns=25`, `prevalence=2`, `min_active_hours=6` |
 | `C2_BEACONING_JITTER` | **AGGRESSIVE** | `cv=0.4`, `min_conns=15`, `prevalence=1`, `min_active_hours=3` |
@@ -202,9 +240,18 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `DISCRETE_ENTITY_RARITY` | **CONSERVATIVE** | `max_adopters=1`, `min_events=10`, `min_active_hours=12` |
 | `DISCRETE_ENTITY_RARITY` | **BALANCED** | `max_adopters=2`, `min_events=5`, `min_active_hours=6` |
 | `DISCRETE_ENTITY_RARITY` | **AGGRESSIVE** | `max_adopters=3`, `min_events=2`, `min_active_hours=1` |
+| `DIVERSITY_DEFICIT` | **CONSERVATIVE** | `max_diversity_z=-2.5`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
+| `DIVERSITY_DEFICIT` | **BALANCED** | `max_diversity_z=-1.5`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
+| `DIVERSITY_DEFICIT` | **AGGRESSIVE** | `max_diversity_z=-1.0`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
 | `DORMANT_ACCOUNT_AWAKENING` | **CONSERVATIVE** | `z_score=3.5`, `min_count=10`, `dormant_weight=3.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `DORMANT_ACCOUNT_AWAKENING` | **BALANCED** | `z_score=2.5`, `min_count=5`, `dormant_weight=2.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `DORMANT_ACCOUNT_AWAKENING` | **AGGRESSIVE** | `z_score=1.5`, `min_count=2`, `dormant_weight=1.5`, `min_sd=0.2`, `min_active_samples=3` |
+| `DUAL_BASELINE_DELTA_Z` | **CONSERVATIVE** | `delta_z=4.0`, `min_count=50`, `min_sd=5.0`, `min_active_samples=60`, `min_active_hosts=10` |
+| `DUAL_BASELINE_DELTA_Z` | **BALANCED** | `delta_z=3.0`, `min_count=25`, `min_sd=2.0`, `min_active_samples=30`, `min_active_hosts=5` |
+| `DUAL_BASELINE_DELTA_Z` | **AGGRESSIVE** | `delta_z=2.0`, `min_count=10`, `min_sd=1.0`, `min_active_samples=14`, `min_active_hosts=3` |
+| `ELEPHANT_FLOW_CONCENTRATION` | **CONSERVATIVE** | `max_diversity_z=-2.5`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
+| `ELEPHANT_FLOW_CONCENTRATION` | **BALANCED** | `max_diversity_z=-1.5`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
+| `ELEPHANT_FLOW_CONCENTRATION` | **AGGRESSIVE** | `max_diversity_z=-1.0`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
 | `EWMA_BURST_VELOCITY` | **CONSERVATIVE** | `velocity_threshold=3.0`, `min_count=50`, `min_sd=5.0`, `min_active_samples=60` |
 | `EWMA_BURST_VELOCITY` | **BALANCED** | `velocity_threshold=2.0`, `min_count=25`, `min_sd=2.0`, `min_active_samples=30` |
 | `EWMA_BURST_VELOCITY` | **AGGRESSIVE** | `velocity_threshold=1.5`, `min_count=10`, `min_sd=1.0`, `min_active_samples=14` |
@@ -220,6 +267,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `HEAVY_TAIL_OUTLIERS` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_iqr=50.0`, `min_baseline_days=14` |
 | `HEAVY_TAIL_OUTLIERS` | **BALANCED** | `surge_ratio=2.0`, `min_iqr=10.0`, `min_baseline_days=7` |
 | `HEAVY_TAIL_OUTLIERS` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_iqr=5.0`, `min_baseline_days=3` |
+| `HYBRID_ENTROPY_CONCENTRATION` | **CONSERVATIVE** | `max_diversity_z=-2.5`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
+| `HYBRID_ENTROPY_CONCENTRATION` | **BALANCED** | `max_diversity_z=-1.5`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
+| `HYBRID_ENTROPY_CONCENTRATION` | **AGGRESSIVE** | `max_diversity_z=-1.0`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
 | `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **CONSERVATIVE** | `velocity_kmh=1200.0`, `min_distance_km=1000.0`, `min_active_samples=14` |
 | `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **BALANCED** | `velocity_kmh=900.0`, `min_distance_km=500.0`, `min_active_samples=7` |
 | `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **AGGRESSIVE** | `velocity_kmh=500.0`, `min_distance_km=250.0`, `min_active_samples=3` |

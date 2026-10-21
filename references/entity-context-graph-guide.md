@@ -31,10 +31,10 @@ Represents Chronicle's enterprise-wide persistent tracking across months and yea
 
 | Entity Type | UDM Source & Filter Syntax | Key Fields Available |
 | :--- | :--- | :--- |
-| **File / Binary (`FILE`)** | `$file.graph.metadata.source_type = "DERIVED_CONTEXT"`<br>`$file.graph.metadata.entity_type = "FILE"`<br>`$file.graph.entity.file.sha256 = $sha256` | `$file.graph.entity.file.prevalence.day_count` (integer: total calendar days observed enterprise-wide)<br>`$file.graph.entity.file.prevalence.rolling_max` (integer: rolling peak host count)<br>`$file.graph.entity.file.first_seen_time.seconds`<br>`$file.graph.entity.file.last_seen_time.seconds` |
-| **Domain Name (`DOMAIN_NAME`)** | `$dom.graph.metadata.source_type = "DERIVED_CONTEXT"`<br>`$dom.graph.metadata.entity_type = "DOMAIN_NAME"`<br>`$dom.graph.entity.domain.name = $domain` | `$dom.graph.entity.domain.prevalence.day_count` (integer: total calendar days contacted enterprise-wide)<br>`$dom.graph.entity.domain.prevalence.rolling_max` (integer: rolling peak host count)<br>`$dom.graph.entity.domain.first_seen_time.seconds`<br>`$dom.graph.entity.domain.last_seen_time.seconds` |
-| **Asset / Host History (`ASSET`)** | `$asset.graph.metadata.source_type = "DERIVED_CONTEXT"`<br>`$asset.graph.metadata.entity_type = "ASSET"`<br>`$asset.graph.entity.asset.hostname = $host` | `$asset.graph.entity.asset.first_seen_time.seconds`<br>`$asset.graph.entity.asset.last_seen_time.seconds`<br>`$asset.graph.entity.asset.hostname` |
-| **User Account History (`USER`)** | `$user.graph.metadata.source_type = "DERIVED_CONTEXT"`<br>`$user.graph.metadata.entity_type = "USER"`<br>`$user.graph.entity.user.userid = $user` | `$user.graph.entity.user.first_seen_time.seconds`<br>`$user.graph.entity.user.last_seen_time.seconds`<br>`$user.graph.entity.user.userid` |
+| **File / Binary (`FILE`)** | `$file.graph.metadata.source_type = "DERIVED_CONTEXT"`<br>`$file.graph.metadata.entity_type = "FILE"`<br>`$file.graph.entity.file.sha256 = $sha256` | `$file.graph.entity.file.prevalence.day_count` (integer: configured rolling prevalence horizon, e.g., `day_count = 10`)<br>`$file.graph.entity.file.prevalence.rolling_max` (integer: peak daily enterprise host count; `<= 3` and `> 0` for rare binaries)<br>`$file.graph.entity.file.first_seen_time.seconds`<br>`$file.graph.entity.file.last_seen_time.seconds` |
+| **Domain Name (`DOMAIN_NAME`)** | `$dom.graph.metadata.source_type = "DERIVED_CONTEXT"`<br>`$dom.graph.metadata.entity_type = "DOMAIN_NAME"`<br>`$dom.graph.entity.domain.name = $domain` | `$dom.graph.entity.domain.prevalence.day_count` (integer: configured rolling prevalence horizon, e.g., `day_count = 10`)<br>`$dom.graph.entity.domain.prevalence.rolling_max` (integer: peak daily enterprise host count; `<= 3` and `> 0` for rare domains)<br>`$dom.graph.entity.domain.first_seen_time.seconds`<br>`$dom.graph.entity.domain.last_seen_time.seconds` |
+| **Asset / Host History (`ASSET`)** | `$asset.graph.metadata.source_type = "DERIVED_CONTEXT"`<br>`$asset.graph.metadata.entity_type = "ASSET"`<br>`$asset.graph.entity.asset.hostname = $host` | `$asset.graph.entity.asset.first_seen_time.seconds`<br>`$asset.graph.entity.asset.hostname` |
+| **User Account History (`USER`)** | `$user.graph.metadata.source_type = "DERIVED_CONTEXT"`<br>`$user.graph.metadata.entity_type = "USER"`<br>`$user.graph.entity.user.userid = $user` | `$user.graph.entity.user.first_seen_time.seconds`<br>`$user.graph.entity.user.userid` |
 
 ---
 
@@ -81,9 +81,9 @@ In YARA-L 2.0, multi-stage joins across stages in the root stage are inner joins
 * If Stage 2 filters on an external threat feed (`threat_feed_name != ""`), clean entities produce zero records in Stage 2 and are omitted from root.
 * For **Derived Context Prevalence** (`FILE`, `DOMAIN_NAME`, `ASSET`): Chronicle maintains continuous graph state for ingested entities. In root outcomes, apply safe evaluation to handle boundary conditions:
   ```yara
-  $enterprise_day_count = min($file_derived_context.day_count)
-  // Low-prevalence indicator: Day count <= 3 enterprise-wide
-  $is_rare_binary = if($enterprise_day_count <= 3 and $enterprise_day_count >= 0, 1.0, 0.0)
+  $fleet_prevalence = max($file_derived_context.rolling_max)
+  // Low-prevalence indicator: Peak daily enterprise host count (rolling_max) <= 3 and > 0
+  $is_rare_binary = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
   $multiplier = if($is_rare_binary = 1.0, 2.5, 1.0)
   $threat_score = $z_score * $multiplier
   ```
@@ -155,11 +155,11 @@ outcome:
   $mean_bytes = max($host_baseline.hist_mean_bytes)
   $sd_bytes = max($host_baseline.hist_sd_bytes)
   $safe_sd = if($sd_bytes > 0, $sd_bytes, 1.0)
-  $z_score = ($obs_bytes - $mean_bytes) / ($safe_sd + 1.0)
+  $z_score = ($obs_bytes - $mean_bytes) / $safe_sd
 
-  $created = max($global_threat_intel.creation_ts)
-  $domain_age_days = (timestamp.current_seconds() - $created) / 86400.0
-  $is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
+  $creation_ts = max($global_threat_intel.creation_ts)
+  $domain_age_days = (timestamp.current_seconds() - $creation_ts) / 86400.0
+  $is_nrd = if($creation_ts > 0 and $domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
 
   // Context-Boosted Threat Score: Apply 2.5x multiplier for newly registered domains
   $threat_score = if($is_nrd = 1.0, $z_score * 2.5, $z_score)
@@ -169,7 +169,7 @@ outcome:
   $baseline_active_samples = max($host_baseline.active_hours)
   $baseline_mean = $mean_bytes
   $baseline_dispersion = $sd_bytes
-  $fleet_prevalence = 1
+  $fleet_prevalence = 0 - 1
   $distinct_binaries = 1
 
 condition:
@@ -205,6 +205,7 @@ stage file_derived_context {
   $file.graph.entity.file.sha256 = $sha256
   $file.graph.metadata.entity_type = "FILE"
   $file.graph.metadata.source_type = "DERIVED_CONTEXT"
+  $file.graph.entity.file.prevalence.day_count = 10
   $sha256 != ""
 
   match:
@@ -243,16 +244,7 @@ outcome:
   $mean_execs = max($host_baseline.hist_mean_execs)
   $sd_execs = max($host_baseline.hist_sd_execs)
   $safe_sd = if($sd_execs > 0, $sd_execs, 1.0)
-  $z_score = ($obs_execs - $mean_execs) / ($safe_sd + 1.0)
-
-  $enterprise_day_count = min($file_derived_context.day_count)
-  $enterprise_first_seen = min($file_derived_context.first_seen_ts)
-  $file_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
-
-  // Rare Binary Multiplier: 2.5x threat score boost for binaries seen enterprise-wide on <= 3 days
-  $is_rare_binary = if($enterprise_day_count <= 3 and $enterprise_day_count >= 0, 1.0, 0.0)
-  $multiplier = if($is_rare_binary = 1.0, 2.5, 1.0)
-  $threat_score = $z_score * $multiplier
+  $z_score = ($obs_execs - $mean_execs) / $safe_sd
 
   // 6 Standardized Evidence Pillars
   $observation_count = $obs_execs
@@ -261,6 +253,15 @@ outcome:
   $baseline_dispersion = $sd_execs
   $fleet_prevalence = max($file_derived_context.rolling_max)
   $distinct_binaries = 1
+
+  $enterprise_day_count = min($file_derived_context.day_count)
+  $enterprise_first_seen = min($file_derived_context.first_seen_ts)
+  $file_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
+
+  // Rare Binary Multiplier: 2.5x threat score boost for binaries with rolling_max ($fleet_prevalence) <= 3
+  $is_rare_binary = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
+  $multiplier = if($is_rare_binary = 1.0, 2.5, 1.0)
+  $threat_score = $z_score * $multiplier
 
 condition:
   $baseline_active_samples >= 12
@@ -334,16 +335,7 @@ outcome:
   $mean_bytes = max($host_baseline.hist_mean_bytes)
   $sd_bytes = max($host_baseline.hist_sd_bytes)
   $safe_sd = if($sd_bytes > 0, $sd_bytes, 1.0)
-  $z_score = ($obs_bytes - $mean_bytes) / ($safe_sd + 1.0)
-
-  $enterprise_day_count = min($domain_derived_context.day_count)
-  $enterprise_first_seen = min($domain_derived_context.first_seen_ts)
-  $domain_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
-
-  // Rare Domain Multiplier: 2.5x threat score boost for domains observed enterprise-wide on <= 3 days
-  $is_rare_domain = if($enterprise_day_count <= 3 and $enterprise_day_count >= 0, 1.0, 0.0)
-  $multiplier = if($is_rare_domain = 1.0, 2.5, 1.0)
-  $threat_score = $z_score * $multiplier
+  $z_score = ($obs_bytes - $mean_bytes) / $safe_sd
 
   // 6 Standardized Evidence Pillars
   $observation_count = $obs_bytes
@@ -352,6 +344,15 @@ outcome:
   $baseline_dispersion = $sd_bytes
   $fleet_prevalence = max($domain_derived_context.rolling_max)
   $distinct_binaries = 1
+
+  $enterprise_day_count = min($domain_derived_context.day_count)
+  $enterprise_first_seen = min($domain_derived_context.first_seen_ts)
+  $domain_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
+
+  // Rare Domain Multiplier: 2.5x threat score boost for domains with rolling_max ($fleet_prevalence) <= 3
+  $is_rare_domain = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
+  $multiplier = if($is_rare_domain = 1.0, 2.5, 1.0)
+  $threat_score = $z_score * $multiplier
 
 condition:
   $baseline_active_samples >= 12

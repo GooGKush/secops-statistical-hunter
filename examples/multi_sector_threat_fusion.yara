@@ -2,7 +2,7 @@
 // METHODOLOGY & HUNTING GOAL
 // Goal: Hunt for coordinated multi-stage intrusions across Auth, Endpoint, and Network (Multi-Sector Threat Fusion)
 // Target Telemetry: UDM_EVENTS (USER_LOGIN + PROCESS_LAUNCH + NETWORK_CONNECTION)
-// Statistical Model: Multi-Sector Fusion & Euclidean Vector Norm (D^2 = Z_auth^2 + Z_proc^2 + Z_net^2)
+// Statistical Model: Multi-Sector Fusion & Positive-Rectified Euclidean Vector Norm (D = sqrt(pos_Z1^2 + pos_Z2^2 + pos_Z3^2))
 // Topology: ONE raw stage with per-sector conditional sums -> per-host sector baselines -> root fusion.
 //   Three independent raw sector stages joined at the root are rejected by the compiler
 //   (verified: any two compile, all three do not). Conditional sums keep one scan and one join.
@@ -10,9 +10,10 @@
 // Mathematical Rationale:
 //   Adversaries execute multi-stage kill chains with low-and-slow tactics in each silo.
 //   Single-domain detectors miss these events because each vector is only mildly elevated (Z ~ 2.0σ).
-//   Multi-Sector Fusion computes the orthogonal Euclidean distance across Authentication,
-//   Process Execution, and Network Egress into a unified multi-domain threat norm D >= 3.0σ (D^2 >= 9.0).
-// Sensitivity Boundary: BALANCED (Composite Threat Distance D >= 3.0σ [D^2 >= 9.0], Min Events >= 1 in each active sector)
+//   Multi-Sector Fusion rectifies each sector Z-score ($pos_z = if($z > 0, $z, 0.0)) so negative
+//   deviations (quiet sectors) cannot inflate the norm, then computes the orthogonal Euclidean
+//   distance across Authentication, Process Execution, and Network Egress.
+// Sensitivity Boundary: BALANCED (Composite Threat Distance D >= 3.0σ, Min Events >= 5, Min Active Samples >= 7)
 // ============================================================================
 
 // --- STAGE 1: Hourly per-host activity in each sector via conditional sums ---
@@ -51,7 +52,7 @@ stage host_sector_baseline {
     $active_hours = count($sector_counts.window_start)
 }
 
-// --- ROOT STAGE: Orthogonal Threat-Space Fusion (squared Euclidean norm; no sqrt in YARA-L) ---
+// --- ROOT STAGE: Orthogonal Threat-Space Fusion & Euclidean Vector Norm ---
 $host = $sector_counts.host
 $host = $host_sector_baseline.host
 $ws = $sector_counts.window_start
@@ -60,24 +61,38 @@ match:
   $host, $ws by 1h
 
 outcome:
-  // Evidence pillars
+  // 6 Standardized Evidence Pillars
+  $observation_count = max($sector_counts.auth_fails) + max($sector_counts.proc_launches) + max($sector_counts.net_flows)
+  $baseline_active_samples = max($host_sector_baseline.active_hours)
+  $baseline_mean = max($host_sector_baseline.auth_mean) + max($host_sector_baseline.proc_mean) + max($host_sector_baseline.net_mean)
+  $baseline_dispersion = max($host_sector_baseline.auth_sd) + max($host_sector_baseline.proc_sd) + max($host_sector_baseline.net_sd)
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($sector_counts.proc_launches)
+
+  // Per-sector counts and safe dispersion floors
   $auth_event_count = max($sector_counts.auth_fails)
   $proc_event_count = max($sector_counts.proc_launches)
   $net_event_count = max($sector_counts.net_flows)
-  $baseline_active_samples = max($host_sector_baseline.active_hours)
-  $observation_count = max($sector_counts.auth_fails) + max($sector_counts.proc_launches) + max($sector_counts.net_flows)
+  $safe_auth_sd = if(max($host_sector_baseline.auth_sd) > 0, max($host_sector_baseline.auth_sd), 1.0)
+  $safe_proc_sd = if(max($host_sector_baseline.proc_sd) > 0, max($host_sector_baseline.proc_sd), 1.0)
+  $safe_net_sd = if(max($host_sector_baseline.net_sd) > 0, max($host_sector_baseline.net_sd), 1.0)
 
-  // Per-sector Z with +1.0 additive dispersion floor
-  $sector_z_auth = (max($sector_counts.auth_fails) - max($host_sector_baseline.auth_mean)) / (max($host_sector_baseline.auth_sd) + 1.0)
-  $sector_z_proc = (max($sector_counts.proc_launches) - max($host_sector_baseline.proc_mean)) / (max($host_sector_baseline.proc_sd) + 1.0)
-  $sector_z_net = (max($sector_counts.net_flows) - max($host_sector_baseline.net_mean)) / (max($host_sector_baseline.net_sd) + 1.0)
+  // Per-sector Z-scores and positive rectification (quiet sectors do not inflate norm)
+  $z1 = (max($sector_counts.auth_fails) - max($host_sector_baseline.auth_mean)) / $safe_auth_sd
+  $z2 = (max($sector_counts.proc_launches) - max($host_sector_baseline.proc_mean)) / $safe_proc_sd
+  $z3 = (max($sector_counts.net_flows) - max($host_sector_baseline.net_mean)) / $safe_net_sd
+  $pos_z1 = if($z1 > 0, $z1, 0.0)
+  $pos_z2 = if($z2 > 0, $z2, 0.0)
+  $pos_z3 = if($z3 > 0, $z3, 0.0)
 
-  // D^2 = Z_auth^2 + Z_proc^2 + Z_net^2 ; sort by D^2 (monotone in D)
-  $threat_vector_norm_sq = $sector_z_auth * $sector_z_auth + $sector_z_proc * $sector_z_proc + $sector_z_net * $sector_z_net
+  // Orthogonal Euclidean Threat Distance: D = math.sqrt(pos_z1^2 + pos_z2^2 + pos_z3^2)
+  $threat_vector_norm_sq = $pos_z1 * $pos_z1 + $pos_z2 * $pos_z2 + $pos_z3 * $pos_z3
+  $threat_distance = math.sqrt($pos_z1 * $pos_z1 + $pos_z2 * $pos_z2 + $pos_z3 * $pos_z3)
 
 condition:
-  $baseline_active_samples >= 60
-  and $threat_vector_norm_sq >= 9.0
+  $baseline_active_samples >= 7
+  and $observation_count >= 5
+  and $threat_distance >= 3.0
 
 order:
-  $threat_vector_norm_sq desc
+  $threat_distance desc

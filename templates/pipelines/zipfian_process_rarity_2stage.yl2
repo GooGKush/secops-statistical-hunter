@@ -69,6 +69,14 @@ outcome:
   $tail_rarity = 1.0 / $safe_hosts
   $zipf_rarity_score = $zipf_log_rank * (1.0 + $tail_rarity)
 
+  // 6 Core Evidence Pillars
+  $observation_count = $local_volume
+  $baseline_active_samples = $fleet_volume
+  $baseline_mean = $log_fleet
+  $baseline_dispersion = $zipf_log_rank
+  $fleet_prevalence = $adopter_hosts
+  $distinct_binaries = 1
+
 condition:
   $adopter_hosts <= {{max_adopters}}
   and $local_volume >= {{min_count}}

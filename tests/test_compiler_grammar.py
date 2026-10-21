@@ -449,7 +449,7 @@ class TestCompilerGrammar(unittest.TestCase):
     self.assertEqual(fatal_errors, [], f"Syntax errors in rare_user_agent_prevalence.yara: {fatal_errors}")
 
   def test_function_factory_math_builtins_permitted(self):
-    """Namespaced math.* built-ins (math.sqrt, math.log, math.exp, math.min, math.max) must pass syntax validation."""
+    """Supported namespaced math.* built-ins (math.sqrt, math.log, math.pow, math.abs, math.round, math.floor, math.ceil) must pass syntax validation."""
     query = """
     stage s1 {
       metadata.event_type = "NETWORK_CONNECTION"
@@ -463,14 +463,64 @@ class TestCompilerGrammar(unittest.TestCase):
     outcome:
       $log_b = math.log(max($s1.bytes) + 1.0)
       $dist = math.sqrt($log_b * $log_b)
-      $clamped = math.min(math.max($dist, 0.0), 100.0)
-      $calibrated = 100.0 / (1.0 + math.exp(-0.5 * ($clamped - 3.0)))
+      $abs_d = math.abs($dist)
+      $floored = math.floor($abs_d)
+      $ceiled = math.ceil($floored)
+      $exp_val = math.pow(2.718281828, $ceiled - 3.0)
+      $calibrated = math.round(100.0 / (1.0 + $exp_val))
     condition:
-      $calibrated >= 50.0
+      $calibrated >= 50
     """
     errors = validate_multistage_syntax(query)
     fatal_errors = [e for e in errors if not e.startswith("MISSING METHODOLOGY HEADER")]
-    self.assertEqual(fatal_errors, [], f"Unexpected syntax errors for math built-ins: {fatal_errors}")
+    self.assertEqual(fatal_errors, [], f"Unexpected syntax errors for supported math built-ins: {fatal_errors}")
+
+  def test_unsupported_math_exp_min_max_rejected(self):
+    """Unsupported math.exp(), math.min(), and math.max() must be rejected by syntax validation."""
+    query = """
+    stage s1 {
+      metadata.event_type = "NETWORK_CONNECTION"
+      principal.hostname = $host
+      match: $host by 1h
+      outcome:
+        $bytes = sum(network.sent_bytes)
+    }
+    $host = $s1.host
+    match: $host by 1h
+    outcome:
+      $a = max($s1.bytes)
+      $b = 100.0
+      $e = math.exp(1.0)
+      $mn = math.min($a, $b)
+      $mx = math.max($a, $b)
+    condition:
+      $mx > 0
+    """
+    errors = validate_multistage_syntax(query)
+    self.assertTrue(any("UNSUPPORTED_MATH_EXP" in e for e in errors), f"Expected UNSUPPORTED_MATH_EXP in {errors}")
+    self.assertTrue(any("UNSUPPORTED_MATH_MIN_MAX" in e for e in errors), f"Expected UNSUPPORTED_MATH_MIN_MAX in {errors}")
+
+  def test_duplicate_root_condition_clause_rejected(self):
+    """Duplicate condition: blocks in the root stage must trigger DUPLICATE_ROOT_CLAUSE."""
+    query = """
+    stage s1 {
+      metadata.event_type = "PROCESS_LAUNCH"
+      principal.hostname = $host
+      match: $host by 1h
+      outcome:
+        $cnt = count(metadata.id)
+    }
+    $host = $s1.host
+    match: $host by 1h
+    outcome:
+      $obs = max($s1.cnt)
+    condition:
+      $obs >= 5
+    condition:
+      $obs >= 10
+    """
+    errors = validate_multistage_syntax(query)
+    self.assertTrue(any("DUPLICATE_ROOT_CLAUSE" in e for e in errors), f"Expected DUPLICATE_ROOT_CLAUSE in {errors}")
 
   def test_bare_sqrt_rejected_but_math_sqrt_allowed(self):
     """Bare sqrt(...) must be rejected while math.sqrt(...) is permitted."""

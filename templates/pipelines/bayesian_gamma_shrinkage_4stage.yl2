@@ -10,7 +10,7 @@
 //   (alpha_0, beta_0) from the host historical baseline, weighting prior stability against
 //   current-day evidence. Small bursts on rock-solid predictable hosts trigger true anomaly shifts,
 //   while erratic hosts require massive evidence.
-// Sensitivity Boundary: {{tier}} (Bayesian Belief Shift Ratio >= 3.0, Min Events >= 20, Active Units >= 24)
+// Sensitivity Boundary: {{tier}} (Bayesian Belief Shift Ratio >= {{bayesian_z}}, Min Events >= {{min_count}}, Active Units >= {{min_active_samples}})
 // ============================================================================
 
 // Stage 1: Extraction & Binning (Hourly activity volume per host)
@@ -85,10 +85,9 @@ outcome:
   $anomaly_score = $posterior_arrival_rate / $safe_hist_mean
 
 condition:
-  $baseline_active_samples >= 24
-  and $observation_count >= 20
-  and $baseline_dispersion >= 3.0
-  and $anomaly_score >= 3.0
+  $baseline_active_samples >= {{min_active_samples}}
+  and $observation_count >= {{min_count}}
+  and $anomaly_score >= {{bayesian_z}}
 
 order:
   $anomaly_score desc

@@ -26,13 +26,32 @@ class TestRoutingInterceptor(unittest.TestCase):
     self.assertEqual(rec["target_dimension"], "network.http.user_agent")
 
   def test_route_auth_attempts_30d_baseline_to_risk_metrics(self):
-    """Authentication baseline against 30-day typical behavior must route to metrics.auth_attempts_*."""
-    prompt = "Detect users with failed logins surging above their 30-day normal baseline."
-    rec = check_routing_recommendation(prompt)
-    self.assertIsNotNone(rec)
-    self.assertEqual(rec["target_skill"], "secops-risk-metrics-multistage")
-    self.assertEqual(rec["recommended_metric"], "metrics.auth_attempts_total")
-    self.assertEqual(rec["recommended_pipeline"], "standard_z_score_2stage.yl2")
+    """Authentication baseline against 30-day typical behavior must route to metrics.auth_attempts_fail or metrics.auth_attempts_total."""
+    prompt_fail = "Detect users with failed logins surging above their 30-day normal baseline."
+    rec_fail = check_routing_recommendation(prompt_fail)
+    self.assertIsNotNone(rec_fail)
+    self.assertEqual(rec_fail["target_skill"], "secops-risk-metrics-multistage")
+    self.assertEqual(rec_fail["recommended_metric"], "metrics.auth_attempts_fail")
+    self.assertEqual(rec_fail["recommended_pipeline"], "standard_z_score_2stage.yl2")
+
+    prompt_total = "Detect users with total login volume surging above their 30-day normal baseline."
+    rec_total = check_routing_recommendation(prompt_total)
+    self.assertIsNotNone(rec_total)
+    self.assertEqual(rec_total["target_skill"], "secops-risk-metrics-multistage")
+    self.assertEqual(rec_total["recommended_metric"], "metrics.auth_attempts_total")
+    self.assertEqual(rec_total["recommended_pipeline"], "standard_z_score_2stage.yl2")
+
+  def test_negative_control_14d_raw_mad_and_24h_fano_stay_local(self):
+    """14-day raw-field MAD and 24-hour Fano password spray hunts must stay in secops-statistical-hunter."""
+    local_prompts = [
+        "Run a 14-day standalone MAD hunt over raw network.sent_bytes to detect exfiltration outliers.",
+        "Hunt for 24-hour Fano factor password spray bursts on raw USER_LOGIN events.",
+    ]
+    for p in local_prompts:
+      self.assertIsNone(
+          check_routing_recommendation(p),
+          f"Expected negative control prompt to stay in secops-statistical-hunter: {p}",
+      )
 
   def test_route_network_bytes_baseline_to_risk_metrics(self):
     """Outbound network bytes vs 30d typical behavior must route to metrics.network_bytes_outbound."""

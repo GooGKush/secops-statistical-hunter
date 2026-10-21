@@ -225,5 +225,40 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertNotIn("Immediate Drill-Down Investigation Query", self.skill_content)
 
 
+
+  def test_skill_md_byte_and_line_ceiling(self):
+    """SKILL.md must remain <= 28.0 KB and <= 275 lines, with frontmatter description <= 1024 chars."""
+    import re
+    size_kb = len(self.skill_content.encode("utf-8")) / 1024.0
+    line_count = len(self.skill_content.splitlines())
+    self.assertLessEqual(size_kb, 28.0, f"SKILL.md exceeds 28.0 KB ceiling ({size_kb:.2f} KB)")
+    self.assertLessEqual(line_count, 275, f"SKILL.md exceeds 275-line ceiling ({line_count} lines)")
+    fm_match = re.match(r"^---\n(.*?)\n---", self.skill_content, flags=re.DOTALL)
+    self.assertIsNotNone(fm_match, "SKILL.md must have YAML frontmatter")
+    desc_match = re.search(r"description:\s*\|?\n((?:  .*\n)+)", fm_match.group(1))
+    if desc_match:
+      desc_text = "\n".join(l.strip() for l in desc_match.group(1).strip().splitlines())
+      self.assertLessEqual(len(desc_text), 1024, f"Frontmatter description exceeds 1024 chars ({len(desc_text)})")
+
+  def test_all_23_templates_emit_6_pillars_and_distinct_tiers(self):
+    """Every pipeline template must emit all 6 forensic pillars, avoid literal $fleet_prevalence = 1, and separate tiers."""
+    import re
+    router = MultiStageTemplateRouter()
+    pillars = ["$observation_count", "$baseline_active_samples", "$baseline_mean", "$baseline_dispersion", "$fleet_prevalence", "$distinct_binaries"]
+    tpl_files = sorted(glob.glob(os.path.join(self.repo_dir, "templates", "pipelines", "*.yl2")))
+    self.assertEqual(len(tpl_files), 23)
+    for tf in tpl_files:
+      raw = open(tf, encoding="utf-8").read()
+      for p in pillars:
+        self.assertIn(p, raw, f"{os.path.basename(tf)} missing pillar {p}")
+      self.assertIsNone(re.search(r"\$fleet_prevalence\s*=\s*1\b", raw), f"{os.path.basename(tf)} has literal $fleet_prevalence = 1")
+    for arch in sorted(set(router.TEMPLATE_TO_SENSITIVITY_KEY.values())):
+      q_c = router.build_query(arch, tier="CONSERVATIVE")
+      q_a = router.build_query(arch, tier="AGGRESSIVE")
+      self.assertNotIn("{{", q_c, f"Unrendered placeholder in {arch} CONSERVATIVE")
+      self.assertNotIn("{{", q_a, f"Unrendered placeholder in {arch} AGGRESSIVE")
+      self.assertNotEqual(q_c, q_a, f"Tiers CONSERVATIVE and AGGRESSIVE produced identical query for {arch}")
+
+
 if __name__ == "__main__":
   unittest.main()
