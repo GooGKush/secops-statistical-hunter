@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.8.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-178%2F178%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v2.8.3-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-178%2F178%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -41,9 +41,10 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
 8. **Timeline Optimization: The Daily Temporal Spine (`by 1d`)**:
    * Features adaptive window granularity that dynamically selects `by 1d` bucket sizes for macro-aligned models on horizons $\ge 7$ days, reducing intermediate row cardinality by $24\times$ ($336 \rightarrow 14$ rows per entity over 14 days) and providing 1:1 metric reconciliation with `secops-risk-metrics-multistage`.
    * Preserves high-frequency bins (`10m`, `15m`, `1h`) for intraday and jitter-sensitive models (`C2_BEACONING_JITTER`, `POISSON_BURST_CLUSTERING`).
-9. **Strict Pre-Flight Routing Interceptor & Delegation Gate**:
-   * Evaluates incoming requests against pre-computed baseline indicators (UEBA keywords, 30-day rolling baselines, `metrics.*`, peer cohorts, and omnibus risk scores), immediately emitting the Markdown Skill Delegation Card routing to `secops-risk-metrics-multistage` (0 tools called). Sub-second timing, rarity, and raw UDM outlier hunts remain inline under the Expert Bypass Rule.
-   * Strictly adheres to the **Zero-Code Handoff Invariant**: handoff cards provide conceptual architectural guidance and parameters, leaving YARA-L code generation strictly to the destination skill.
+9. **Strict Pre-Flight Routing Interceptor, Delegation Gate & Bilateral UEBA Harness Co-Execution**:
+   * Evaluates single-skill incoming requests against pre-computed baseline indicators (UEBA keywords, 30-day rolling baselines, `metrics.*`, peer cohorts, and omnibus risk scores), immediately emitting the Markdown Skill Delegation Card routing to `secops-risk-metrics-multistage` (0 tools called). Sub-second timing, rarity, and raw UDM outlier hunts remain inline under the Expert Bypass Rule.
+   * For open-ended threat, exploit, CTI, or detection-gap UEBA inquiries (when `Active Skill:` is not restricted to `secops-statistical-hunter`), co-executes with `secops-risk-metrics-multistage` and `agentic_ueba` (`PlaybookRunner`) as the **Bilateral UEBA Harness**, supplying bounded-window (`1h–24h` or `7d–14d`) structural/sequence models (`MARKOV_2GRAM_TRANSITION_RARITY`, `SHANNON_ENTROPY_CHARACTER`, `POISSON_BURST_CLUSTERING`, `EWMA_BURST_VELOCITY`, `C2_BEACONING_JITTER`, `ZIPFIAN_PROCESS_RARITY`) while strictly prohibiting 30-day raw UDM scans over high-volume telemetry (`metrics.*` domains).
+   * Strictly adheres to the **Zero-Code Handoff Invariant**: single-skill handoff cards provide conceptual architectural guidance and parameters, leaving YARA-L code generation strictly to the destination skill.
 10. **Entity Context Graph (ECG) & Enterprise-Grounded Novelty Enrichment**:
     * Correlates raw telemetry bursts with Chronicle's persistent Entity Context Graph: `GLOBAL_CONTEXT` (GCTI threat intelligence, WHOIS Newly Registered Domains) and `DERIVED_CONTEXT` (enterprise binary prevalence `FILE`, domain prevalence `DOMAIN_NAME`, entity prevalence `USER`, and asset first-seen/last-seen age `ASSET`).
     * Supports the Enterprise-Grounded Hunt consultative pattern: offers analysts Tier A (Pure Local Baseline) vs. Tier B (Enterprise-Grounded Hunt) with 2.5x threat score boost for rare/novel binaries or domains (`prevalence.day_count = 10`, `prevalence.rolling_max <= 3` and `> 0`).
@@ -364,8 +365,8 @@ The skill package is verified through a rigorous three-tier testing hierarchy:
 ```bash
 pytest tests/
 ```
-* **Status**: **173 / 173 passing unit tests** across 17 test modules (100% pass rate).
-* **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution verification, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, hands-off `run_command` restriction contracts, and template router permutations across all 23 mathematical models.
+* **Status**: **178 / 178 passing unit tests** across 17 test modules (100% pass rate).
+* **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution verification, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, 28.0 KB (`28,672` bytes) progressive-loading budget ceilings, hands-off `run_command` restriction contracts, and template router permutations across all 23 mathematical models.
 
 ### 2. Chronicle Compiler AST & Invariant Validation
 ```bash
@@ -376,12 +377,25 @@ python3 scripts/multistage_query_builder.py
 
 ### 3. Maintainer Dual-Platform Regression Validation
 End-to-end multi-turn conversational regression is validated by the maintainer team via the automated regression testing platform (`secops-regress`):
-* **Status**: **23 / 23 passing scenarios** (`46 / 46` combined runs across `AgentAPI` and `Direct-MCP`, 100% dual pass rate as of v2.8.0).
+* **Status**: **23 / 23 passing scenarios** (`100%` pass rate on `Direct-MCP` and `100%` pass rate across all Pre-Flight Routing Interceptor and micro-model scenarios on both engines as of v2.8.3).
 * **Scope**: Evaluates full conversation flows against live Google SecOps customer instances (`gus-sdl`), ensuring zero-stall Turn 2 execution, `QueryIntegrityGate` enforcement, nominal quiet baseline reporting ($Z=0.00\sigma$), single-surface visualization compliance, and bilateral handoff protocol adherence.
 
 ---
 
 ## 📦 Release Notes
+
+### v2.8.3 (October 27, 2026) — The Bilateral UEBA Harness Co-Execution, Telemetry Physics & Window Guardrail & Multi-Plane CTI / Exploit Synthesis
+* **Bilateral UEBA Harness Co-Execution (`SKILL.md`, `references/statistical-hunting-cooperative-framework.md` §8)**: Co-executes with `secops-risk-metrics-multistage` and `agentic_ueba` (`PlaybookRunner`) on open-ended threat, exploit, CTI, and detection-gap UEBA inquiries (such as `http2shell` / `CVE-2026-111497`), pairing 30-day `metrics.*` baselines with bounded-window raw `UDM_EVENTS` statistical pipelines while preserving 100% of single-skill routing interceptor behavior when `Active Skill: secops-statistical-hunter` is specified.
+* **Strict Telemetry Physics & Window Guardrail**: Enforces bounded windows (`1h–24h` for high-volume HTTP/DNS/network logs or `7d–14d` for filtered process transitions via `by 5m`, `by 1h`, `by 2h`, `by 1d`) for structural/sequence models (`MARKOV_2GRAM_TRANSITION_RARITY`, `SHANNON_ENTROPY_CHARACTER`, `POISSON_BURST_CLUSTERING`, `EWMA_BURST_VELOCITY`, `C2_BEACONING_JITTER`, `ZIPFIAN_PROCESS_RARITY`) and strictly prohibits 30-day raw UDM baseline scans over high-volume telemetry (`metrics.*` domains).
+* **Test Suite & Live Dual-Engine Regression**: **178/178 unit tests** (100%); **23/23 golden templates**; **23/23 (`100.0%`)** on `Direct MCP` and **100% pass rate** across all cross-skill routing interceptor and micro-model tests on both engines. `SKILL.md` is 28,663 bytes (230 lines).
+
+### v2.8.2 (October 21, 2026) — Full Audit Remediation: Compiler-Safe `if()`/Division Guards, Rectified Multi-Sector Fusion, 10-Day ECG Prevalence Invariant & 28.0 KB Progressive-Loading Ceiling
+* **Compiler-Safe Outcome `if()` & Division Guards (`templates/pipelines/*.yl2`, `examples/*.yara`)**: Extracted nested arithmetic and logical expressions out of `if()` branches into intermediate OIO variables and guarded every division denominator across all 23 golden pipeline templates and standalone `.yara` examples.
+* **Rectified Euclidean Multi-Sector Fusion & 10-Day ECG Invariant**: Rectified per-sector Z-scores (`$pos_z = if($z > 0, $z, 0.0)`) prior to squaring in `multi_sector_threat_fusion_4stage.yl2`, enforced `prevalence.day_count = 10` and `prevalence.rolling_max > 0` across `derived_context_*` templates, and guarded missing `first_seen_time` / WHOIS `creation_time` (`> 0`).
+* **Test Suite & Live Dual-Engine Regression**: **178/178 unit tests** (100%); **23/23 (`100.0%`)** across `AgentAPI` and `Direct MCP`.
+
+### v2.8.1 (October 21, 2026) — Native SecOps UEBA Architectural Demarcation & Silent Zero-BigQuery Guardrail
+* **Native SecOps Data Plane Demarcation (`SKILL.md`, `references/scope-exclusions-guardrail.md`)**: Clarifies that both raw UDM multi-stage hunting (`UDM_EVENTS`) and `metrics.*` pre-computed UEBA baselines are 100% native to Google SecOps, leveraging core Google infrastructure, and states directly when asked that **BigQuery contributes nothing to SecOps UEBA**.
 
 ### v2.8.0 (October 20, 2026) — Impossible Travel Geodesic Velocity, Producer-Consumer Ratio Inversion, `QueryIntegrityGate`, 13 Consultative Deformations & Streamlined 5-Section Reports
 * **Two New Golden Statistical Models (`templates/pipelines/`)**:
