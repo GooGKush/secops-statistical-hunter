@@ -1,5 +1,18 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.8.3 (October 27, 2026) — The Bilateral UEBA Harness Co-Execution, Telemetry Physics & Window Guardrail & Multi-Plane CTI / Exploit Synthesis
+
+* **Bilateral UEBA Harness Co-Execution (`SKILL.md`, `references/statistical-hunting-cooperative-framework.md` §8)**:
+  * Added **Bilateral UEBA Harness Co-Execution** to `0. Pre-Flight Routing Interceptor`: when an analyst asks for an open-ended "UEBA solution" to detect a threat, exploit, vulnerability, CTI report (e.g., `http2shell` / `CVE-2026-111497`), or curated detection gap without restricting `Active Skill: secops-statistical-hunter`, co-executes with `secops-risk-metrics-multistage` and `agentic_ueba` (`PlaybookRunner`) rather than emitting a single-skill delegation card or discarding UEBA.
+  * Preserves 100% of single-skill Pre-Flight Routing Interceptor delegations whenever `Active Skill: secops-statistical-hunter` is specified or when a single-skill 30d `metrics.*` / peer cohort / 360° radar request is made.
+* **Strict Telemetry Physics & Window Guardrail (`SKILL.md`, `references/statistical-hunting-cooperative-framework.md` §8)**:
+  * Enforces the bilateral boundary: `secops-risk-metrics-multistage` owns all 30-day (`by 1d`) volumetric, failure, and ratio baselines (`metrics.*`), while `secops-statistical-hunter` executes strictly over bounded windows (`1h–24h` for high-volume HTTP/DNS/network logs or `7d–14d` for filtered/sparse process transitions using `by 5m`, `by 1h`, `by 2h`, `by 1d`) for structural/sequence anomalies (`MARKOV_2GRAM_TRANSITION_RARITY`, `SHANNON_ENTROPY_CHARACTER`, `POISSON_BURST_CLUSTERING`, `EWMA_BURST_VELOCITY`, `C2_BEACONING_JITTER`, `ZIPFIAN_PROCESS_RARITY`), chained via `PlaybookRunner` Options 1–3 (`hybrid_metric_raw_enrichment_2stage.yl2`, `/* UPSTREAM_CANDIDATE_IPS */` seeding, or `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` loopback).
+  * Strictly prohibits running 30-day raw UDM baseline scans over high-volume telemetry (`metrics.*` domains such as VPC flow logs, DNS, HTTP, Auth, or Process counts).
+* **Verification**:
+  * **Unit Test Suite**: `178 / 178` unit tests (`18` subtests) passing (`100%`), with `SKILL.md` maintained within the `28.0 KB` ceiling (`28,663` bytes / `230` lines).
+  * **Live Dual-Engine Regression (`secops-regress`)**: `23 / 23` (`100.0%`) passing on `Direct MCP` and `100%` pass rate across all Pre-Flight Routing Interceptor (`SH-P1-03`, `SH-P1-04`, `SH-P1-05`, `SH-P1-06`) and micro-model tests (`SH-P1-09` through `SH-P1-12`) on both engines.
+
+
 ## 📦 Version 2.8.2 (October 21, 2026) — Full Audit Remediation: Compiler-Safe `if()`/Division Guards, Rectified Multi-Sector Fusion, 10-Day ECG Prevalence Invariant & 28.0 KB Progressive-Loading Ceiling
 
 * **Chronicle YARA-L 2.0 Compiler-Safe Outcome `if()` & Division Guards (`templates/pipelines/*.yl2`, `examples/*.yara`)**:
