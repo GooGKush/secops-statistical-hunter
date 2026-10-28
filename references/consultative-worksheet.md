@@ -57,6 +57,11 @@ Every threat—known, emerging, or zero-day—physically deforms raw UDM event s
 │ 13. Geospatial Velocity     │ Consecutive logins across     │ Haversine Geodesic Velocity          │
 │    ("Supersonic Commuter")  │ unreachable coordinates       │ (`math.geo_distance`, Δd/Δt > 900    │
 │                             │                               │ km/h, `impossible_travel_...yl2`)    │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 14. Quantile Asymmetry &    │ Right-skewed bursts, intra-   │ 1-Stage Quantiles (`window.percentile│
+│     Tail Skew / Lag Drift   │ bucket payload bimodal split  │ P10..P90`), Bowley Skewness, Tail    │
+│    ("The Asymmetric Tail")  │ (P90 >> P50), or clock skew   │ Ratio, QCD & Skew-Adjusted Tukey     │
+│                             │ / ingestion lag (P10 < 0)     │ Fence (`iqr_tukey_skew_fences_...`)  │
 └─────────────────────────────┴───────────────────────────────┴──────────────────────────────────────┘
 ```
 
@@ -116,9 +121,10 @@ When engaging the analyst during State 1, use the **Summary View** menus below t
 * **Why Static Rules Miss It**: Fixed threshold alerts (e.g. `connections > 100`) miss implants sleeping for minutes, while interval alerts miss randomized jitter.
 * **Summary View Options**:
   1. *Clockwork Beaconing with Jitter*: Evaluate inter-arrival timing consistency on outbound connections (**Coefficient of Variation CV <= 0.20** on `NETWORK_CONNECTION`).
-  2. *Low-Entropy Scripted Staging*: Detect high-volume elephant flows to external destinations (**Elephant Flow Concentration** on `NETWORK_HTTP`).
-  3. *DNS Tunneling & Chunked Egress*: Isolate anomalous payload sizes over port 53 (**Modified Z-Score via MAD** on `NETWORK_DNS`).
-  4. *Beaconing to Enterprise-Unseen Domains*: Prioritize clockwork timing regularity targeting destinations contacted on $\le 5$ calendar days enterprise-wide (**C2 Jitter with Domain Prevalence** on `NETWORK_CONNECTION`).
+  2. *Outlier-Immune Quartile Dispersion (QCD)*: Detect periodic C2 beaconing on noisy endpoints where sporadic admin bursts inflate parametric $\sigma$ (**Quartile Coefficient of Dispersion $\text{QCD} = (Q_3 - Q_1)/(Q_3 + Q_1) \le 0.15$** via `window.percentile`).
+  3. *Low-Entropy Scripted Staging*: Detect high-volume elephant flows to external destinations (**Elephant Flow Concentration** on `NETWORK_HTTP`).
+  4. *DNS Tunneling & Chunked Egress*: Isolate anomalous payload sizes over port 53 (**Modified Z-Score via MAD** or **Skewness-Adjusted Tukey Fence** on `NETWORK_DNS`).
+  5. *Beaconing to Enterprise-Unseen Domains*: Prioritize clockwork timing regularity targeting destinations contacted on $\le 5$ calendar days enterprise-wide (**C2 Jitter with Domain Prevalence** on `NETWORK_CONNECTION`).
 
 ### Domain 2: Identity, Credential Stuffing & Dormancy
 * **Why Static Rules Miss It**: Attackers rotate IPs to stay below lockout thresholds, and dormant accounts lack active baseline variance.
@@ -142,8 +148,10 @@ When engaging the analyst during State 1, use the **Summary View** menus below t
 * **Why Static Rules Miss It**: Attackers fragment data into sub-threshold uploads or exfiltrate across non-standard protocols.
 * **Summary View Options**:
   1. *Robust Heavy-Tail Surges*: Identify extreme volumetric uploads resilient to historical outlier pollution (**Median Absolute Deviation MAD** on network egress).
-  2. *Intraday Kinetic Acceleration*: Detect acute rate bursts without lagging trailing historical baselines (**Intraday EWMA Burst Velocity** on `PROCESS_LAUNCH` or `NETWORK_CONNECTION`).
-  3. *Vocabulary Diversity Deficit*: Detect scripted automated dumps exhibiting extreme target concentration (**Diversity Deficit k/(N+1)** on HTTP requests).
+  2. *Skewness-Adjusted Tukey Fence & Fleet Breadth*: Compute the 5-point quantile envelope ($P_{10}, Q_1, Q_2, Q_3, P_{90}$), Bowley quartile skewness ($B_{\text{skew}}$), and Hubert–Vandervieren skewness-adjusted upper fence in 1 stage while preserving Stage 3 for enterprise fleet prevalence (**`IQR_TUKEY_SKEW_FENCES`**, `iqr_tukey_skew_fences_3stage.yl2`).
+  3. *Intra-Bucket Payload Quantile Shape Fingerprinting*: Separate C2 heartbeat keepalives mixed with burst exfiltration ($P_{50}$ tiny, $P_{90}$ huge, $B_{\text{skew}} \to +1.0$) from uniform bulk backups ($P_{50} \approx P_{90}$, $B_{\text{skew}} \approx 0$) inside a single stage.
+  4. *Intraday Kinetic Acceleration*: Detect acute rate bursts without lagging trailing historical baselines (**Intraday EWMA Burst Velocity** on `PROCESS_LAUNCH` or `NETWORK_CONNECTION`).
+  5. *Vocabulary Diversity Deficit*: Detect scripted automated dumps exhibiting extreme target concentration (**Diversity Deficit k/(N+1)** on HTTP requests).
 
 ### Domain 5: Lateral Movement & Privileged Account Traversal
 * **Why Static Rules Miss It**: Admins have valid credentials across many hosts; point-in-time alerts cannot track machine radius expansion.
@@ -179,6 +187,121 @@ When discussing candidate queries with an analyst exploring endpoint or network 
 ### 3. Dual-Sided Prevalence Filtering Mechanics
 * **Upward Escalation ($2.5\times$ Boost)**: Applies a multiplier to threat scores when the entity's peak daily enterprise host count is $\le 3$ (`prevalence.rolling_max <= 3` and `> 0` with `prevalence.day_count = 10`), ensuring rare tools break through alerting thresholds.
 * **Downward Suppression (Allowlisting via Prevalence)**: Down-ranks or filters out binaries and domains that exhibit extensive enterprise history (`prevalence.rolling_max > 500` hosts), protecting the SOC from Patch Tuesday and corporate software deployments.
+
+---
+
+## 📐 Real-World Non-Parametric Quantile & Skewness Hunting Playbook (`window.percentile`)
+
+Because `window.percentile(expr, P)` evaluates any percentile $P \in [0, 100]$ over raw event expressions or upstream stage variables in a **single stage**, it unlocks four real-world hunting capabilities that previously required either 2 stages (MAD) or parametric assumptions ($\mu, \sigma$):
+
+### Use Case 1: Skewness-Adjusted Tukey Upper Fence with Native Fleet Prevalence (`IQR_TUKEY_SKEW_FENCES`)
+* **Operational Problem**: Standard Tukey fences ($Q_3 + 1.5 \cdot \text{IQR}$) generate false positives on naturally right-skewed servers (e.g., build runners or DNS forwarders), while 2-stage MAD (`median_stats` $\to$ `mad_stats`) consumes 2 intermediate stages, leaving no stage for fleet prevalence (`$fleet_prevalence = -1`) or Entity Context Graph enrichment in a 3-stage pipeline.
+* **Mathematical Solution**: Compute $P_{10}, Q_1, Q_2, Q_3, P_{90}$ in a single stage (`quantile_fences`), compute **Bowley's Quartile Skewness** $B_{\text{skew}} = (Q_3 + Q_1 - 2 Q_2) / \text{IQR}$, and apply the **Hubert–Vandervieren Skewness-Adjusted Upper Fence** $Q_3 + 1.5 \cdot e^{3 \cdot \max(0, B_{\text{skew}})} \cdot \text{IQR}$ (`templates/pipelines/iqr_tukey_skew_fences_3stage.yl2`).
+
+### Use Case 2: Intra-Bucket Payload Quantile Shape Fingerprinting (C2 Heartbeat + Exfil vs. Bulk Backup)
+* **Operational Problem**: Two hosts each transfer 50 MB in 1 hour (`sum(network.sent_bytes)` is identical). Host A is running a uniform nightly backup (`1,000` flows of `50 KB` each: $P_{50} \approx P_{90}$). Host B is running a C2 beacon sending 64-byte keepalives every 5 seconds plus three 16 MB stolen archive uploads ($P_{50} = 64\text{ B}$, $P_{90} = 16\text{ MB}$, $B_{\text{skew}} \to +1.0$).
+* **Compilable YARA-L 2.0 Pattern** (verified on Chronicle SIEM):
+```yara
+// Goal: Distinguish C2 heartbeat + burst exfiltration (high intra-bucket Bowley skew & P90/P50 ratio) from uniform bulk backups.
+stage stage1_flow_shape {
+    metadata.event_type = "NETWORK_CONNECTION"
+    principal.hostname = $entity
+    $entity != ""
+    target.ip = $dst_ip
+    $dst_ip != ""
+    network.sent_bytes > 0
+  match:
+    $entity by 1h
+  outcome:
+    $flow_count = count(metadata.id)
+    $total_bytes = sum(network.sent_bytes)
+    $distinct_targets = count_distinct($dst_ip)
+    $sample_targets = array_distinct($dst_ip)
+    $p25_bytes = window.percentile(network.sent_bytes, 25)
+    $p50_bytes = window.percentile(network.sent_bytes, 50)
+    $p75_bytes = window.percentile(network.sent_bytes, 75)
+    $p90_bytes = window.percentile(network.sent_bytes, 90)
+}
+stage stage2_host_baseline {
+    $entity = $stage1_flow_shape.entity
+  match:
+    $entity
+  outcome:
+    $active_hours = count_distinct($stage1_flow_shape.window_start)
+    $median_hourly_bytes = window.percentile($stage1_flow_shape.total_bytes, 50)
+    $q75_hourly_bytes = window.percentile($stage1_flow_shape.total_bytes, 75)
+    $q25_hourly_bytes = window.percentile($stage1_flow_shape.total_bytes, 25)
+}
+$entity = $stage1_flow_shape.entity
+$entity = $stage2_host_baseline.entity
+$ws = $stage1_flow_shape.window_start
+match:
+  $entity, $ws by 1h
+outcome:
+  $observation_count = max($stage1_flow_shape.total_bytes)
+  $baseline_active_samples = max($stage2_host_baseline.active_hours)
+  $baseline_mean = max($stage2_host_baseline.median_hourly_bytes)
+  $baseline_dispersion = max($stage2_host_baseline.q75_hourly_bytes) - max($stage2_host_baseline.q25_hourly_bytes)
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($stage1_flow_shape.distinct_targets)
+  $sample_commands = array_distinct($stage1_flow_shape.sample_targets)
+
+  $flows_in_hour = max($stage1_flow_shape.flow_count)
+  $q25_flow = max($stage1_flow_shape.p25_bytes)
+  $q50_flow = max($stage1_flow_shape.p50_bytes)
+  $q75_flow = max($stage1_flow_shape.p75_bytes)
+  $p90_flow = max($stage1_flow_shape.p90_bytes)
+  $flow_iqr = $q75_flow - $q25_flow
+  $safe_flow_iqr = if($flow_iqr > 0, $flow_iqr, 1.0)
+  $flow_bowley_num = $q75_flow + $q25_flow - (2.0 * $q50_flow)
+  $flow_bowley_skew = $flow_bowley_num / $safe_flow_iqr
+  $safe_p50 = if($q50_flow > 0, $q50_flow, 1.0)
+  $p90_to_p50_ratio = $p90_flow / $safe_p50
+condition:
+  $baseline_active_samples >= 6
+  and $flows_in_hour >= 20
+  and $p90_to_p50_ratio >= 10.0
+order:
+  $p90_to_p50_ratio desc
+```
+
+### Use Case 3: Outlier-Immune Beaconing Regularity via Quartile Coefficient of Dispersion (`QCD`)
+* **Operational Problem**: A C2 beacon firing every 5 minutes produces rock-steady hourly connection counts ($Q_1 \approx Q_2 \approx Q_3$), but if the user opens a browser for 10 minutes during the day, a single hourly spike inflates parametric $\sigma$, pushing $CV = \sigma / \mu$ above `0.20` and blinding standard CV beaconing detection.
+* **Mathematical Solution**: Compute the **Quartile Coefficient of Dispersion** $\text{QCD} = (Q_3 - Q_1) / (Q_3 + Q_1) \in [0, 1]$. Because $Q_1$ and $Q_3$ have a 25% breakdown point, up to 25% of hours can contain noisy interactive browsing without affecting $\text{QCD} \le 0.15$!
+
+### Use Case 4: Telemetry Ingestion Lag, Clock-Skew & Log-Tampering / Timestomping Quantile Audit
+* **Operational Problem**: Endpoint clock drift, VM snapshot restores, adversary timestomping, or log-forwarder batch buffering can cause events to arrive with negative lag (`ingested_timestamp < event_timestamp`, $P_{10} < 0$) or severe right-skewed ingestion delay ($P_{90} \gg P_{50}$, $B_{\text{skew}} \to +1.0$), blinding real-time detection rules and Mode A windows.
+* **Compilable YARA-L 2.0 Pattern** (verified on Chronicle SIEM):
+```yara
+// Goal: Profile telemetry ingestion lag quantiles, Bowley skewness, and negative clock-skew / timestomp anomalies per log_type.
+metadata.event_timestamp.seconds > 0
+$log_type = metadata.log_type
+$log_type != ""
+
+match:
+  $log_type by 1h
+
+outcome:
+  $event_count = count(metadata.id)
+  $p10 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 10)
+  $p25 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 25)
+  $p50 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 50)
+  $p75 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 75)
+  $p90 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 90)
+
+  $iqr = $p75 - $p25
+  $bowley_num = $p75 + $p25 - (2 * $p50)
+  $safe_iqr = if($iqr > 0, $iqr, 1.0)
+  $bowley_skew = $bowley_num / $safe_iqr
+  $idr = $p90 - $p10
+  $tail_heaviness = $idr / $safe_iqr
+
+condition:
+  $event_count >= 10 and ($p10 < 0 or $p90 >= 300 or $bowley_skew >= 0.75)
+
+order:
+  $p90 desc
+```
 
 ---
 

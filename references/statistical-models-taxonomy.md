@@ -179,7 +179,18 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 19. Canonical Golden Pipeline Template Mapping (23 Templates)
+## 19. Non-Parametric Quantiles, Bowley Skewness, Tail Ratio, QCD & Skewness-Adjusted Tukey Fence (`IQR_TUKEY_SKEW_FENCES`)
+* **Goal**: Isolate heavy-tailed volumetric surges, asymmetric burst exfiltration, and telemetry ingestion-lag/clock-skew anomalies in a single quantile stage (saving 1 stage compared to 2-stage MAD).
+* **Formulas**:
+  $$\text{IQR} = Q_3 - Q_1, \quad B_{\text{skew}} = \frac{Q_3 + Q_1 - 2 Q_2}{\max(\text{IQR}, 1.0)} \in [-1, +1], \quad T_{\text{ratio}} = \frac{P_{90} - P_{10}}{\max(\text{IQR}, 1.0)}, \quad \text{QCD} = \frac{Q_3 - Q_1}{\max(Q_3 + Q_1, 1.0)}$$
+  $$\text{Fence}_{\text{adj}} = Q_3 + 1.5 \cdot e^{3 \cdot \max(0, B_{\text{skew}})} \cdot \max(\text{IQR}, 1.0), \quad \text{SurgeRatio} = \frac{x_t}{\max(\text{Fence}_{\text{adj}}, 1.0)}$$
+* **Interpretation**:
+  - Standard Tukey fences ($Q_3 + 1.5 \cdot \text{IQR}$) suffer false positives on right-skewed telemetry ($B_{\text{skew}} > 0$). Scaling by $e^{3 B_{\text{skew}}}$ adapts to right-skewed servers while maintaining tight $1.5 \cdot \text{IQR}$ fences on symmetric hosts ($B_{\text{skew}} \le 0$).
+  - Computing `window.percentile(..., P)` ($P \in \{10, 25, 50, 75, 90\}$) in 1 stage frees Stage 3 for enterprise fleet prevalence (`$fleet_prevalence`).
+
+---
+
+## 20. Canonical Golden Pipeline Template Mapping (24 Templates)
 
 | Pipeline Template (`.yl2`) | Canonical `SENSITIVITY_MAP` Key |
 | :--- | :--- |
@@ -194,6 +205,7 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `global_threat_intel_enrichment_3stage.yl2` | `GLOBAL_THREAT_INTEL_ENRICHMENT` |
 | `hybrid_entropy_concentration_2stage.yl2` | `HYBRID_ENTROPY_CONCENTRATION` |
 | `impossible_travel_geo_velocity_2stage.yl2` | `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` |
+| `iqr_tukey_skew_fences_3stage.yl2` | `IQR_TUKEY_SKEW_FENCES` |
 | `log_normal_volume_surge_2stage.yl2` | `LOG_NORMAL_VOLUME_SURGE` |
 | `mad_modified_z_4stage.yl2` | `DATA_EXFILTRATION_SPIKE` |
 | `markov_2gram_transition_rarity_2stage.yl2` | `MARKOV_2GRAM_TRANSITION_RARITY` |
@@ -209,7 +221,7 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 20. Sensitivity & Anomaly Threshold Map
+## 21. Sensitivity & Anomaly Threshold Map
 
 | Archetype | Tier | Thresholds & Parameters |
 | :--- | :--- | :--- |
@@ -264,15 +276,18 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `GLOBAL_THREAT_INTEL_ENRICHMENT` | **CONSERVATIVE** | `threat_score=4.0`, `min_obs_bytes=1000000.0`, `min_active_hours=24`, `nrd_multiplier=2.5` |
 | `GLOBAL_THREAT_INTEL_ENRICHMENT` | **BALANCED** | `threat_score=3.0`, `min_obs_bytes=100000.0`, `min_active_hours=12`, `nrd_multiplier=2.5` |
 | `GLOBAL_THREAT_INTEL_ENRICHMENT` | **AGGRESSIVE** | `threat_score=2.0`, `min_obs_bytes=10000.0`, `min_active_hours=6`, `nrd_multiplier=2.0` |
-| `HEAVY_TAIL_OUTLIERS` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_iqr=50.0`, `min_baseline_days=14` |
-| `HEAVY_TAIL_OUTLIERS` | **BALANCED** | `surge_ratio=2.0`, `min_iqr=10.0`, `min_baseline_days=7` |
-| `HEAVY_TAIL_OUTLIERS` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_iqr=5.0`, `min_baseline_days=3` |
+| `HEAVY_TAIL_OUTLIERS` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_daily_volume=500`, `min_iqr=50.0`, `min_baseline_days=14` |
+| `HEAVY_TAIL_OUTLIERS` | **BALANCED** | `surge_ratio=2.0`, `min_daily_volume=100`, `min_iqr=10.0`, `min_baseline_days=7` |
+| `HEAVY_TAIL_OUTLIERS` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_daily_volume=25`, `min_iqr=5.0`, `min_baseline_days=3` |
 | `HYBRID_ENTROPY_CONCENTRATION` | **CONSERVATIVE** | `max_diversity_z=-2.5`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
 | `HYBRID_ENTROPY_CONCENTRATION` | **BALANCED** | `max_diversity_z=-1.5`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
 | `HYBRID_ENTROPY_CONCENTRATION` | **AGGRESSIVE** | `max_diversity_z=-1.0`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
 | `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **CONSERVATIVE** | `velocity_kmh=1200.0`, `min_distance_km=1000.0`, `min_active_samples=14` |
 | `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **BALANCED** | `velocity_kmh=900.0`, `min_distance_km=500.0`, `min_active_samples=7` |
 | `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **AGGRESSIVE** | `velocity_kmh=500.0`, `min_distance_km=250.0`, `min_active_samples=3` |
+| `IQR_TUKEY_SKEW_FENCES` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_daily_volume=500`, `min_iqr=50.0`, `min_baseline_days=14` |
+| `IQR_TUKEY_SKEW_FENCES` | **BALANCED** | `surge_ratio=2.0`, `min_daily_volume=100`, `min_iqr=10.0`, `min_baseline_days=7` |
+| `IQR_TUKEY_SKEW_FENCES` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_daily_volume=25`, `min_iqr=5.0`, `min_baseline_days=3` |
 | `LOG_NORMAL_VOLUME` | **CONSERVATIVE** | `z_score=3.5`, `min_bytes=100000000.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `LOG_NORMAL_VOLUME` | **BALANCED** | `z_score=2.5`, `min_bytes=10000000.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `LOG_NORMAL_VOLUME` | **AGGRESSIVE** | `z_score=1.8`, `min_bytes=1000000.0`, `min_sd=0.2`, `min_active_samples=3` |

@@ -186,6 +186,7 @@ class TestMathModels(unittest.TestCase):
         "SHANNON_ENTROPY_CHARACTER",
         "ZIPFIAN_PROCESS_RARITY",
         "EWMA_BURST_VELOCITY",
+        "IQR_TUKEY_SKEW_FENCES",
     ]
     tiers = ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]
     for model in new_models:
@@ -194,6 +195,32 @@ class TestMathModels(unittest.TestCase):
         self.assertEqual(check_scope_exclusions(query), [], f"Scope exclusion failed for {model} [{tier}]")
         errs = [e for e in validate_multistage_syntax(query) if not e.startswith("MISSING METHODOLOGY HEADER")]
         self.assertEqual(errs, [], f"Syntax validation failed for {model} [{tier}]: {errs}")
+
+  def test_iqr_tukey_skew_fences_and_bowley_math(self):
+    """1-Stage Quantile envelope, Bowley skewness, tail-heaviness ratio, and Hubert-Vandervieren fence evaluate accurately."""
+    from multistage_query_builder import MultiStageTemplateRouter, validate_multistage_syntax
+    router = MultiStageTemplateRouter()
+    query = router.build_query("IQR_TUKEY_SKEW_FENCES", tier="BALANCED")
+    self.assertIn("window.percentile($daily_stats.daily_value, 10)", query)
+    self.assertIn("window.percentile($daily_stats.daily_value, 25)", query)
+    self.assertIn("window.percentile($daily_stats.daily_value, 50)", query)
+    self.assertIn("window.percentile($daily_stats.daily_value, 75)", query)
+    self.assertIn("window.percentile($daily_stats.daily_value, 90)", query)
+    self.assertIn("$bowley_skew", query)
+    self.assertIn("$tail_heaviness", query)
+    self.assertIn("$adj_upper_fence", query)
+    self.assertIn("stage fleet_breadth", query)
+    errs = [e for e in validate_multistage_syntax(query) if not e.startswith("MISSING METHODOLOGY HEADER")]
+    self.assertEqual(errs, [])
+
+    # Verify Bowley skewness & Hubert-Vandervieren skewness-adjusted fence math
+    q25, q50, q75 = 111.0, 112.0, 114.0
+    iqr = q75 - q25
+    bowley_skew = (q75 + q25 - 2.0 * q50) / iqr
+    self.assertAlmostEqual(bowley_skew, 1.0 / 3.0, places=4)
+    pos_skew = max(0.0, bowley_skew)
+    adj_fence = q75 + 1.5 * math.pow(2.718281828, 3.0 * pos_skew) * iqr
+    self.assertAlmostEqual(adj_fence, 126.2323, places=3)
 
 
 if __name__ == "__main__":

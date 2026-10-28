@@ -1,0 +1,102 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Non-Parametric Quantiles, Bowley Skewness, Tail-Heaviness & Hubert-Vandervieren Skewness-Adjusted Tukey Fence outlier hunt over raw UDM telemetry.
+//   Extracts the 5-point empirical quantile envelope (P10, Q1, Q2, Q3, P90) in a SINGLE intermediate stage (saving 1 stage compared to
+//   2-stage MAD), enabling simultaneous Stage 3 fleet prevalence tracking alongside Bowley's quartile skewness, Moors tail-heaviness ratio,
+//   and the skewness-adjusted Tukey upper fence.
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Pipeline: 4 stages (daily_stats -> quantile_fences -> fleet_breadth -> root).
+// Statistical Model: Hubert-Vandervieren Skewness-Adjusted Tukey Fence & Bowley Quartile Skewness (IQR_TUKEY_SKEW_FENCES)
+//   IQR          = Q3 - Q1
+//   Bowley Skew  = (Q3 + Q1 - 2 * Q2) / max(IQR, 1.0)    in [-1, +1]
+//   Tail Ratio   = (P90 - P10) / max(IQR, 1.0)           (Gaussian benchmark ~ 1.90; heavy tails > 3.0)
+//   Adj Fence    = Q3 + 1.5 * exp(3 * max(0, Bowley)) * max(IQR, 1.0)
+//   Surge Ratio  = Observed / max(Adj Fence, 1.0)
+// Mathematical Rationale:
+//   - Standard Tukey fences (Q3 + 1.5 * IQR) assume symmetric quartiles and trigger false positives on naturally right-skewed
+//     volumetric telemetry (bytes, DNS queries). Scaling the fence exponentially by positive Bowley quartile skewness adapts to right-skewed
+//     hosts while maintaining a tight 1.5 * IQR fence on symmetric/clockwork hosts.
+//   - Because window.percentile(val, P) computes all 5 quantiles in a single stage, Stage 3 is free to compute true enterprise fleet
+//     prevalence ($fleet_prevalence), enabling HIGH CONFIDENCE triage ratings.
+// Sensitivity Boundary: {{tier}} (Surge Ratio >= {{surge_ratio}}, Observed Value >= {{min_daily_volume}}, Min IQR >= {{min_iqr}}, Active Windows >= {{min_baseline_days}})
+// ============================================================================
+
+// Stage 1: Per-window observed value and distinct evidence samples per entity
+stage daily_stats {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by {{bucket_size}}
+  outcome:
+    $daily_value = {{daily_aggregation}}
+    $distinct_sample_values = count_distinct({{sample_field}})
+    $sample_data = array_distinct({{sample_field}})
+}
+
+// Stage 2: 5-point empirical quantile envelope (P10, Q1, Q2, Q3, P90) in a single stage
+stage quantile_fences {
+    $entity = $daily_stats.entity
+
+  match:
+    $entity
+  outcome:
+    $active_days = count_distinct($daily_stats.window_start)
+    $p10 = window.percentile($daily_stats.daily_value, 10)
+    $q25 = window.percentile($daily_stats.daily_value, 25)
+    $q50 = window.percentile($daily_stats.daily_value, 50)
+    $q75 = window.percentile($daily_stats.daily_value, 75)
+    $p90 = window.percentile($daily_stats.daily_value, 90)
+}
+
+// Stage 3: Enterprise-wide fleet prevalence per window (freed by 1-stage quantile envelope)
+stage fleet_breadth {
+    $ws = $daily_stats.window_start
+
+  match:
+    $ws by {{bucket_size}}
+  outcome:
+    $fleet_hosts = count_distinct($daily_stats.entity)
+}
+
+// Root Stage: Bowley Skewness, Tail Heaviness, Skewness-Adjusted Tukey Fence & 6 Evidence Pillars
+$entity = $daily_stats.entity
+$entity = $quantile_fences.entity
+$window_start = $daily_stats.window_start
+$window_start = $fleet_breadth.ws
+
+match:
+  $entity, $window_start by {{bucket_size}}
+outcome:
+  // 6 Core Evidence Pillars
+  $observation_count = max($daily_stats.daily_value)
+  $baseline_active_samples = max($quantile_fences.active_days)
+  $baseline_mean = max($quantile_fences.q50)
+  $q25_val = max($quantile_fences.q25)
+  $q75_val = max($quantile_fences.q75)
+  $baseline_dispersion = $q75_val - $q25_val
+  $fleet_prevalence = max($fleet_breadth.fleet_hosts)
+  $distinct_binaries = max($daily_stats.distinct_sample_values)
+  $sample_commands = array_distinct($daily_stats.sample_data)
+
+  // Non-Parametric Bowley Skewness, Tail Heaviness & Skewness-Adjusted Tukey Upper Fence
+  $safe_iqr = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
+  $bowley_num = $q75_val + $q25_val - (2.0 * $baseline_mean)
+  $bowley_skew = $bowley_num / $safe_iqr
+  $idr = max($quantile_fences.p90) - max($quantile_fences.p10)
+  $tail_heaviness = $idr / $safe_iqr
+  $pos_skew = if($bowley_skew > 0, $bowley_skew, 0.0)
+  $skew_exp = math.pow(2.718281828, 3.0 * $pos_skew)
+  $adj_upper_fence = $q75_val + (1.5 * $skew_exp * $safe_iqr)
+  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
+  $surge_ratio = $observation_count / $safe_fence
+
+condition:
+  $baseline_active_samples >= {{min_baseline_days}}
+  and $observation_count >= {{min_daily_volume}}
+  and $baseline_dispersion >= {{min_iqr}}
+  and $surge_ratio >= {{surge_ratio}}
+
+order:
+  $surge_ratio desc

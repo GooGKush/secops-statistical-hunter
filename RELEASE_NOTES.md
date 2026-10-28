@@ -1,5 +1,20 @@
 # Release Notes: SecOps Statistical Hunter
 
+## 📦 Version 2.9.0 (October 28, 2026) — Non-Parametric Quantiles (`window.percentile`), Bowley Quartile Skewness, Hubert–Vandervieren Skewness-Adjusted Tukey Fences, Intra-Bucket Payload Shape Fingerprinting & Ingestion-Lag Quantile Auditing
+
+* **24th Golden Pipeline Template: 1-Stage Quantile Envelope & Skewness-Adjusted Tukey Fence (`templates/pipelines/iqr_tukey_skew_fences_3stage.yl2`, `IQR_TUKEY_SKEW_FENCES`)**:
+  * Computes the 5-point empirical quantile envelope ($P_{10}, Q_1, Q_2, Q_3, P_{90}$) in a **single intermediate stage** (`quantile_fences`) via `window.percentile(expr, P)`, saving 1 full stage and 1 join compared to 2-stage MAD (`median_stats` $\to$ `mad_stats`).
+  * Frees Stage 3 for native enterprise fleet prevalence (`stage fleet_breadth`), enabling `🟢 HIGH CONFIDENCE` triage ratings alongside non-parametric outlier scoring.
+  * Computes **Bowley's Quartile Skewness** $B_{\text{skew}} = (Q_3 + Q_1 - 2 Q_2) / \max(\text{IQR}, 1.0) \in [-1, +1]$, **Moors Interdecile-to-Interquartile Tail-Heaviness Ratio** $T_{\text{ratio}} = (P_{90} - P_{10}) / \max(\text{IQR}, 1.0)$, and the **Hubert–Vandervieren Skewness-Adjusted Tukey Upper Fence** $Q_3 + 1.5 \cdot e^{3 \cdot \max(0, B_{\text{skew}})} \cdot \max(\text{IQR}, 1.0)$ via `math.pow(2.718281828, 3.0 * $pos_skew)`.
+* **Malachite Function Factory Matrix & Consultative Worksheet Expansion (`references/malachite-function-factory-matrix.md`, `references/consultative-worksheet.md`, `examples/iqr_tukey_fences_egress.yara`)**:
+  * Documented `window.percentile(expr, P)` ($P \in [0, 100]$) and `window.median(expr, bool)` in the Malachite Function Factory Matrix, including Section 6 covering 1-stage quantile envelopes, Quartile Coefficient of Dispersion ($\text{QCD} = (Q_3 - Q_1)/(Q_3 + Q_1)$ as an outlier-immune replacement for $CV = \sigma/\mu$), intra-bucket payload shape fingerprinting, and ingestion-lag auditing.
+  * Expanded `references/consultative-worksheet.md` to **14 Raw Behavioral Telemetry Deformations** (adding Deformation 14: *Quantile Asymmetry & Tail Skew / Lag Drift*) and added the **Real-World Non-Parametric Quantile & Skewness Hunting Playbook** with live-verified compilable YARA-L 2.0 examples for Intra-Bucket Payload Quantile Shape Fingerprinting ($P_{50}$ vs $P_{90}$ separating C2 heartbeat + burst exfiltration from uniform backups) and Telemetry Ingestion Lag / Clock-Skew / Timestomping Quantile Auditing (`metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds`).
+  * Upgraded `examples/iqr_tukey_fences_egress.yara` to canonical `by 1d` buckets, OIO Bowley skewness, and Hubert–Vandervieren skewness-adjusted upper fences.
+* **Verification**:
+  * **Unit Test Suite**: `179 / 179` unit tests passing (`100%`), with `SKILL.md` maintained within the `28.0 KB` ceiling.
+  * **Live Chronicle SIEM (`gus-sdl`)**: All 24 golden pipeline templates and consultative quantile/skewness queries verified live via `udm_search`.
+
+
 ## 📦 Version 2.8.3 (October 27, 2026) — The Bilateral UEBA Harness Co-Execution, Telemetry Physics & Window Guardrail & Multi-Plane CTI / Exploit Synthesis
 
 * **Bilateral UEBA Harness Co-Execution (`SKILL.md`, `references/statistical-hunting-cooperative-framework.md` §8)**:
