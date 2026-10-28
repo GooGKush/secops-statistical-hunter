@@ -1,9 +1,9 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.8.3
+version: 2.9.0
 description: |
-  Multi-stage statistical outlier hunting, Bayesian updating, and Entity Context Graph (GLOBAL_CONTEXT, DERIVED_CONTEXT) enrichment in Google SecOps over raw UDM telemetry. Supports Z-Score, Fano, Poisson, standalone Median Absolute Deviation (MAD) over raw fields or custom windows (30d MAD: secops-risk-metrics-multistage), CV, Gamma, Beta-Binomial, Delta-Z, Multi-Sector, Markov, Shannon, Zipf, EWMA, and Hybrid Models with 5-Section Triage Reporting (6 pillars, CRI [0-100]). Triggers: beaconing with jitter, MAD on DNS, Tukey fence, impossible travel, poisson burst, fano factor, bayesian gamma, beta-binomial, dual-baseline delta-z, multi-sector threat fusion, service account out of normal behavioral scope, diversity deficit, elephant flow, two-part hurdle, global threat intel, derived context, markov process transition, shannon character entropy, zipfian process rarity, ewma burst velocity.
+  Multi-stage statistical outlier hunting, Bayesian updating, and Entity Context Graph (GLOBAL_CONTEXT, DERIVED_CONTEXT) enrichment in Google SecOps over raw UDM telemetry. Supports Z-Score, Fano, Poisson, standalone Median Absolute Deviation (MAD) over raw fields or custom windows (30d MAD: secops-risk-metrics-multistage), Quantile/Bowley-Skewness Tukey Fences, CV, Gamma, Beta-Binomial, Delta-Z, Multi-Sector, Markov, Shannon, Zipf, EWMA, and Hybrid Models with 5-Section Triage Reporting (6 pillars, CRI [0-100]). Triggers: beaconing with jitter, MAD on DNS, Tukey fence, Bowley skewness, quantile fence, ingestion lag, impossible travel, poisson burst, fano factor, bayesian gamma, beta-binomial, dual-baseline delta-z, multi-sector threat fusion, service account out of normal behavioral scope, diversity deficit, elephant flow, two-part hurdle, global threat intel, derived context, markov process transition, shannon character entropy, zipfian process rarity, ewma burst velocity.
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
 ---
 
@@ -69,15 +69,15 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
    - **Peer Cohorts & Entity Risk Scores**: Inquiries comparing an entity to their department/role peer group, or referencing `graph.risk_score` / 360° health checks.
    - **Bilateral UEBA Harness Co-Execution**: When co-loaded with `secops-risk-metrics-multistage` on an open-ended exploit/CTI UEBA solution (no single `Active Skill:` test header, `references/statistical-hunting-cooperative-framework.md` §8), supply bounded-window raw UDM pipelines (`by 5m`, `by 1h`, Markov 2-gram lineage, Shannon entropy, Poisson Fano burst, EWMA velocity, CV jitter, Zipfian rarity) paired with 30d `metrics.*` and `agentic_ueba` loopback (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH`); never run 30-day raw scans over VPC/DNS/HTTP/Auth.
 1. **Universal Pre-Flight Gate & Interactive Scoping Protocol**:
-   Turn 1 is reserved for approach overview, analogy, pre-flight card, candidate query preview (` ```yara `), and clearance question. Turn 1 tool execution evaluates **exclusively simple single-event UDM filters** via at most ONE 1-shot probe (`udm_search(query="metadata.event_type = ...", maxEvents=1)`). **NEVER pass `stage ... { ... }`, `match:`, or `outcome:` to `udm_search` on Turn 1** (submitting a multi-stage query on Turn 1—even with `maxEvents=1`—is a `ZERO_UNSOLICITED_EXECUTION` violation). Multi-stage query execution occurs strictly on Turn 2 after clearance.
+   Turn 1 is reserved for approach overview, analogy, pre-flight card, candidate query preview (` ```yara `), and clearance question. Turn 1 tool execution evaluates **exclusively simple single-event UDM filters** via at most ONE 1-shot probe (`udm_search(query="metadata.event_type = ...", maxEvents=1)`). **NEVER pass `stage ... { ... }`, `match:`, or `outcome:` to `udm_search` on Turn 1** (`ZERO_UNSOLICITED_EXECUTION` violation). Multi-stage query execution occurs strictly on Turn 2 after clearance.
 2. **Consultative Support & Expert Bypass Rule**:
-   * *Consultative Discovery*: For open-ended raw telemetry requests, inspect `references/consultative-worksheet.md` (13 Raw Behavioral Telemetry Deformations across 6 Raw Hunting Domains) and offer 2–3 Summary View options.
+   * *Consultative Discovery*: For open-ended raw telemetry requests, inspect `references/consultative-worksheet.md` (14 Raw Behavioral Telemetry Deformations across 6 Domains) and offer 2–3 Summary View options.
    * *Enterprise-Grounded Hunt Consultative Pattern*: Offer **Tier A (Pure Local Baseline)** vs **Tier B (Enterprise-Grounded Hunt)** joining `DERIVED_CONTEXT` prevalence (`day_count = 10`, `rolling_max <= 3` and `> 0`) for a 2.5x rarity multiplier.
    * *Expert Bypass Rule*: If target telemetry and statistical model are specified, emit the Pre-Flight Card directly.
 3. **Plain-English Operational Analogy**: Explain detection mechanics in 1–2 intuitive sentences.
 4. **Structured Pre-Flight Hunting Specification Card & Candidate Query Preview**:
    * *Template-First Formulation Directive*: Inspect `~/.gemini/config/skills/secops-statistical-hunter/templates/pipelines/<model>.yl2` (or `references/multi-stage-query-guide.md`):
-     - **Parametric/Robust**: `zscore_process_surge_2stage.yl2`, `mad_modified_z_4stage.yl2` (`MAD_EXFILTRATION`), `log_normal_volume_surge_2stage.yl2`, `ewma_burst_velocity_2stage.yl2`
+     - **Parametric/Robust**: `zscore_process_surge_2stage.yl2`, `mad_modified_z_4stage.yl2` (`MAD_EXFILTRATION`), `iqr_tukey_skew_fences_3stage.yl2` (`IQR_TUKEY_SKEW_FENCES`), `log_normal_volume_surge_2stage.yl2`, `ewma_burst_velocity_2stage.yl2`
      - **Poisson/Timing**: `poisson_burst_clustering_2stage.yl2`, `poisson_rare_surge_2stage.yl2` (`POISSON_ORIGIN_RARITY`), `c2_beaconing_jitter_2stage.yl2`
      - **Bayesian/Fleet**: `bayesian_gamma_shrinkage_4stage.yl2`, `beta_binomial_failure_4stage.yl2`, `dual_baseline_delta_z_3stage.yl2`
      - **Multi-Sector/Hybrid**: `multi_sector_threat_fusion_4stage.yl2`, `privileged_lateral_expansion_2stage.yl2`, `two_part_hurdle_2stage.yl2`, `hybrid_entropy_concentration_2stage.yl2`, `impossible_travel_geo_velocity_2stage.yl2`, `producer_consumer_ratio_inversion_2stage.yl2`
@@ -95,18 +95,18 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
      ### Candidate Multi-Stage YARA-L Query Preview
      ```
    * *6 Mandatory Root Outcome Variables Protocol*:
-     Every multi-stage query emits all 6 root outcome variables: `$observation_count`, `$baseline_active_samples`, `$baseline_mean`, `$baseline_dispersion`, `$fleet_prevalence`, and `$distinct_binaries`. When fleet breadth is not computed, emit `$fleet_prevalence = 0 - 1` (bare `-1` fails compilation; never emit literal `1` as a placeholder).
+     Every multi-stage query emits all 6 root outcome variables: `$observation_count`, `$baseline_active_samples`, `$baseline_mean`, `$baseline_dispersion`, `$fleet_prevalence`, and `$distinct_binaries` (max 20 outcome vars per block). When fleet breadth is not computed, emit `$fleet_prevalence = 0 - 1` (bare `-1` fails compilation; never emit literal `1` as a placeholder).
    * *Affirmative Compiler Grammar Protocols*:
      - **Entity Scoping & Stage Bindings**: Filter target entities in Stage 1 (`principal.hostname = "dev-ub22-1"`, `principal.hostname = $entity`, `$entity != ""`), bind `match:` with bare identifiers (`$entity by 1h`, `$entity, $ws by 1h`, `$host by 1d`), and place cross-stage bindings before `match:` in root (max 3 named + 1 root = 4 stages).
      - **Outcome `if()`, OIO & Safe Dispersion**: `if()` `then` clauses require simple placeholders/constants (bind compound math to an intermediate variable first). In-stage OIO derivations (`$diff = $obs - $avg`, `$z = $diff / $safe_sd`) are supported. Guard division with `$safe_sd = if($sd > 0, $sd, 1.0)` and divide directly (`/ $safe_sd`).
-     - **Function Factory Math Built-Ins**: Supports `math.sqrt()`, `math.log()`, `math.pow(base, exp)` (`math.pow(2.718281828, x)` for $e^x$; `math.exp()` does NOT exist), `math.abs()`, `math.round()`, `math.floor()`, `math.ceil()`, and `math.geo_distance()`. `math.min()`/`math.max()` do NOT exist; use `if($a > $b, $a, $b)` for scalar clamps.
+     - **Function Factory Math & Window Built-Ins**: Supports `math.sqrt()`, `math.log()`, `math.pow(base, exp)` (`math.pow(2.718281828, x)` for $e^x$; `math.exp()` does NOT exist), `math.abs()`, `math.round()`, `math.floor()`, `math.ceil()`, `math.geo_distance()`, `window.percentile(expr, P)` ($P \in [0, 100]$, 1-stage quantiles, Bowley skewness, lag auditing), and `window.median(expr, false)`. `math.min()`/`math.max()` do NOT exist; use `if($a > $b, $a, $b)`.
      - **Stage Keying, Windows & Aggregations**: Unwindowed stages (`match: $host`) collapse entity baselines; windowed breadth stages key on `$ws = $stage1.window_start` (`match: $ws by 1h`). Join at most 2 raw stages at root (`sum(if(metadata.event_type = "...", 1, 0))` for 3+ sectors) and canonical windows (`by 5m`, `by 1h`, `by 2h`, `by 1d`). Use single `=` in `if($flag = 1.0, ...)`, `re.regex(<field>, `(?i)...`)`, `max()`/`min()` on numbers, `array_distinct()`/`count_distinct()` on strings, `$max_day = max($day_id)` for daily isolation, and plain Unicode in table headers (`Mean (μ)`, `StdDev (σ)`).
 5. **Compile-Time Verification Protocol & Single-Cycle Self-Healing Ceiling**:
-   Execute at most ONE initial 1-shot probe (+ at most ONE retry = max 2 probes) on Turn 1 using ISO 8601 timestamps and a **flat single-event filter only** (`udm_search(query="metadata.event_type = \"...\" AND ...", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)` — **NEVER include `stage`, `match:`, or `outcome:` in the Turn 1 probe**), then emit Pre-Flight Card and preview. On Turn 2 after clearance, submit the multi-stage query verbatim via `udm_search`.
+   Execute at most ONE initial 1-shot probe (+ at most ONE retry = max 2 probes) on Turn 1 using ISO 8601 timestamps and a **flat single-event filter only** (`udm_search(query="metadata.event_type = \"...\" AND ...", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)` — **NEVER include `stage`, `match:`, or `outcome:` in the Turn 1 probe**), then emit Pre-Flight Card and preview. On Turn 2 after clearance, submit the multi-stage query via `udm_search`.
 6. **Explicit Clearance Question & Turn 1 Yield Invariant**:
    Conclude Turn 1 with:
    *"Would you like me to proceed with executing this search in **Mode A (Rolling 24-Hour Raw-Event Window)** or **Mode B (14-Day Raw-Event Timeline)**?"*
-   *(Recommend **Mode B (7-to-14-Day Raw-Event Timeline)** by default for `by 1d` models since 24h yields `N = 1` day; hourly models support Mode A or B.)* Yield the turn immediately.
+   *(Recommend **Mode B (7-to-14-Day Raw-Event Timeline)** by default for `by 1d` models; hourly models support Mode A or B.)* Yield the turn immediately.
 
 ---
 
@@ -115,7 +115,7 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
 1. **Immediate Execution Turn (Single Multi-Stage Dispatch & Zero Follow-Up Raw Dumps)**:
    Dispatch the approved multi-stage query via `udm_search` once (Mode B 14d default for `by 1d`; Mode A 24h for `by 1h`/`by 5m`). If `{}` or `{"stats": []}` returns, stop calling tools and render the 5-Section Triage Report as a nominal baseline (`0 Outliers Detected`). Never run follow-up raw dumps or Python scripts.
 2. **Mandatory 5-Section Triage Report Delivery (All Models & Zero-Outlier Runs)**:
-   Even when a hunt returns 0 outlier rows (True Negative / zero results / `{}`) or runs an info-theoretic model (`SHANNON_ENTROPY_CHARACTER`, `MARKOV_2GRAM_TRANSITION_RARITY`, `ZIPFIAN_PROCESS_RARITY`), Turn 2 MUST ALWAYS emit all 5 canonical sections in exact order (`Statistical Outlier Report`, `Ranked Outlier Summary`, `Top Outlier Spotlight`, `Chronicle UI Manual Pivot`, `Statistical & Mathematical Appendix`):
+   Even when a hunt returns 0 outlier rows (`{}` / `{"stats": []}`) or runs an info-theoretic model (`SHANNON_ENTROPY_CHARACTER`, `MARKOV_2GRAM_TRANSITION_RARITY`, `ZIPFIAN_PROCESS_RARITY`), Turn 2 MUST ALWAYS emit all 5 canonical sections in exact order:
 
 ```markdown
 ### ⚡ Statistical Outlier Report: [Hunt Topic]
@@ -147,7 +147,7 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
 [Potential Attack Scenarios | Legitimate Business Explanations | Step-by-Step SOC Action Plan]
 
 > [!NOTE]
-> **Zero Outliers (Nominal Baseline)**: When $N=0$ outliers breach the threshold, all 5 sections remain mandatory. Format Section 3 as `#### 🔍 Top Outlier Spotlight: Nominal Baseline (0 Outliers Detected)` and populate all 6 Forensic Evidence Pillars (`1. Activity Spike` through `6. Variety of Programs`) with nominal baseline values.
+> **Zero Outliers (Nominal Baseline)**: When $N=0$ outliers breach the threshold, all 5 sections remain mandatory. Format Section 3 as `#### 🔍 Top Outlier Spotlight: Nominal Baseline (0 Outliers Detected)` and populate all 6 Forensic Evidence Pillars with nominal baseline values.
 
 ---
 #### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)

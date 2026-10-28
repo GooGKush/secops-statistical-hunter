@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.8.3-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-178%2F178%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v2.9.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-179%2F179%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -57,8 +57,8 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
     * `QueryIntegrityGate` (`scripts/multistage_query_builder.py`) audits pre-dispatch queries for unresolved `{{slot}}` placeholders, missing target entity scoping, and malformed `%<table_name>.<column>` Data Table syntax, and inspects post-execution `udm_search` responses so backend compiler/RPC errors never masquerade as `0.00σ` clean baselines.
 14. **Automated Clean Hand-Off Protocol**:
     * Generates schema-compliant synthetic UDM security analytics events (`CUSTOM_SECURITY_DATA_ANALYTICS`) under a unique `Hunt Campaign ID`, caught by tenant rule `secops_statistical_hunter_alert_catchall` for seamless alert escalation without case wall pollution.
-15. **Advanced Information-Theoretic, Long-Tail, Geospatial & Directional Asymmetry Models**:
-    * Expands analytical reach with Markov 2-Gram Transition Rarity (evaluating $- \ln P(B \mid A)$ conditional process surprisal), Shannon Character-Class Entropy (obfuscated scripts & DGA detection), Power-Law / Zipfian Long-Tail Process Rarity ($f(k) \propto 1/k^s$ asymptotic tail isolation), Intraday EWMA Burst Velocity ($\alpha = 0.30$ kinetic rate acceleration), **Impossible Travel Geodesic Velocity (`impossible_travel_geo_velocity_2stage.yl2`, Haversine `math.geo_distance`)**, and **Producer-Consumer Byte Ratio Inversion (`producer_consumer_ratio_inversion_2stage.yl2`, $\rho = \text{sent} / (\text{sent} + \text{recv})$)**, bringing the golden pipeline suite to 23 models.
+15. **Advanced Information-Theoretic, Long-Tail, Geospatial, Directional Asymmetry & Non-Parametric Quantile/Skewness Models**:
+    * Expands analytical reach with Markov 2-Gram Transition Rarity (evaluating $- \ln P(B \mid A)$ conditional process surprisal), Shannon Character-Class Entropy (obfuscated scripts & DGA detection), Power-Law / Zipfian Long-Tail Process Rarity ($f(k) \propto 1/k^s$ asymptotic tail isolation), Intraday EWMA Burst Velocity ($\alpha = 0.30$ kinetic rate acceleration), **Impossible Travel Geodesic Velocity (`impossible_travel_geo_velocity_2stage.yl2`, Haversine `math.geo_distance`)**, **Producer-Consumer Byte Ratio Inversion (`producer_consumer_ratio_inversion_2stage.yl2`, $\rho = \text{sent} / (\text{sent} + \text{recv})$)**, and **1-Stage Quantile, Bowley Skewness, Tail Ratio & Hubert–Vandervieren Skewness-Adjusted Tukey Fence (`iqr_tukey_skew_fences_3stage.yl2`, `window.percentile`)**, bringing the golden pipeline suite to 24 models.
 
 ---
 
@@ -71,7 +71,7 @@ secops-statistical-hunter/
 ├── RELEASE_NOTES.md                         # Detailed version changelog & release history
 ├── LICENSE                                  # Apache 2.0 open-source license
 ├── llms.txt                                 # Token-efficient AI agent summary file
-├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (23)
+├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (24)
 │   ├── bayesian_gamma_shrinkage_4stage.yl2  # Poisson-Gamma Bayesian Credibility Shrinkage
 │   ├── beta_binomial_failure_4stage.yl2     # Beta-Binomial Failure Rate Shrinkage
 │   ├── c2_beaconing_jitter_2stage.yl2       # C2 beaconing timing jitter & interval regularity (CV)
@@ -83,6 +83,7 @@ secops-statistical-hunter/
 │   ├── global_threat_intel_enrichment_3stage.yl2 # GCTI Threat Intel & WHOIS NRD egress correlation
 │   ├── hybrid_entropy_concentration_2stage.yl2 # Diversity Deficit & Elephant Flow Concentration
 │   ├── impossible_travel_geo_velocity_2stage.yl2 # Geodesic Haversine Velocity (math.geo_distance / Δt)
+│   ├── iqr_tukey_skew_fences_3stage.yl2     # 1-Stage Quantiles (P10..P90), Bowley Skewness, Tail Ratio & Skew-Adjusted Tukey Fence
 │   ├── log_normal_volume_surge_2stage.yl2   # Parametric Log-Normal Volumetric Standardization & Sigmoid CRI
 │   ├── mad_modified_z_4stage.yl2            # Standalone MAD / Modified Z-Score (4-stage, Iglewicz-Hoaglin MAD=0 fallback)
 │   ├── markov_2gram_transition_rarity_2stage.yl2 # Markov 2-Gram transition probability & information surprisal

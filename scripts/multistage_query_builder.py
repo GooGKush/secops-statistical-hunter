@@ -14,7 +14,7 @@ generates Strictly-Typed True Dual-Y Axis Timeline Specs (with orient: right and
 """
 
 __author__ = "Greg Kushmerek"
-__version__ = "2.7.2"
+__version__ = "2.9.0"
 
 import argparse
 import json
@@ -111,9 +111,14 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"m_z": 3.0, "min_daily_volume": 25, "dispersion_floor": 1.0, "min_baseline_days": 3},
     },
     "HEAVY_TAIL_OUTLIERS": {
-        "CONSERVATIVE": {"surge_ratio": 3.0, "min_iqr": 50.0, "min_baseline_days": 14},
-        "BALANCED": {"surge_ratio": 2.0, "min_iqr": 10.0, "min_baseline_days": 7},
-        "AGGRESSIVE": {"surge_ratio": 1.5, "min_iqr": 5.0, "min_baseline_days": 3},
+        "CONSERVATIVE": {"surge_ratio": 3.0, "min_daily_volume": 500, "min_iqr": 50.0, "min_baseline_days": 14},
+        "BALANCED": {"surge_ratio": 2.0, "min_daily_volume": 100, "min_iqr": 10.0, "min_baseline_days": 7},
+        "AGGRESSIVE": {"surge_ratio": 1.5, "min_daily_volume": 25, "min_iqr": 5.0, "min_baseline_days": 3},
+    },
+    "IQR_TUKEY_SKEW_FENCES": {
+        "CONSERVATIVE": {"surge_ratio": 3.0, "min_daily_volume": 500, "min_iqr": 50.0, "min_baseline_days": 14},
+        "BALANCED": {"surge_ratio": 2.0, "min_daily_volume": 100, "min_iqr": 10.0, "min_baseline_days": 7},
+        "AGGRESSIVE": {"surge_ratio": 1.5, "min_daily_volume": 25, "min_iqr": 5.0, "min_baseline_days": 3},
     },
     "VELOCITY_SURGE_RATIO": {
         "CONSERVATIVE": {"ratio_1v7": 5.0, "ratio_1v30": 8.0, "min_today": 200, "min_baseline_days": 20},
@@ -260,7 +265,7 @@ def get_adaptive_window_parameters(
 
   # Macro-aligned daily models that benefit from a 1d temporal spine on extended horizons (>= 7 days)
   daily_macro_archetypes = {
-      "DATA_EXFILTRATION_SPIKE", "HEAVY_TAIL_OUTLIERS", "TWO_PART_HURDLE",
+      "DATA_EXFILTRATION_SPIKE", "HEAVY_TAIL_OUTLIERS", "IQR_TUKEY_SKEW_FENCES", "TWO_PART_HURDLE",
       "DORMANT_ACCOUNT_AWAKENING", "DERIVED_CONTEXT_PREVALENCE",
       "MULTI_SECTOR_FUSION", "MULTI_SECTOR_THREAT_FUSION", "LOG_NORMAL_VOLUME",
       "LOG_NORMAL_VOLUME_SURGE", "FLEET_PEER_ZSCORE", "BAYESIAN_GAMMA_SHRINKAGE",
@@ -2350,6 +2355,12 @@ class MultiStageTemplateRouter:
       "PRODUCER_CONSUMER_ROLE_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
       "PRODUCER_CONSUMER_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
       "BYTE_RATIO_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
+      "IQR_TUKEY_SKEW_FENCES": "iqr_tukey_skew_fences_3stage.yl2",
+      "HEAVY_TAIL_OUTLIERS": "iqr_tukey_skew_fences_3stage.yl2",
+      "TUKEY_FENCE": "iqr_tukey_skew_fences_3stage.yl2",
+      "TUKEY_SKEW_FENCE": "iqr_tukey_skew_fences_3stage.yl2",
+      "BOWLEY_SKEW_FENCE": "iqr_tukey_skew_fences_3stage.yl2",
+      "QUANTILE_IQR_SKEW": "iqr_tukey_skew_fences_3stage.yl2",
       "OFF_HOURS_BURST": "poisson_burst_clustering_2stage.yl2",
       "AFTER_HOURS_ACTIVITY": "poisson_burst_clustering_2stage.yl2",
   }
@@ -2360,6 +2371,7 @@ class MultiStageTemplateRouter:
       "poisson_rare_surge_2stage.yl2": "POISSON_RARE_SURGE",
       "c2_beaconing_jitter_2stage.yl2": "C2_BEACONING_JITTER",
       "mad_modified_z_4stage.yl2": "DATA_EXFILTRATION_SPIKE",
+      "iqr_tukey_skew_fences_3stage.yl2": "IQR_TUKEY_SKEW_FENCES",
       "dual_baseline_delta_z_3stage.yl2": "DUAL_BASELINE_DELTA_Z",
       "bayesian_gamma_shrinkage_4stage.yl2": "BAYESIAN_GAMMA_SHRINKAGE",
       "beta_binomial_failure_4stage.yl2": "BETA_BINOMIAL_FAILURE",
@@ -2497,7 +2509,7 @@ class MultiStageTemplateRouter:
     thresh = dict(SENSITIVITY_MAP.get(canonical_key, {}).get(tier_up, {}))
 
     # Adaptive window calculation
-    bucket_size = "1h"
+    bucket_size = "1d" if "iqr_tukey_skew" in template_file else "1h"
     if window_hours:
       adapt = get_adaptive_window_parameters(window_hours, canonical_key, tier_up)
       bucket_size = adapt["recommended_bucket"]
@@ -2542,7 +2554,7 @@ class MultiStageTemplateRouter:
           or "hybrid_entropy_concentration" in template_file
       ):
         event_type = "NETWORK_CONNECTION"
-      elif "mad_modified_z" in template_file:
+      elif "mad_modified_z" in template_file or "iqr_tukey_skew" in template_file:
         event_type = "NETWORK_DNS"
       else:
         event_type = "PROCESS_LAUNCH"
@@ -2623,6 +2635,8 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_distance_km}}", str(thresh.get("min_distance_km", 500.0)))
     rendered = rendered.replace("{{min_producer_ratio}}", str(thresh.get("min_producer_ratio", 0.70)))
     rendered = rendered.replace("{{min_sent_bytes}}", str(thresh.get("min_sent_bytes", 10000000.0)))
+    rendered = rendered.replace("{{surge_ratio}}", str(thresh.get("surge_ratio", 2.0)))
+    rendered = rendered.replace("{{min_iqr}}", str(thresh.get("min_iqr", 10.0)))
 
     # Dynamic Root-Stage Noise Level & Significance Threshold Conditioning
     order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
