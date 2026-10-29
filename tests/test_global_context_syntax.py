@@ -15,6 +15,7 @@ from multistage_query_builder import (
     check_ecg_limits,
     MultiStageTemplateRouter,
     HandoffEndpoint,
+    QueryIntegrityGate,
 )
 
 
@@ -93,7 +94,7 @@ class TestGlobalContextSyntax(unittest.TestCase):
                     f"Expected ECG LIMIT EXCEEDED, got: {ecg_errors}")
 
   def test_handoff_ingestion_global_threat_intel(self):
-    """HandoffEndpoint must ingest GLOBAL_THREAT_INTEL and return ACK accepted."""
+    """HandoffEndpoint must ingest GLOBAL_THREAT_INTEL, bind target_entity, and return ACK accepted."""
     payload = {
         "protocol": "secops-threat-hunt-handoff-v1",
         "source_skill": "secops-risk-metrics-multistage",
@@ -106,9 +107,14 @@ class TestGlobalContextSyntax(unittest.TestCase):
     self.assertEqual(res.get("status"), "HANDOFF_ACK_ACCEPTED")
     self.assertEqual(res.get("action"), "STEP_OUT_CONFIRMED")
     self.assertIn("GLOBAL_CONTEXT", res.get("compiled_query", ""))
+    self.assertIn('$net.principal.asset.hostname = "gateway-proxy"', res["compiled_query"])
+    self.assertEqual(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="gateway-proxy"),
+        {"valid": True, "errors": []},
+    )
 
   def test_handoff_ingestion_derived_context(self):
-    """HandoffEndpoint must ingest DERIVED_CONTEXT_PREVALENCE and return ACK accepted."""
+    """HandoffEndpoint must ingest DERIVED_CONTEXT_PREVALENCE, bind target_entity, and return ACK accepted."""
     payload = {
         "protocol": "secops-threat-hunt-handoff-v1",
         "source_skill": "secops-risk-metrics-multistage",
@@ -121,9 +127,14 @@ class TestGlobalContextSyntax(unittest.TestCase):
     self.assertEqual(res.get("status"), "HANDOFF_ACK_ACCEPTED")
     self.assertEqual(res.get("action"), "STEP_OUT_CONFIRMED")
     self.assertIn("DERIVED_CONTEXT", res.get("compiled_query", ""))
+    self.assertIn('$login.target.user.userid = "admin_svc"', res["compiled_query"])
+    self.assertEqual(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="admin_svc"),
+        {"valid": True, "errors": []},
+    )
 
   def test_handoff_ingestion_file_prevalence(self):
-    """HandoffEndpoint must ingest DERIVED_CONTEXT_FILE_PREVALENCE and return ACK accepted."""
+    """HandoffEndpoint must ingest DERIVED_CONTEXT_FILE_PREVALENCE, bind target_entity, and return ACK accepted."""
     payload = {
         "protocol": "secops-threat-hunt-handoff-v1",
         "source_skill": "secops-risk-metrics-multistage",
@@ -136,9 +147,14 @@ class TestGlobalContextSyntax(unittest.TestCase):
     self.assertEqual(res.get("status"), "HANDOFF_ACK_ACCEPTED")
     self.assertEqual(res.get("action"), "STEP_OUT_CONFIRMED")
     self.assertIn("prevalence.day_count", res.get("compiled_query", ""))
+    self.assertIn('$proc.target.process.file.full_path = "updater.exe"', res["compiled_query"])
+    self.assertEqual(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="updater.exe"),
+        {"valid": True, "errors": []},
+    )
 
   def test_handoff_ingestion_domain_prevalence(self):
-    """HandoffEndpoint must ingest DERIVED_CONTEXT_DOMAIN_PREVALENCE and return ACK accepted."""
+    """HandoffEndpoint must ingest DERIVED_CONTEXT_DOMAIN_PREVALENCE, bind target_entity, and return ACK accepted."""
     payload = {
         "protocol": "secops-threat-hunt-handoff-v1",
         "source_skill": "secops-risk-metrics-multistage",
@@ -151,6 +167,11 @@ class TestGlobalContextSyntax(unittest.TestCase):
     self.assertEqual(res.get("status"), "HANDOFF_ACK_ACCEPTED")
     self.assertEqual(res.get("action"), "STEP_OUT_CONFIRMED")
     self.assertIn("prevalence.day_count", res.get("compiled_query", ""))
+    self.assertIn('$net.target.hostname = "sync-tunnel.xyz"', res["compiled_query"])
+    self.assertEqual(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="sync-tunnel.xyz"),
+        {"valid": True, "errors": []},
+    )
 
   def test_safe_divisor_present_in_ecg_templates(self):
     """All ECG templates must implement positive divisor protection."""
