@@ -48,11 +48,16 @@ try:
       WRITEBACK_CRI_THRESHOLD,
       _coerce_finite_float,
       calculate_cri as _canonical_calculate_cri,
+      cri_from_model_score,
       format_cri,
+      format_score_with_unit,
       get_cri_badge as _canonical_get_cri_badge,
+      is_inverted_score_key,
+      is_true_sigma_key,
       resolve_micro_sensitivity_tier,
       resolve_sensitivity_thresholds,
       resolve_sensitivity_tier,
+      score_to_z_equivalent,
   )
 except ImportError:
   from ueba_constants import (  # type: ignore[no-redef]
@@ -75,11 +80,16 @@ except ImportError:
       WRITEBACK_CRI_THRESHOLD,
       _coerce_finite_float,
       calculate_cri as _canonical_calculate_cri,
+      cri_from_model_score,
       format_cri,
+      format_score_with_unit,
       get_cri_badge as _canonical_get_cri_badge,
+      is_inverted_score_key,
+      is_true_sigma_key,
       resolve_micro_sensitivity_tier,
       resolve_sensitivity_thresholds,
       resolve_sensitivity_tier,
+      score_to_z_equivalent,
   )
 
 EXCLUDED_PATTERNS = [
@@ -1257,6 +1267,9 @@ PRIMARY_SCORE_KEYS = [
     "delta_z",
     "m_z_score",
     "modified_z",
+    "quantile_z",
+    "fence_z",
+    "tukey_fence_ratio",
     "z_log",
     "velocity_score",
     "ewma_velocity_score",
@@ -1275,7 +1288,9 @@ PRIMARY_SCORE_KEYS = [
     "z_score",
     "personal_z",
     "producer_ratio",
+    "fold_change",
     "surge_ratio",
+    "ratio_1v7",
     "ratio_1v30",
     "score",
 ]
@@ -1427,13 +1442,10 @@ class DataReductionEngine:
         break
 
     def get_score(record: Dict[str, Any]) -> float:
-      try:
-        val = float(record.get(score_key, 0))
-        if score_key in ("cv", "diversity_z"):
-          return -val
-        return val
-      except (ValueError, TypeError):
-        return 0.0
+      val = _coerce_finite_float(record.get(score_key))
+      if val is None:
+        return -math.inf
+      return -val if is_inverted_score_key(score_key) else val
 
     sorted_records = sorted(raw_results, key=get_score, reverse=True)
 
@@ -1518,7 +1530,7 @@ def format_triage_report(
 
   chosen_key = order_var or next((k for k in PRIMARY_SCORE_KEYS if k in rows[0]), None)
   if chosen_key:
-    if chosen_key in ("cv", "diversity_z"):
+    if is_inverted_score_key(chosen_key):
       rows.sort(
           key=lambda x: (
               parsed
@@ -1539,26 +1551,6 @@ def format_triage_report(
   total_outliers = len(rows)
   top_rows = rows[:top_n]
   entity_col = next((c for c in ["host", "user", "src_ip", "dst_ip", "entity", "principal_ip"] if c in rows[0]), "entity")
-
-  def _equiv_cri_score(key: Optional[str], val: float) -> float:
-    if key == "cv":
-      return max(0.0, (0.50 - val) / 0.10) if val > 0 else 0.0
-    if key == "fano_factor":
-      return (val / 4.0) * 3.0
-    if key in ("poisson_z_sq", "threat_vector_norm_sq"):
-      return math.sqrt(val) if val > 0 else 0.0
-    if key in ("posterior_fail_prob", "regularized_failure_prob", "concentration_ratio", "producer_ratio"):
-      return (val / 0.65) * 3.0 if val > 0 else 0.0
-    if key == "velocity_kmh":
-      return (val / 900.0) * 3.0 if val > 0 else 0.0
-    if key == "diversity_z":
-      return max(0.0, (-val / 1.5) * 3.0)
-    return val
-
-  sigma_keys = {
-      "z_score", "poisson_z", "fleet_z", "targeted_delta_z", "delta_z",
-      "personal_z", "bayesian_z", "threat_distance", "z_log",
-  }
 
   out = []
   out.append(f"### ⚡ Statistical Outlier Report: {title}")
@@ -1586,9 +1578,13 @@ def format_triage_report(
   out.append("| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Calibrated Risk Index | Visual Magnitude |")
   out.append("| :------------------- | :----------- | :---------------- | :------------------------- | :-------------- | :-------------- | :-------------------- | :--------------- |")
 
-  raw_max = _coerce_finite_float(top_rows[0].get(chosen_key)) if chosen_key else None
-  max_score = raw_max if (raw_max is not None and raw_max != 0.0) else 6.0
-  for row in top_rows:
+  row_z_equivs = [
+      score_to_z_equivalent(chosen_key, r.get(chosen_key)) if chosen_key else None
+      for r in top_rows
+  ]
+  valid_z_equivs = [z for z in row_z_equivs if z is not None and z > 0.0]
+  max_z_equiv = max(valid_z_equivs) if valid_z_equivs else 6.0
+  for row, row_z_eq in zip(top_rows, row_z_equivs):
     ent = str(row.get(entity_col, "unknown"))
     tb = str(row.get("TIME_BUCKET", row.get("window_start", "Full Window")))
     obs = str(row.get("observation_count", row.get("observed_count", row.get("observed_today", row.get("total_fails", row.get("daily_mb", ""))))))
@@ -1605,30 +1601,30 @@ def format_triage_report(
     
     conf_badge, _ = evaluate_confidence_tier(row)
     score_val = _coerce_finite_float(row.get(chosen_key)) if chosen_key else None
-    if score_val is None:
+    if score_val is None or row_z_eq is None:
       badge = "⚪ **[N/A]**"
       score_str = "N/A"
       vbar = "`" + (" " * 10) + "`"
       cri_val = None
     else:
       badge = get_soc_severity_badge(chosen_key, score_val)
-      score_str = f"+{score_val:.2f}σ" if chosen_key in sigma_keys else f"{score_val:.2f}"
-      vbar = f"`{generate_visual_bar(abs(score_val) if chosen_key == 'diversity_z' else score_val, abs(max_score) if chosen_key == 'diversity_z' else max_score)}`"
-      cri_val = calculate_cri(_equiv_cri_score(chosen_key, score_val), 3.0)
+      score_str = format_score_with_unit(chosen_key, score_val)
+      vbar = f"`{generate_visual_bar(row_z_eq, max_z_equiv)}`"
+      cri_val = cri_from_model_score(chosen_key, score_val)
     cri_badge_str, _ = get_cri_badge(cri_val)
     
     out.append(f"| `{ent}` | {tb[:16]} | **{obs}** | {base_str} | {conf_badge} | {badge} (`{score_str}`) | {cri_badge_str} | {vbar} |")
 
   top_ent = top_rows[0]
   top_score_val = _coerce_finite_float(top_ent.get(chosen_key)) if chosen_key else None
-  if top_score_val is None:
+  top_cri_val = cri_from_model_score(chosen_key, top_score_val) if chosen_key else None
+  if top_score_val is None or top_cri_val is None:
     top_score_str = "N/A"
     top_badge = "⚪ **[N/A]**"
     top_cri_val = None
   else:
-    top_score_str = f"+{top_score_val:.2f}σ" if chosen_key in sigma_keys else f"{top_score_val:.2f}"
+    top_score_str = format_score_with_unit(chosen_key, top_score_val)
     top_badge = get_soc_severity_badge(chosen_key, top_score_val)
-    top_cri_val = calculate_cri(_equiv_cri_score(chosen_key, top_score_val), 3.0)
   top_conf_badge, top_conf_desc = evaluate_confidence_tier(top_ent)
   ent_name = str(top_ent.get(entity_col, "unknown"))
   top_cri_badge, top_cri_tier = get_cri_badge(top_cri_val)
@@ -1815,7 +1811,7 @@ def generate_chart_spec(
   if plot_type == "DUAL_Y_TIMESERIES":
     time_key = next((k for k in ["TIME_BUCKET", "date", "time", "timestamp", "window_start", "evaluation_date"] if rows and k in rows[0]), "TIME_BUCKET")
     score_key = next((k for k in ["z_score", "score", "delta_z", "poisson_z", "fleet_z", "fano_factor", "m_z_score", "surge_ratio", "cv"] if rows and k in rows[0]), "z_score")
-    score_title = "Z-Score (σ)" if score_key in ["z_score", "poisson_z", "fleet_z", "delta_z"] else "Anomaly Score"
+    score_title = "Z-Score (σ)" if is_true_sigma_key(score_key) else "Anomaly Score"
     vol_key = next((k for k in ["observation_count", "observed_volume", "observed_count", "observed_today", "observed", "total_fails", "daily_mb", "event_count", "volume", "count"] if rows and k in rows[0]), "observation_count")
     vol_title = "Observed Volume / Activity"
     ent_key = next((k for k in ["host", "user", "entity", "principal_ip", "extension_id"] if rows and k in rows[0]), "entity")
