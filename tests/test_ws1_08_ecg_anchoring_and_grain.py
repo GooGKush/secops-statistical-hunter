@@ -81,23 +81,37 @@ class TestWS108EcgAnchoringAndGrain(unittest.TestCase):
         self.assertTrue(gate["valid"], f"Pre-dispatch errors for {arch}: {gate['errors']}")
 
   def test_compute_ecg_search_window_anchors_d_minus_2_and_pins_stage1_events(self):
-    """A run requested starting today widens startTime to D-2 00:00Z while pinning Stage 1 events to today."""
+    """A run starting today widens startTime (D-2 or D-7) while keeping Stage 1 unfiltered and gating Root via $in_scoring_window."""
     self.assertTrue(
         hasattr(mqb, "compute_ecg_search_window"),
         "compute_ecg_search_window must be exported by multistage_query_builder",
     )
     fn = mqb.compute_ecg_search_window
 
-    # Request starting today (2026-10-28T00:00:00Z .. 2026-10-28T15:00:00Z)
+    # 1. Request starting today (2026-10-28T00:00:00Z .. 2026-10-28T15:00:00Z) with default min_baseline_days=2
     w_today = fn("2026-10-28T00:00:00Z", "2026-10-28T15:00:00Z", event_alias="$net")
     self.assertEqual(w_today["effective_start_time"], "2026-10-26T00:00:00Z")
     self.assertEqual(w_today["effective_end_time"], "2026-10-28T15:00:00Z")
     self.assertTrue(w_today["anchored_to_d_minus_2"])
-    self.assertIn("$net.metadata.event_timestamp.seconds >=", w_today["ecg_event_time_filter"])
-    self.assertIn("$net.metadata.event_timestamp.seconds <", w_today["ecg_event_time_filter"])
+    self.assertEqual(w_today["ecg_scoring_start_epoch"], 1793145600)
+    self.assertEqual(w_today["ecg_scoring_end_epoch"], 1793199600)
+    self.assertEqual(w_today["ecg_event_time_filter"], "")
 
-    # Router renders identical query & effective search window whether called starting today
-    # vs anchored at D-2 with the same target event window!
+    # 2. Daily DERIVED_CONTEXT_PREVALENCE uses min_baseline_days=7 so Stage 3 $active_days >= 7 is reachable!
+    w_daily_auth = fn(
+        "2026-10-28T00:00:00Z",
+        "2026-10-28T15:00:00Z",
+        event_alias="$login",
+        min_baseline_days=7,
+    )
+    self.assertEqual(w_daily_auth["effective_start_time"], "2026-10-21T00:00:00Z")
+    self.assertEqual(w_daily_auth["effective_end_time"], "2026-10-28T15:00:00Z")
+    self.assertTrue(w_daily_auth["anchored_to_d_minus_2"])
+    self.assertEqual(w_daily_auth["ecg_scoring_start_epoch"], 1793145600)
+    self.assertEqual(w_daily_auth["ecg_scoring_end_epoch"], 1793199600)
+
+    # 3. Router keeps Stage 1 unfiltered across [effective_start, effective_end) so Stage 3 retains prior days,
+    #    while Stage 1 + Root compute $in_scoring_window and Root condition gates $in_scoring_window = 1!
     router = MultiStageTemplateRouter()
     q_today = router.build_query(
         "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
@@ -105,20 +119,49 @@ class TestWS108EcgAnchoringAndGrain(unittest.TestCase):
         start_time="2026-10-28T00:00:00Z",
         end_time="2026-10-28T15:00:00Z",
     )
-    q_d2_pinned = router.build_query(
+    m_stage1 = re.search(r"stage\s+raw_network\s*\{(.*?)match:", q_today, re.DOTALL)
+    self.assertIsNotNone(m_stage1)
+    self.assertNotIn("event_timestamp.seconds >=", m_stage1.group(1))
+    self.assertIn(
+        "$in_scoring_window = max(if($net.metadata.event_timestamp.seconds >= 1793145600 and $net.metadata.event_timestamp.seconds < 1793199600, 1, 0))",
+        q_today,
+    )
+    self.assertIn("$in_scoring_window = max($raw_network.in_scoring_window)", q_today)
+    self.assertRegex(q_today, re.compile(r"condition:.*?\$in_scoring_window\s*=\s*1\b", re.DOTALL))
+
+    q_d2_scored = router.build_query(
         "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
         tier="BALANCED",
         start_time="2026-10-26T00:00:00Z",
         end_time="2026-10-28T15:00:00Z",
-        ecg_event_time_filter=w_today["ecg_event_time_filter"],
+        ecg_scoring_start_epoch=w_today["ecg_scoring_start_epoch"],
+        ecg_scoring_end_epoch=w_today["ecg_scoring_end_epoch"],
     )
-    self.assertEqual(q_today, q_d2_pinned)
+    self.assertEqual(q_today, q_d2_scored)
     self.assertTrue(QueryIntegrityGate.verify_pre_dispatch(q_today)["valid"])
 
-    # Historical window already starting <= D-2 needs no Stage 1 pin filter
+    # 4. All 4 ECG templates include $in_scoring_window and stay within the 20-outcome Malachite ceiling
+    for arch in ECG_ARCHETYPES:
+      with self.subTest(archetype=arch):
+        q_arch = router.build_query(
+            arch,
+            tier="BALANCED",
+            start_time="2026-10-28T00:00:00Z",
+            end_time="2026-10-28T15:00:00Z",
+        )
+        self.assertIn("1793145600", q_arch)
+        self.assertIn("1793199600", q_arch)
+        self.assertRegex(q_arch, r"\$in_scoring_window\s*=\s*max\(\$raw_[a-z_]+\.in_scoring_window\)")
+        self.assertRegex(q_arch, re.compile(r"condition:.*?\$in_scoring_window\s*=\s*1\b", re.DOTALL))
+        gate = QueryIntegrityGate.verify_pre_dispatch(q_arch)
+        self.assertTrue(gate["valid"], f"Pre-dispatch failed for {arch}: {gate['errors']}")
+
+    # 5. Historical window already starting <= D-2 uses full-window defaults [0, 9999999999)
     w_hist = fn("2026-10-14T00:00:00Z", "2026-10-28T00:00:00Z", event_alias="$net")
     self.assertEqual(w_hist["effective_start_time"], "2026-10-14T00:00:00Z")
     self.assertFalse(w_hist["anchored_to_d_minus_2"])
+    self.assertEqual(w_hist["ecg_scoring_start_epoch"], 0)
+    self.assertEqual(w_hist["ecg_scoring_end_epoch"], 9999999999)
     self.assertEqual(w_hist["ecg_event_time_filter"], "")
 
   def test_day0_companion_query_builds_valid_graph_free_multistage_hunt(self):
