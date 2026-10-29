@@ -175,9 +175,9 @@ class TestLiveCompileHarnessOffline(unittest.TestCase):
 
     summary = self.harness.summarize_results(results)
     self.assertEqual(summary["total_cases"], 37)
-    self.assertEqual(summary["compile_failed_count"], 2)
-    self.assertIn("pipeline:HYBRID_ENTROPY_CONCENTRATION:host:BALANCED", summary["failed_case_ids"])
-    self.assertIn("example:rolling_ratio_spike.yara", summary["failed_case_ids"])
+    self.assertEqual(summary["compile_ok_count"], 37)
+    self.assertEqual(summary["compile_failed_count"], 0)
+    self.assertEqual(summary["failed_case_ids"], [])
 
   def test_manifest_export_and_import_roundtrip(self) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -250,10 +250,7 @@ class TestLiveCompileHarnessOffline(unittest.TestCase):
 class TestLiveCompileMatrixGusSdl(unittest.TestCase):
   """Opt-in live Chronicle UDM Search compile verification against gus-sdl."""
 
-  KNOWN_PRE_FIX_FAILURES = frozenset({
-      "pipeline:HYBRID_ENTROPY_CONCENTRATION:host:BALANCED",
-      "example:rolling_ratio_spike.yara",
-  })
+  KNOWN_PRE_FIX_FAILURES: frozenset[str] = frozenset()
 
   def test_live_smoke_matrix_against_gus_sdl(self) -> None:
     harness = LiveCompileHarness(repo_root=REPO_ROOT)

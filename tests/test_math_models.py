@@ -209,18 +209,23 @@ class TestMathModels(unittest.TestCase):
     self.assertIn("$bowley_skew", query)
     self.assertIn("$tail_heaviness", query)
     self.assertIn("$adj_upper_fence", query)
+    self.assertIn("$fence_z", query)
+    self.assertIn("order:\n  $fence_z desc", query)
     self.assertIn("stage fleet_breadth", query)
     errs = [e for e in validate_multistage_syntax(query) if not e.startswith("MISSING METHODOLOGY HEADER")]
     self.assertEqual(errs, [])
 
-    # Verify Bowley skewness & Hubert-Vandervieren skewness-adjusted fence math
+    # Verify Bowley skewness & recalibrated Hubert-Vandervieren fence math (1.35 * B_skew)
     q25, q50, q75 = 111.0, 112.0, 114.0
     iqr = q75 - q25
     bowley_skew = (q75 + q25 - 2.0 * q50) / iqr
     self.assertAlmostEqual(bowley_skew, 1.0 / 3.0, places=4)
     pos_skew = max(0.0, bowley_skew)
-    adj_fence = q75 + 1.5 * math.pow(2.718281828, 3.0 * pos_skew) * iqr
-    self.assertAlmostEqual(adj_fence, 126.2323, places=3)
+    adj_fence = q75 + 1.5 * math.pow(2.718281828, 1.35 * pos_skew) * iqr
+    self.assertAlmostEqual(adj_fence, 121.0574, places=3)
+    robust_scale = iqr / 1.349
+    fence_z = (130.0 - adj_fence) / robust_scale
+    self.assertAlmostEqual(fence_z, 4.0212, places=3)
 
 
 if __name__ == "__main__":

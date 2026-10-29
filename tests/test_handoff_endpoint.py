@@ -79,8 +79,10 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
     self.assertEqual(res["model_routed"], "PRIVILEGED_LATERAL_EXPANSION")
     self.assertIn("stage daily_user_breadth", res["compiled_query"])
+    self.assertIn("stage user_target_history", res["compiled_query"])
     self.assertIn("stage user_breadth_baseline", res["compiled_query"])
-    self.assertIn("stage current_breadth", res["compiled_query"])
+    self.assertNotIn("stage current_breadth", res["compiled_query"])
+    self.assertIn("$new_targets", res["compiled_query"])
     self.assertIn("order:\n  $z_score desc", res["compiled_query"])
 
   def test_ingest_json_string_with_fences(self):
