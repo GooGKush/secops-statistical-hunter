@@ -24,11 +24,12 @@ from scripts.generate_references import (  # pylint: disable=wrong-import-positi
 )
 from scripts.multistage_query_builder import (  # pylint: disable=wrong-import-position
     MultiStageTemplateRouter,
+    __version__ as builder_version,
 )
 
 
 def _extract_active_pipeline_rows(taxonomy_md: str) -> Dict[str, str]:
-  """Extracts `| \`<template.yl2>\` | ... |` rows from Section 20 before Retired Dispositions."""
+  r"""Extracts `| \`<template.yl2>\` | ... |` rows from Section 20 before Retired Dispositions."""
   sec20_idx = taxonomy_md.find("## 20.")
   if sec20_idx == -1:
     return {}
@@ -173,6 +174,43 @@ class TestWS9DocsAndConcordance(unittest.TestCase):
     self.assertIn("never run an in-query approximation under the real model's name", proto)
     for screen_name in ("BURST_Z_SCREEN", "LONG_STRING_SCREEN", "FLOW_GAP_RATIO_SCREEN"):
       self.assertIn(screen_name, proto)
+
+  def test_rule10_version_3_0_0_and_release_notes_remediation_changelog(self) -> None:
+    """Rule 10: SKILL.md, builder __version__, README badge, and RELEASE_NOTES.md are synchronized at v3.0.0."""
+    skill_md = (REPO_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    frontmatter = skill_md.split("---", 2)[1]
+    self.assertIn("version: 3.0.0", frontmatter)
+    self.assertEqual(builder_version, "3.0.0")
+
+    readme_md = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    self.assertIn("version-v3.0.0-blue.svg", readme_md)
+
+    release_notes = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+    self.assertIn("## 📦 Version 3.0.0", release_notes)
+    v300_section = release_notes.split("## 📦 Version 3.0.0", 1)[1].split("## 📦 Version 2.9.0", 1)[0]
+    for required_token in (
+        "WS1-06",
+        "WS1-07",
+        "WS1-08",
+        "D1",
+        "HOUR_OF_DAY_PROFILE",
+        "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
+        "WS6-02",
+        "WS6-03",
+        "WS6-04",
+        "micro_python_helpers.py",
+        "WS7-01",
+        "WS7-02",
+        "WS7-03",
+        "WS8-01",
+        "WS8-02",
+        "WS8-03",
+        "WS8-04",
+        "EXFILTRATION_IQR_OUTLIER",
+        "WS9-03",
+        "WS9-04",
+    ):
+      self.assertIn(required_token, v300_section, f"RELEASE_NOTES v3.0.0 entry missing {required_token}")
 
 
 if __name__ == "__main__":
