@@ -24,6 +24,7 @@ from pathlib import Path
 import re
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -594,6 +595,199 @@ def select_identifier_from_coverage(
       "ip_coverage": round(ip_cov, 6),
       "join_guidance": ASSET_CONTEXT_JOIN_GUIDANCE,
   }
+
+
+ECG_TEMPLATE_EVENT_ALIASES: Dict[str, str] = {
+    "derived_context_prevalence_3stage.yl2": "$login",
+    "derived_context_domain_prevalence_3stage.yl2": "$net",
+    "derived_context_file_prevalence_3stage.yl2": "$proc",
+    "global_threat_intel_enrichment_3stage.yl2": "$net",
+}
+
+
+def _parse_utc_iso(ts_str: str) -> datetime:
+  """Parses an ISO-8601 timestamp string into a UTC-aware datetime."""
+  clean = str(ts_str or "").strip()
+  if not clean:
+    raise ValueError("Timestamp string cannot be empty")
+  dt = datetime.fromisoformat(clean.replace("Z", "+00:00"))
+  if dt.tzinfo is None:
+    dt = dt.replace(tzinfo=timezone.utc)
+  return dt.astimezone(timezone.utc)
+
+
+def compute_ecg_search_window(
+    start_time_iso: str,
+    end_time_iso: str,
+    event_alias: str = "$net",
+    reference_time_iso: Optional[str] = None,
+) -> Dict[str, Any]:
+  """Anchors ECG search windows at D-2 00:00Z while pinning Stage 1 raw events to [start, end) (PF-8 / WS1-08)."""
+  start_dt = _parse_utc_iso(start_time_iso)
+  end_dt = _parse_utc_iso(end_time_iso)
+  if start_dt >= end_dt:
+    raise ValueError(
+        f"start_time_iso ({start_time_iso}) must be strictly earlier than end_time_iso ({end_time_iso})"
+    )
+
+  ref_dt = _parse_utc_iso(reference_time_iso) if reference_time_iso else (end_dt - timedelta(microseconds=1))
+  day_d = ref_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+  d_minus_2 = day_d - timedelta(days=2)
+
+  alias_clean = str(event_alias or "").strip()
+  if alias_clean and not alias_clean.startswith("$"):
+    alias_clean = f"${alias_clean}"
+  prefix = f"{alias_clean}." if alias_clean else ""
+
+  if start_dt > d_minus_2:
+    effective_start = d_minus_2.strftime("%Y-%m-%dT%H:%M:%SZ")
+    anchored = True
+    ecg_filter = (
+        f"{prefix}metadata.event_timestamp.seconds >= {int(start_dt.timestamp())}\n"
+        f"  {prefix}metadata.event_timestamp.seconds < {int(end_dt.timestamp())}"
+    )
+  else:
+    effective_start = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    anchored = False
+    ecg_filter = ""
+
+  return {
+      "requested_start_time": start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+      "requested_end_time": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+      "effective_start_time": effective_start,
+      "effective_end_time": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+      "anchored_to_d_minus_2": anchored,
+      "ecg_event_time_filter": ecg_filter,
+  }
+
+
+def build_day0_companion_query(
+    archetype: str = "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
+    tier: str = "BALANCED",
+    entity_type: str = "host",
+    identifier_coverage_payload: Optional[Dict[str, Any]] = None,
+    preferred_entity_field: Optional[str] = None,
+) -> str:
+  """Builds a graph-free raw UDM Day-0 companion hunt for artifacts lacking Entity Context Graph records (WS1-08)."""
+  tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
+  router = MultiStageTemplateRouter()
+  template_file = router.get_template_filename(archetype)
+  canonical_key = router.TEMPLATE_TO_SENSITIVITY_KEY.get(template_file, "DERIVED_CONTEXT_DOMAIN_PREVALENCE")
+  thresh = dict(SENSITIVITY_MAP.get(canonical_key, SENSITIVITY_MAP["DERIVED_CONTEXT_DOMAIN_PREVALENCE"]).get(tier_up, {}))
+
+  if preferred_entity_field:
+    resolved_entity = preferred_entity_field
+  elif identifier_coverage_payload is not None:
+    resolved_entity = select_identifier_from_coverage(identifier_coverage_payload)["selected_field"]
+  else:
+    ent_norm = str(entity_type or "host").strip().lower()
+    if ent_norm == "ip":
+      resolved_entity = "principal.ip"
+    elif ent_norm == "user":
+      resolved_entity = "target.user.userid"
+    else:
+      resolved_entity = "principal.asset.hostname"
+
+  if template_file == "derived_context_prevalence_3stage.yl2":
+    ev_type = "USER_LOGIN"
+    ent_field = "target.user.userid" if entity_type.lower().strip() == "host" and not preferred_entity_field and identifier_coverage_payload is None else resolved_entity
+    art_field = "target.asset.hostname"
+    bucket = "1d"
+    obs_expr = "count(metadata.id)"
+    min_samples = thresh.get("min_active_days", 7)
+    min_obs = thresh.get("min_logins", 5)
+    mult = thresh.get("new_asset_multiplier", 2.0)
+  elif template_file == "derived_context_file_prevalence_3stage.yl2":
+    ev_type = "PROCESS_LAUNCH"
+    ent_field = resolved_entity
+    art_field = "target.process.file.sha256"
+    bucket = "1h"
+    obs_expr = "count(metadata.id)"
+    min_samples = thresh.get("min_active_hours", 12)
+    min_obs = thresh.get("min_execs", 5)
+    mult = thresh.get("rare_multiplier", 2.5)
+  else:
+    ev_type = "NETWORK_CONNECTION"
+    ent_field = resolved_entity
+    art_field = "target.hostname"
+    bucket = "1h"
+    obs_expr = "sum(network.sent_bytes)"
+    min_samples = thresh.get("min_active_hours", 12)
+    min_obs = thresh.get("min_obs_bytes", 100000.0)
+    mult = thresh.get("rare_multiplier", thresh.get("nrd_multiplier", 2.5))
+
+  threat_gate = thresh.get("threat_score", 2.5)
+
+  return (
+      "// ============================================================================\n"
+      "// METHODOLOGY & HUNTING GOAL\n"
+      "// Goal: Day-0 Raw UDM Companion Hunt for unindexed or brand-new artifacts omitted by Entity Context Graph inner joins (WS1-08).\n"
+      f"// Target Telemetry: UDM_EVENTS ({ev_type})\n"
+      "// Statistical Model: Live Raw-Event Fleet Adopter Rarity + Entity Historical Z-Score\n"
+      f"// Sensitivity Boundary: {tier_up} (Threat Score >= {threat_gate}, Min Obs >= {min_obs}, Min Samples >= {min_samples}, Rare Multiplier = {mult}x)\n"
+      "// ============================================================================\n\n"
+      "// Stage 1: Raw activity per entity and target artifact\n"
+      "stage raw_day0_activity {\n"
+      f'  metadata.event_type = "{ev_type}"\n'
+      f"  {ent_field} = $entity\n"
+      f"  {art_field} = $artifact\n"
+      '  $entity != ""\n'
+      '  $artifact != ""\n\n'
+      "  match:\n"
+      f"    $entity, $artifact by {bucket}\n\n"
+      "  outcome:\n"
+      f"    $bucket_obs = {obs_expr}\n"
+      "    $event_count = count(metadata.id)\n"
+      "}\n\n"
+      "// Stage 2: Live raw-event fleet adopter breadth (covers Day-0 unindexed artifacts)\n"
+      "stage live_artifact_prevalence {\n"
+      "  $artifact = $raw_day0_activity.artifact\n\n"
+      "  match:\n"
+      "    $artifact\n\n"
+      "  outcome:\n"
+      "    $adopter_count = count_distinct($raw_day0_activity.entity)\n"
+      "}\n\n"
+      "// Stage 3: Entity historical baseline across distinct active buckets\n"
+      "stage entity_baseline {\n"
+      "  $entity = $raw_day0_activity.entity\n\n"
+      "  match:\n"
+      "    $entity\n\n"
+      "  outcome:\n"
+      "    $hist_mean = avg($raw_day0_activity.bucket_obs)\n"
+      "    $hist_sd = stddev($raw_day0_activity.bucket_obs)\n"
+      "    $active_samples = count_distinct($raw_day0_activity.window_start)\n"
+      "}\n\n"
+      "// Root Stage: Score Day-0 artifact surges without Entity Context Graph inner-join filtering\n"
+      "$entity = $raw_day0_activity.entity\n"
+      "$artifact = $raw_day0_activity.artifact\n"
+      "$ws = $raw_day0_activity.window_start\n"
+      "$artifact = $live_artifact_prevalence.artifact\n"
+      "$entity = $entity_baseline.entity\n\n"
+      "match:\n"
+      f"  $entity, $artifact, $ws by {bucket}\n\n"
+      "outcome:\n"
+      "  $obs_val = max($raw_day0_activity.bucket_obs)\n"
+      "  $mean_val = max($entity_baseline.hist_mean)\n"
+      "  $sd_val = max($entity_baseline.hist_sd)\n"
+      "  $safe_sd = if($sd_val > 0, $sd_val, 1.0)\n"
+      "  $z_score = ($obs_val - $mean_val) / $safe_sd\n\n"
+      "  // 6 Standardized Evidence Pillars\n"
+      "  $observation_count = $obs_val\n"
+      "  $baseline_active_samples = max($entity_baseline.active_samples)\n"
+      "  $baseline_mean = $mean_val\n"
+      "  $baseline_dispersion = $sd_val\n"
+      "  $fleet_prevalence = max($live_artifact_prevalence.adopter_count)\n"
+      "  $distinct_binaries = 1\n\n"
+      "  $is_rare = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)\n"
+      f"  $multiplier = if($is_rare = 1.0, {mult}, 1.0)\n"
+      "  $threat_score = $z_score * $multiplier\n\n"
+      "condition:\n"
+      f"  $baseline_active_samples >= {min_samples}\n"
+      f"  and $observation_count >= {min_obs}\n"
+      f"  and $threat_score >= {threat_gate}\n\n"
+      "order:\n"
+      "  $threat_score desc\n"
+  )
 
 THREAT_EXPLANATIONS = {
     "z_score": {
@@ -1710,8 +1904,24 @@ def format_triage_report(
   entity_field = entity_field or inferred["entity_field"]
   bucket_seconds = bucket_seconds or inferred["bucket_seconds"]
   rows = parse_columnar_stats(stats_payload)
+  code_no_comments = re.sub(r"//.*", "", query_text or "")
+  query_has_ecg = bool(re.search(r"\b(?:DERIVED_CONTEXT|GLOBAL_CONTEXT)\b|\.graph\.", code_no_comments))
+  rows_have_ecg = any(
+      any(k in r for k in ("enterprise_first_seen", "first_seen_time", "enterprise_day_count", "creation_ts"))
+      for r in rows
+  )
+  is_ecg_hunt = query_has_ecg or rows_have_ecg
+  ecg_join_disclosure = (
+      "* **ECG Join & Day-0 Coverage Disclosure**: Stage 2 Entity Context Graph enrichment acts as an **inner-join filter** "
+      "(entities, domains, or hashes without a materialized graph record are omitted rather than scored — absent ≠ benign). "
+      "Anchor `DERIVED_CONTEXT` hunts at `D-2` (`compute_ecg_search_window`) and run the **Day-0** raw companion query "
+      "(`build_day0_companion_query`) to cover brand-new or unindexed artifacts."
+  )
   if not rows:
-    return "⚡ **STATISTICAL HUNT VERDICT**: No outlier entities exceeded the configured anomaly threshold."
+    verdict = "⚡ **STATISTICAL HUNT VERDICT**: No outlier entities exceeded the configured anomaly threshold."
+    if is_ecg_hunt:
+      return f"{verdict}\n\n{ecg_join_disclosure}"
+    return verdict
 
   order_var = None
   if query_text:
@@ -1760,6 +1970,21 @@ def format_triage_report(
     out.append(f"* **Normal Baseline Envelope**: Typical Average ($\\mu$) $\\approx {float(rows[0]['mu']):.1f}$ | Typical Variation ($\\sigma$) $\\approx \\pm{float(rows[0]['stddev_val']):.1f}$")
   elif "historical_lambda" in rows[0]:
     out.append(f"* **Normal Baseline Envelope**: Historical Daily Rate ($\\lambda$) $\\approx {float(rows[0]['historical_lambda']):.2f}\\text{{ runs/day}}$")
+
+  if is_ecg_hunt:
+    out.append(ecg_join_disclosure)
+  has_zero_first_seen = any(
+      any(
+          (k in r and r[k] is not None and _coerce_finite_float(r.get(k)) == 0.0)
+          for k in ("enterprise_first_seen", "first_seen", "first_seen_time")
+      )
+      for r in rows
+  )
+  if has_zero_first_seen:
+    out.append(
+        "* **ECG Novelty Telemetry Notice**: <7d ECG novelty disabled because first_seen_time = 0; "
+        "use secops-risk-metrics-multistage metrics.* first_seen novelty instead."
+    )
 
   out.append("")
   out.append("---")
@@ -2741,6 +2966,9 @@ class MultiStageTemplateRouter:
       peer_sample_field: Optional[str] = None,
       identifier_coverage_payload: Optional[Dict[str, Any]] = None,
       preferred_entity_field: Optional[str] = None,
+      start_time: Optional[str] = None,
+      end_time: Optional[str] = None,
+      ecg_event_time_filter: Optional[str] = None,
   ) -> str:
     tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
     template_file = self.get_template_filename(archetype)
@@ -2862,8 +3090,24 @@ class MultiStageTemplateRouter:
     if not sample_field:
       sample_field = MAD_SAMPLE_FIELD_BY_EVENT_TYPE.get(event_type.upper(), "metadata.product_event_type")
 
+    if ecg_event_time_filter is not None:
+      ecg_filter_str = str(ecg_event_time_filter).strip()
+    elif start_time and end_time and template_file in ECG_TEMPLATE_EVENT_ALIASES:
+      ecg_filter_str = compute_ecg_search_window(
+          start_time,
+          end_time,
+          event_alias=ECG_TEMPLATE_EVENT_ALIASES[template_file],
+      )["ecg_event_time_filter"]
+    else:
+      ecg_filter_str = ""
+
     # Substitutions
     rendered = raw_template
+    if ecg_filter_str:
+      rendered = rendered.replace("{{ecg_event_time_filter}}", ecg_filter_str)
+    else:
+      rendered = re.sub(r"\n[ \t]*\{\{ecg_event_time_filter\}\}[ \t]*(?=\n)", "", rendered)
+      rendered = rendered.replace("{{ecg_event_time_filter}}", "")
     rendered = rendered.replace("{{tier}}", tier_up)
     rendered = rendered.replace("{{event_type}}", event_type)
     rendered = rendered.replace("{{entity_field}}", resolved_entity_field)

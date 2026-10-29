@@ -3,6 +3,7 @@
 // Goal: Hunt for high-volume network exfiltration targeting newly registered domains or GCTI threats
 // Statistical Model: Z-Score with Global Threat Intel (ECG) Enrichment
 // Sensitivity Boundary: {{tier}} (Threat Score >= {{threat_score}}, Min Bytes >= {{min_obs_bytes}}, Min Active Hours >= {{min_active_hours}}, NRD Multiplier = {{nrd_multiplier}}x)
+// Note (PF-8 / WS1-08): Stage 2 WHOIS lookup is an inner-join filter (domains lacking WHOIS records drop out; use Day-0 companion query for unregistered/missing-WHOIS egress).
 
 // --- STAGE 1: Event-Plane Traffic Extraction ---
 stage raw_traffic {
@@ -11,6 +12,7 @@ stage raw_traffic {
   $domain = $net.target.hostname
   $domain != ""
   $host != ""
+  {{ecg_event_time_filter}}
 
   match:
     $host, $domain by 1h
@@ -18,9 +20,10 @@ stage raw_traffic {
   outcome:
     $hourly_bytes = sum($net.network.sent_bytes)
     $conn_count = count($net.metadata.id)
+    $event_ts = max($net.metadata.event_timestamp.seconds)
 }
 
-// --- STAGE 2: Global Context Graph Lookup (Max 1 ECG Alias) ---
+// --- STAGE 2: Global Context Graph Lookup (Max 1 ECG Alias — Inner-Join Filter) ---
 stage global_threat_intel {
   $whois.graph.entity.domain.name = $domain
   $whois.graph.metadata.entity_type = "DOMAIN_NAME"
@@ -45,17 +48,18 @@ stage host_baseline {
   outcome:
     $hist_mean_bytes = avg($raw_traffic.hourly_bytes)
     $hist_sd_bytes = stddev($raw_traffic.hourly_bytes)
-    $active_hours = count($raw_traffic.window_start)
+    $active_hours = count_distinct($raw_traffic.window_start)
 }
 
 // --- ROOT STAGE (UNWRAPPED): Joint Statistical & Threat Fusion ---
 $host = $raw_traffic.host
 $domain = $raw_traffic.domain
+$ws = $raw_traffic.window_start
 $domain = $global_threat_intel.domain
 $host = $host_baseline.host
 
 match:
-  $host, $domain by 1h
+  $host, $domain, $ws by 1h
 
 outcome:
   $obs_bytes = max($raw_traffic.hourly_bytes)
@@ -65,7 +69,9 @@ outcome:
   $z_score = ($obs_bytes - $mean_bytes) / $safe_sd
 
   $creation_ts = max($global_threat_intel.creation_ts)
-  $domain_age_days = (timestamp.current_seconds() - $creation_ts) / 86400.0
+  $obs_ts = max($raw_traffic.event_ts)
+  $raw_age_days = ($obs_ts - $creation_ts) / 86400.0
+  $domain_age_days = if($creation_ts > 0, $raw_age_days, 9999.0)
   $is_nrd = if($creation_ts > 0 and $domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
 
   // Context-Boosted Threat Score: Apply multiplier for newly registered domains
