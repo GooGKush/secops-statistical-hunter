@@ -46,6 +46,10 @@ try:
       SENSITIVITY_ALIASES,
       SENSITIVITY_THRESHOLD_MAP,
       WRITEBACK_CRI_THRESHOLD,
+      _coerce_finite_float,
+      calculate_cri as _canonical_calculate_cri,
+      format_cri,
+      get_cri_badge as _canonical_get_cri_badge,
       resolve_micro_sensitivity_tier,
       resolve_sensitivity_thresholds,
       resolve_sensitivity_tier,
@@ -69,6 +73,10 @@ except ImportError:
       SENSITIVITY_ALIASES,
       SENSITIVITY_THRESHOLD_MAP,
       WRITEBACK_CRI_THRESHOLD,
+      _coerce_finite_float,
+      calculate_cri as _canonical_calculate_cri,
+      format_cri,
+      get_cri_badge as _canonical_get_cri_badge,
       resolve_micro_sensitivity_tier,
       resolve_sensitivity_thresholds,
       resolve_sensitivity_tier,
@@ -1379,41 +1387,23 @@ def generate_visual_bar(score: float, max_score: float = 6.0, bar_length: int = 
   return bar.ljust(bar_length, " ")
 
 
-def calculate_cri(score: float, baseline_threshold: float = 3.0) -> int:
-  """Calibrated Risk Index (CRI) logistic sigmoid function [0-100].
+def calculate_cri(score: Any, baseline_threshold: float = 3.0) -> Optional[int]:
+  """Calibrated Risk Index (CRI) logistic sigmoid function [0-100] (WS7-01 / D5).
 
-  Maps statistical deviations onto an intuitive [0-100] SOC operational index:
+  Delegates to canonical ueba_constants.calculate_cri:
+    - Missing / non-finite / error inputs: None (rendered as N/A)
     - Normal / Sub-baseline (Z <= 0): CRI = 0
     - Baseline Threshold (e.g. Z = 3.0σ): CRI = 50 (Medium Outlier boundary)
     - Significant Outlier (e.g. Z = 4.0σ): CRI = 65
     - High Threat (e.g. Z = 6.0σ): CRI = 86
     - Saturated Cap (e.g. Z >= 15.0σ): CRI = 100
   """
-  if score <= 0:
-    return 0
-  try:
-    val = -0.6 * (score - baseline_threshold)
-    if val > 50:
-      return 0
-    elif val < -50:
-      return 100
-    return round(100.0 / (1.0 + math.exp(val)))
-  except OverflowError:
-    return 100 if score > baseline_threshold else 0
+  return _canonical_calculate_cri(score, baseline_threshold)
 
 
-def get_cri_badge(cri: int) -> Tuple[str, str]:
-  """Returns formatted CRI badge and severity label based on operational tier."""
-  if cri <= 25:
-    return f"🟢 `[CRI: {cri}]`", "Nominal"
-  elif cri <= 45:
-    return f"🟡 `[CRI: {cri}]`", "Low Drift"
-  elif cri <= 69:
-    return f"🟠 `[CRI: {cri}]`", "Medium Outlier"
-  elif cri <= 89:
-    return f"🔴 `[CRI: {cri}]`", "High Threat"
-  else:
-    return f"🚨 `[CRI: {cri}]`", "Critical Outlier"
+def get_cri_badge(cri: Any) -> Tuple[str, str]:
+  """Returns formatted CRI badge and severity label based on canonical 26/46/70/90 cutoffs."""
+  return _canonical_get_cri_badge(cri)
 
 
 class DataReductionEngine:
@@ -1529,9 +1519,22 @@ def format_triage_report(
   chosen_key = order_var or next((k for k in PRIMARY_SCORE_KEYS if k in rows[0]), None)
   if chosen_key:
     if chosen_key in ("cv", "diversity_z"):
-      rows.sort(key=lambda x: float(x.get(chosen_key) if x.get(chosen_key) is not None else 999))
+      rows.sort(
+          key=lambda x: (
+              parsed
+              if (parsed := _coerce_finite_float(x.get(chosen_key))) is not None
+              else math.inf
+          )
+      )
     else:
-      rows.sort(key=lambda x: float(x.get(chosen_key) or 0), reverse=True)
+      rows.sort(
+          key=lambda x: (
+              parsed
+              if (parsed := _coerce_finite_float(x.get(chosen_key))) is not None
+              else -math.inf
+          ),
+          reverse=True,
+      )
 
   total_outliers = len(rows)
   top_rows = rows[:top_n]
@@ -1583,7 +1586,8 @@ def format_triage_report(
   out.append("| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Calibrated Risk Index | Visual Magnitude |")
   out.append("| :------------------- | :----------- | :---------------- | :------------------------- | :-------------- | :-------------- | :-------------------- | :--------------- |")
 
-  max_score = float(top_rows[0].get(chosen_key, 6.0)) if chosen_key and top_rows[0].get(chosen_key) else 6.0
+  raw_max = _coerce_finite_float(top_rows[0].get(chosen_key)) if chosen_key else None
+  max_score = raw_max if (raw_max is not None and raw_max != 0.0) else 6.0
   for row in top_rows:
     ent = str(row.get(entity_col, "unknown"))
     tb = str(row.get("TIME_BUCKET", row.get("window_start", "Full Window")))
@@ -1600,24 +1604,33 @@ def format_triage_report(
       base_str = f"λ = {float(row['historical_lambda']):.2f}/d"
     
     conf_badge, _ = evaluate_confidence_tier(row)
-    score_val = float(row.get(chosen_key, 0.0)) if chosen_key else 0.0
-    badge = get_soc_severity_badge(chosen_key, score_val)
-    score_str = f"+{score_val:.2f}σ" if chosen_key in sigma_keys else f"{score_val:.2f}"
-    vbar = f"`{generate_visual_bar(abs(score_val) if chosen_key == 'diversity_z' else score_val, abs(max_score) if chosen_key == 'diversity_z' else max_score)}`"
-
-    cri_val = calculate_cri(_equiv_cri_score(chosen_key, score_val), 3.0)
+    score_val = _coerce_finite_float(row.get(chosen_key)) if chosen_key else None
+    if score_val is None:
+      badge = "⚪ **[N/A]**"
+      score_str = "N/A"
+      vbar = "`" + (" " * 10) + "`"
+      cri_val = None
+    else:
+      badge = get_soc_severity_badge(chosen_key, score_val)
+      score_str = f"+{score_val:.2f}σ" if chosen_key in sigma_keys else f"{score_val:.2f}"
+      vbar = f"`{generate_visual_bar(abs(score_val) if chosen_key == 'diversity_z' else score_val, abs(max_score) if chosen_key == 'diversity_z' else max_score)}`"
+      cri_val = calculate_cri(_equiv_cri_score(chosen_key, score_val), 3.0)
     cri_badge_str, _ = get_cri_badge(cri_val)
     
     out.append(f"| `{ent}` | {tb[:16]} | **{obs}** | {base_str} | {conf_badge} | {badge} (`{score_str}`) | {cri_badge_str} | {vbar} |")
 
   top_ent = top_rows[0]
-  top_score_val = float(top_ent.get(chosen_key, 0.0)) if chosen_key else 0.0
-  top_score_str = f"+{top_score_val:.2f}σ" if chosen_key in sigma_keys else f"{top_score_val:.2f}"
-  top_badge = get_soc_severity_badge(chosen_key, top_score_val)
+  top_score_val = _coerce_finite_float(top_ent.get(chosen_key)) if chosen_key else None
+  if top_score_val is None:
+    top_score_str = "N/A"
+    top_badge = "⚪ **[N/A]**"
+    top_cri_val = None
+  else:
+    top_score_str = f"+{top_score_val:.2f}σ" if chosen_key in sigma_keys else f"{top_score_val:.2f}"
+    top_badge = get_soc_severity_badge(chosen_key, top_score_val)
+    top_cri_val = calculate_cri(_equiv_cri_score(chosen_key, top_score_val), 3.0)
   top_conf_badge, top_conf_desc = evaluate_confidence_tier(top_ent)
   ent_name = str(top_ent.get(entity_col, "unknown"))
-
-  top_cri_val = calculate_cri(_equiv_cri_score(chosen_key, top_score_val), 3.0)
   top_cri_badge, top_cri_tier = get_cri_badge(top_cri_val)
 
   obs_val = top_ent.get("observation_count", top_ent.get("observed_count", top_ent.get("observed_today", top_ent.get("total_fails", top_ent.get("daily_mb", "N/A")))))
@@ -1760,7 +1773,7 @@ def format_triage_report(
     out.append(describe_mad_scale_branch(top_ent))
   out.append("")
   out.append("##### 🎚️ Calibrated Risk Index (CRI) Sigmoid Normalization")
-  out.append("  $$\\text{CRI} = \\text{round}\\left(\\frac{100}{1 + \\exp(-0.6 \\cdot (Z - 3.0))}\\right) = \\mathbf{" + str(top_cri_val) + "}$$")
+  out.append("  $$\\text{CRI} = \\text{round}\\left(\\frac{100}{1 + \\exp(-0.6 \\cdot (Z - 3.0))}\\right) = \\mathbf{" + format_cri(top_cri_val) + "}$$")
   out.append(f"* **Operational Status**: {top_cri_badge} ({top_cri_tier}). Anchors the 3-Sigma alert boundary ($Z = 3.0\\sigma$) at exactly $\\text{{CRI}} = 50$.")
 
   if fleet_size > 1:
