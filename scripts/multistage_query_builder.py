@@ -3431,6 +3431,8 @@ class MultiStageTemplateRouter:
       "PRODUCER_CONSUMER_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
       "BYTE_RATIO_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
       "IQR_TUKEY_SKEW_FENCES": "iqr_tukey_skew_fences_3stage.yl2",
+      "EXFILTRATION_IQR_OUTLIER": "iqr_tukey_skew_fences_3stage.yl2",
+      "TUKEY_IQR_OUTLIER": "iqr_tukey_skew_fences_3stage.yl2",
       "HEAVY_TAIL_OUTLIERS": "iqr_tukey_skew_fences_3stage.yl2",
       "TUKEY_FENCE": "iqr_tukey_skew_fences_3stage.yl2",
       "TUKEY_SKEW_FENCE": "iqr_tukey_skew_fences_3stage.yl2",
@@ -3559,6 +3561,32 @@ class MultiStageTemplateRouter:
       )
   }
 
+  # Fleet-normalized / empirical-Bayes / prevalence / cohort templates where scoping Stage 1
+  # would collapse fleet N / host_prevalence / src_breadth to 1; scope ONLY at Root before match:.
+  FLEET_ROOT_SCOPED_TEMPLATES: Dict[str, str] = {
+      "dual_baseline_delta_z_3stage.yl2": "$host",
+      "bayesian_gamma_shrinkage_4stage.yl2": "$host",
+      "beta_binomial_failure_4stage.yl2": "$user",
+      "multi_sector_threat_fusion_4stage.yl2": "$entity",
+      "zipfian_process_rarity_2stage.yl2": "$host",
+      "markov_2gram_transition_rarity_2stage.yl2": "$host",
+      "shannon_entropy_character_2stage.yl2": "$entity",
+      "c2_beaconing_jitter_2stage.yl2": "$src_ip",
+      "flow_gap_ratio_screen_2stage.yl2": "$src_ip",
+      "ewma_burst_velocity_2stage.yl2": "$entity",
+  }
+
+  FLEET_ENTITY_WILDCARDS: Tuple[str, ...] = (
+      "",
+      "fleet",
+      "all",
+      "enterprise",
+      "unknown",
+      "unknown_entity",
+      "target_entity",
+      "*",
+  )
+
   def __init__(self, template_dir: Optional[Path] = None):
     if template_dir is None:
       self.template_dir = Path(__file__).resolve().parent.parent / "templates" / "pipelines"
@@ -3575,6 +3603,170 @@ class MultiStageTemplateRouter:
       if k in key or key in k:
         return v
     raise ValueError(f"Unknown archetype or model: {archetype_or_model}. Available: {list(self.ARCHETYPE_TEMPLATE_MAP.keys())}")
+
+  @staticmethod
+  def _validate_entity_field_override(field_str: str) -> str:
+    """Validates an explicit UDM entity_field override against injection and scope exclusions."""
+    clean = str(field_str).strip()
+    if not clean:
+      raise ValueError("Explicit entity_field override cannot be empty.")
+    if any(ch in clean for ch in ('"', "'", "\n", "\r", "{", "}", ";", "\x00")):
+      raise ValueError(f"Unsafe characters in entity_field override: {field_str!r}")
+    if re.search(r"\b(?:stage|match|outcome|condition|order)\s*:", clean, re.IGNORECASE):
+      raise ValueError(f"Unsafe YARA-L clause token in entity_field override: {field_str!r}")
+    scope_errs = check_scope_exclusions(clean)
+    if scope_errs:
+      raise ValueError(f"Scope exclusion violation in entity_field '{clean}': {scope_errs[0]}")
+    return clean
+
+  @classmethod
+  def _sanitize_target_entity_value(cls, val: Optional[str]) -> Optional[str]:
+    """Normalizes fleet wildcards to None and validates non-empty entity values against YARA-L injection."""
+    if val is None:
+      return None
+    clean = str(val).strip()
+    if clean.lower() in cls.FLEET_ENTITY_WILDCARDS:
+      return None
+    if any(ch in clean for ch in ('"', "\n", "\r", "{", "}", ";", "\x00")):
+      raise ValueError(f"Unsafe characters in target_entity_value: {val!r}")
+    return clean
+
+  @staticmethod
+  def _is_ip_literal(value: str) -> bool:
+    return bool(re.match(r"^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]+)$", value.strip()))
+
+  def resolve_target_entity_field(
+      self,
+      archetype: str,
+      entity_type: str = "host",
+      entity_field: Optional[str] = None,
+      preferred_entity_field: Optional[str] = None,
+      identifier_coverage_payload: Optional[Dict[str, Any]] = None,
+      target_entity_value: Optional[str] = None,
+  ) -> str:
+    """Resolves the canonical UDM field used to scope target_entity_value for a given archetype."""
+    template_file = self.get_template_filename(_normalize_archetype_token(archetype))
+    clean_val = self._sanitize_target_entity_value(target_entity_value)
+    explicit_raw = preferred_entity_field if preferred_entity_field is not None else entity_field
+    if explicit_raw is not None:
+      return self._validate_entity_field_override(explicit_raw)
+    if identifier_coverage_payload is not None:
+      cov_decision = select_identifier_from_coverage(identifier_coverage_payload)
+      return str(cov_decision["selected_field"])
+
+    ent_norm = (entity_type or "host").lower().strip()
+    if ent_norm == "domain":
+      return "target.hostname"
+    if ent_norm == "file":
+      if clean_val and re.match(r"^[0-9a-fA-F]{64}$", clean_val):
+        return "target.process.file.sha256"
+      return "target.process.file.full_path"
+
+    if template_file == "derived_context_file_prevalence_3stage.yl2":
+      return {
+          "host": "principal.asset.hostname",
+          "user": "principal.user.userid",
+          "ip": "principal.ip",
+      }.get(ent_norm, "principal.asset.hostname")
+
+    if template_file == "derived_context_prevalence_3stage.yl2":
+      return {
+          "host": "target.asset.hostname",
+          "user": "target.user.userid",
+          "ip": "principal.ip",
+      }.get(ent_norm, "target.asset.hostname")
+
+    if template_file == "privileged_lateral_expansion_2stage.yl2":
+      return {
+          "host": "target.hostname",
+          "user": "target.user.userid",
+          "ip": "principal.ip",
+      }.get(ent_norm, "target.hostname")
+
+    entity_field_map = {
+        "host": "principal.hostname",
+        "user": "target.user.userid",
+        "ip": "principal.ip",
+    }
+    resolved = entity_field_map.get(ent_norm, "principal.hostname")
+    if (
+        "producer_consumer" in template_file
+        or "derived_context_domain" in template_file
+        or "global_threat_intel" in template_file
+    ) and ent_norm == "host":
+      resolved = "principal.asset.hostname"
+    elif ("c2_beaconing" in template_file or "flow_gap_ratio" in template_file) and ent_norm == "host":
+      if clean_val and not self._is_ip_literal(clean_val):
+        resolved = "principal.hostname"
+      else:
+        resolved = "principal.asset.ip"
+    return resolved
+
+  @classmethod
+  def _inject_target_entity_predicate(
+      cls,
+      rendered: str,
+      template_file: str,
+      scoping_field: str,
+      target_entity_value: str,
+  ) -> str:
+    """Injects target entity equality into Root (for fleet/cohort models) or raw UDM stages (for self-baseline models)."""
+    escaped_val = target_entity_value.replace("\\", "\\\\")
+    stage_matches = list(re.finditer(r"stage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", rendered, flags=re.DOTALL))
+
+    if (
+        template_file in cls.FLEET_ROOT_SCOPED_TEMPLATES
+        or template_file == "fleet_prevalence_normalization_2stage.yl2"
+    ):
+      last_end = stage_matches[-1].end() if stage_matches else 0
+      prefix_part = rendered[:last_end]
+      root_part = rendered[last_end:]
+      root_var = cls.FLEET_ROOT_SCOPED_TEMPLATES.get(template_file)
+      if not root_var:
+        root_code = re.sub(r"//.*", "", root_part)
+        mm = re.search(r"\bmatch\s*:(.*?)(?=\b(?:outcome|condition|order)\s*:|\Z)", root_code, flags=re.DOTALL)
+        mvars = re.findall(r"\$[a-zA-Z0-9_]+", mm.group(1)) if mm else []
+        root_var = mvars[0] if mvars else "$host"
+      root_match_pos = re.search(r"^([ \t]*match\s*:)", root_part, flags=re.MULTILINE)
+      if root_match_pos:
+        insert_idx = root_match_pos.start()
+        root_part = (
+            root_part[:insert_idx]
+            + f'{root_var} = "{escaped_val}"\n'
+            + root_part[insert_idx:]
+        )
+      return prefix_part + root_part
+
+    stage_names = [m.group(1) for m in stage_matches]
+    out_chunks: List[str] = []
+    cursor = 0
+    for sm in stage_matches:
+      stage_name = sm.group(1)
+      stage_body = sm.group(2)
+      stage_code = re.sub(r"//.*", "", stage_body)
+      refs_other_stage = any(
+          re.search(r"\$" + re.escape(other) + r"\.", stage_code)
+          for other in stage_names
+          if other != stage_name
+      )
+      is_independent_raw = ("metadata.event_type" in stage_code) and (not refs_other_stage)
+      if not is_independent_raw:
+        continue
+
+      alias_m = re.search(r"(\$[a-zA-Z0-9_]+\.)metadata\.event_type\b", stage_code)
+      alias_prefix = alias_m.group(1) if alias_m else ""
+      lhs_field = scoping_field if scoping_field.startswith("$") else f"{alias_prefix}{scoping_field}"
+
+      match_m = re.search(r"^([ \t]*match\s*:)", stage_body, flags=re.MULTILINE)
+      if match_m:
+        body_start = sm.start(2)
+        ins_pos = body_start + match_m.start()
+        out_chunks.append(rendered[cursor:ins_pos])
+        out_chunks.append(f'    {lhs_field} = "{escaped_val}"\n')
+        cursor = ins_pos
+
+    out_chunks.append(rendered[cursor:])
+    return "".join(out_chunks)
 
   def build_query(
       self,
@@ -3608,6 +3800,7 @@ class MultiStageTemplateRouter:
       token_field: Optional[str] = None,
       window_days: Optional[int] = None,
       local_execution_available: bool = True,
+      target_entity_value: Optional[str] = None,
   ) -> str:
     tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
     arch_norm = _normalize_archetype_token(archetype)
@@ -3693,13 +3886,16 @@ class MultiStageTemplateRouter:
     else:
       resolved_total_buckets = compute_total_window_buckets(eff_window_hours, resolved_bucket_size)
 
+    clean_target_entity_val = self._sanitize_target_entity_value(target_entity_value)
+
     # Entity field resolution (D4 / WS1-07: explicit override -> coverage probe -> entity_type / template default)
     entity_field_map = {
         "host": "principal.hostname",
         "user": "target.user.userid",
         "ip": "principal.ip",
     }
-    explicit_field = preferred_entity_field or entity_field
+    explicit_field_raw = preferred_entity_field if preferred_entity_field is not None else entity_field
+    explicit_field = self._validate_entity_field_override(explicit_field_raw) if explicit_field_raw is not None else None
     if explicit_field:
       resolved_entity_field = explicit_field
     elif identifier_coverage_payload is not None:
@@ -3708,7 +3904,7 @@ class MultiStageTemplateRouter:
     else:
       ent_norm = entity_type.lower().strip()
       resolved_entity_field = entity_field_map.get(ent_norm, "principal.hostname")
-      if "privileged_lateral" in template_file and ent_norm == "host":
+      if "privileged_lateral" in template_file and ent_norm in ("host", "ip"):
         resolved_entity_field = "target.user.userid"
       elif (
           "producer_consumer" in template_file
@@ -3717,7 +3913,10 @@ class MultiStageTemplateRouter:
       ) and ent_norm == "host":
         resolved_entity_field = "principal.asset.hostname"
       elif ("c2_beaconing" in template_file or "flow_gap_ratio" in template_file) and ent_norm == "host":
-        resolved_entity_field = "principal.asset.ip"
+        if clean_target_entity_val and not self._is_ip_literal(clean_target_entity_val):
+          resolved_entity_field = "principal.hostname"
+        else:
+          resolved_entity_field = "principal.asset.ip"
 
     if peer_sample_field:
       resolved_peer_sample_field = peer_sample_field
@@ -3979,6 +4178,22 @@ class MultiStageTemplateRouter:
       else:
         rendered = re.sub(r'(\border:\s*)', f"condition:\n  {cond_str}\n\n\\1", rendered, count=1)
 
+    if clean_target_entity_val is not None:
+      scoping_field = self.resolve_target_entity_field(
+          archetype=arch_norm,
+          entity_type=entity_type,
+          entity_field=entity_field,
+          preferred_entity_field=preferred_entity_field,
+          identifier_coverage_payload=identifier_coverage_payload,
+          target_entity_value=clean_target_entity_val,
+      )
+      rendered = self._inject_target_entity_predicate(
+          rendered=rendered,
+          template_file=template_file,
+          scoping_field=scoping_field,
+          target_entity_value=clean_target_entity_val,
+      )
+
     return rendered
 
 
@@ -4179,9 +4394,43 @@ class HandoffEndpoint:
       "LONG_STRING_SCREEN": "LONG_STRING_SCREEN",
       "FLOW_GAP_RATIO_SCREEN": "FLOW_GAP_RATIO_SCREEN",
       "FLOW_GAP_RATIO": "FLOW_GAP_RATIO_SCREEN",
+      "EXFILTRATION_IQR_OUTLIER": "IQR_TUKEY_SKEW_FENCES",
+      "IQR_TUKEY_SKEW_FENCES": "IQR_TUKEY_SKEW_FENCES",
+      "TUKEY_IQR_OUTLIER": "IQR_TUKEY_SKEW_FENCES",
+      "QUANTILE_IQR_SKEW": "IQR_TUKEY_SKEW_FENCES",
       "OFF_HOURS_BURST": "POISSON_BURST_CLUSTERING",
       "AFTER_HOURS_ACTIVITY": "POISSON_BURST_CLUSTERING",
   }
+
+  PREFLIGHT_FORMULA_BY_TEMPLATE: Dict[str, str] = {
+      "c2_beaconing_jitter_2stage.yl2": "CV = sigma / mu <= 0.20",
+      "flow_gap_ratio_screen_2stage.yl2": "CV = sigma / mu <= 0.20",
+      "mad_modified_z_4stage.yl2": "m_z_score = 0.6745 * (obs - median) / MAD >= 3.5",
+      "iqr_tukey_skew_fences_3stage.yl2": "tukey_excess_z = (obs - upper_fence) / safe_scale >= 1.0",
+      "poisson_burst_clustering_2stage.yl2": "Fano = sigma^2 / mu >= 4.0",
+      "poisson_rare_surge_2stage.yl2": "poisson_z_sq = (k - lambda)^2 / lambda >= 12.25",
+      "markov_2gram_transition_rarity_2stage.yl2": "surprisal = ln((N_parent + V) / (N_pair + 1)) >= 3.0",
+      "shannon_entropy_character_2stage.yl2": "H(s) = -sum(p_i * log2(p_i))",
+      "long_string_screen_2stage.yl2": "score = ln(length) + ln(1 + total / token_count)",
+      "zipfian_process_rarity_2stage.yl2": "zipf_score = ln(N_fleet_hosts / N_adopter_hosts) >= 2.5",
+      "ewma_burst_velocity_2stage.yl2": "S_t = lambda * x_t + (1 - lambda) * S_{t-1} >= UCL",
+  }
+
+  @staticmethod
+  def _normalize_handoff_entity_type(raw_type: Any) -> Tuple[str, str]:
+    """Normalizes handoff target_entity.type into (router_entity_type, canonical_spec_type)."""
+    clean = str(raw_type or "HOST").strip().upper().replace("-", "_")
+    if clean in ("HOSTNAME", "HOST", "ASSET", "ENDPOINT", "WORKSTATION", "SERVER", "DOMAIN"):
+      return "host", "HOST"
+    if clean in ("USER", "USER_ID", "USERID", "ACCOUNT", "SERVICE_ACCOUNT", "EMAIL"):
+      return "user", "USER"
+    if clean in ("IP", "IP_ADDRESS", "SRC_IP", "DST_IP", "CALLER_IP"):
+      return "ip", "IP"
+    if clean in ("DOMAIN_NAME", "FQDN"):
+      return "domain", "DOMAIN"
+    if clean in ("FILE", "BINARY", "PROCESS", "HASH", "SHA256", "MD5"):
+      return "file", "FILE"
+    return "host", clean or "HOST"
 
   @classmethod
   def ingest(cls, payload_input: Any) -> Dict[str, Any]:
@@ -4293,7 +4542,13 @@ class HandoffEndpoint:
 
     target_entity = payload.get("target_entity", {})
     entity_val = target_entity.get("value", "") if isinstance(target_entity, dict) else str(target_entity)
-    entity_type = (target_entity.get("type", "host") if isinstance(target_entity, dict) else "host").lower()
+    raw_entity_type = target_entity.get("type", "HOST") if isinstance(target_entity, dict) else "HOST"
+    router_entity_type, spec_entity_type = cls._normalize_handoff_entity_type(raw_entity_type)
+    raw_entity_field = (
+        target_entity.get("field")
+        if isinstance(target_entity, dict) and target_entity.get("field") is not None
+        else payload.get("entity_field")
+    )
 
     search_window = payload.get("search_window", {})
     lookback = search_window.get("lookback", "24h") if isinstance(search_window, dict) else str(search_window)
@@ -4317,12 +4572,21 @@ class HandoffEndpoint:
 
     local_exec = bool(payload.get("local_execution_available", True))
     try:
+      template_file = router.get_template_filename(mapped_archetype)
+      resolved_scoping_field = router.resolve_target_entity_field(
+          archetype=mapped_archetype,
+          entity_type=router_entity_type,
+          entity_field=raw_entity_field,
+          target_entity_value=entity_val,
+      )
       compiled_query = router.build_query(
           archetype=mapped_archetype,
           tier=tier,
-          entity_type=entity_type,
+          entity_type=router_entity_type,
           window_hours=window_hours,
+          entity_field=raw_entity_field,
           local_execution_available=local_exec,
+          target_entity_value=entity_val,
       )
       if validated_filters:
         filter_block = "\n".join(f"    {cf}" for cf in validated_filters)
@@ -4343,10 +4607,14 @@ class HandoffEndpoint:
     preflight_spec = {
         "intent": raw_intent or mapped_archetype,
         "model_routed": mapped_archetype,
-        "target_entity": {"type": entity_type.upper(), "value": entity_val},
+        "target_entity": {
+            "type": spec_entity_type,
+            "value": entity_val,
+            "field": resolved_scoping_field,
+        },
         "search_window": {"lookback": lookback, "hours": window_hours},
         "sensitivity_tier": tier,
-        "formula": "CV = sigma / mu <= 0.20" if mapped_archetype == "C2_BEACONING_JITTER" else "Z = (Observed - mu) / sigma",
+        "formula": cls.PREFLIGHT_FORMULA_BY_TEMPLATE.get(template_file, "Z = (Observed - mu) / sigma"),
     }
 
     return {
