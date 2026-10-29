@@ -36,6 +36,7 @@ try:
       DEFAULT_FUSION_THRESHOLD_SQ,
       DEFAULT_MIN_BASELINE_DAYS,
       DEFAULT_ROBUST_THRESHOLD,
+      DEFAULT_TUKEY_EXCESS_THRESHOLD,
       LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD,
       LOOPBACK_MIN_DISTINCT_HITS,
       MAX_CUSUM_MODE_B_DAYS_MACRO,
@@ -43,6 +44,7 @@ try:
       MAX_MODE_B_DAYS_MICRO,
       MAX_MODE_C_DAYS_MACRO,
       MICRO_SENSITIVITY_FROM_CANONICAL,
+      RADAR_COMPOSITE_D_THRESHOLD,
       RADAR_FUSION_DISTANCE_THRESHOLD,
       SENSITIVITY_ALIASES,
       SENSITIVITY_THRESHOLD_MAP,
@@ -53,6 +55,7 @@ try:
       format_cri,
       format_score_with_unit,
       get_cri_badge as _canonical_get_cri_badge,
+      get_score_semantics,
       is_inverted_score_key,
       is_true_sigma_key,
       resolve_micro_sensitivity_tier,
@@ -68,6 +71,7 @@ except ImportError:
       DEFAULT_FUSION_THRESHOLD_SQ,
       DEFAULT_MIN_BASELINE_DAYS,
       DEFAULT_ROBUST_THRESHOLD,
+      DEFAULT_TUKEY_EXCESS_THRESHOLD,
       LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD,
       LOOPBACK_MIN_DISTINCT_HITS,
       MAX_CUSUM_MODE_B_DAYS_MACRO,
@@ -75,6 +79,7 @@ except ImportError:
       MAX_MODE_B_DAYS_MICRO,
       MAX_MODE_C_DAYS_MACRO,
       MICRO_SENSITIVITY_FROM_CANONICAL,
+      RADAR_COMPOSITE_D_THRESHOLD,
       RADAR_FUSION_DISTANCE_THRESHOLD,
       SENSITIVITY_ALIASES,
       SENSITIVITY_THRESHOLD_MAP,
@@ -85,6 +90,7 @@ except ImportError:
       format_cri,
       format_score_with_unit,
       get_cri_badge as _canonical_get_cri_badge,
+      get_score_semantics,
       is_inverted_score_key,
       is_true_sigma_key,
       resolve_micro_sensitivity_tier,
@@ -2061,7 +2067,15 @@ def evaluate_confidence_tier(
 PRIMARY_SCORE_KEYS = [
     "hod_z_score",
     "burst_z",
+    "beta_binomial_z",
     "fail_z",
+    "tukey_excess_z",
+    "adaptive_z",
+    "above_max_z",
+    "macd_z",
+    "flow_surge_score",
+    "cusum_drift_score",
+    "windowed_slack_sum",
     "hurdle_anomaly_score",
     "hurdle_threat_score",
     "threat_distance",
@@ -2071,6 +2085,7 @@ PRIMARY_SCORE_KEYS = [
     "bayesian_z",
     "anomaly_score",
     "posterior_fail_prob",
+    "posterior_fail_rate",
     "regularized_failure_prob",
     "targeted_delta_z",
     "delta_z",
@@ -2099,17 +2114,50 @@ PRIMARY_SCORE_KEYS = [
     "personal_z",
     "producer_ratio",
     "fold_change",
+    "rel_dev_z_equiv",
     "surge_ratio",
     "ratio_1v7",
     "ratio_1v30",
+    "novelty_flag",
     "score",
 ]
 
 
 def get_soc_severity_badge(chosen_key: str, score: float) -> str:
   """Translates statistical score into a standard SOC operational rating."""
+  if chosen_key == "novelty_flag":
+    return "🆕 **[NOVELTY FLAG]**" if score >= 1.0 else "🟢 **[SEEN]**"
+  if chosen_key == "tukey_excess_z":
+    if score >= 2.0:
+      return "🚨 **[CRITICAL OUTLIER]**"
+    elif score >= 1.0:
+      return "⚠️ **[HIGH SUSPICION]**"
+    elif score >= 0.5:
+      return "🟡 **[ELEVATED WATCH]**"
+    else:
+      return "🟢 **[INFORMATIONAL]**"
+  if chosen_key == "deficit_z":
+    if score >= 2.5:
+      return "🚨 **[CRITICAL OUTLIER]**"
+    elif score >= 1.5:
+      return "⚠️ **[HIGH SUSPICION]**"
+    elif score >= 1.0:
+      return "🟡 **[ELEVATED WATCH]**"
+    else:
+      return "🟢 **[INFORMATIONAL]**"
+  if chosen_key == "posterior_fail_rate":
+    if score >= 0.80:
+      return "🚨 **[CRITICAL OUTLIER]**"
+    elif score >= 0.50:
+      return "⚠️ **[HIGH SUSPICION]**"
+    elif score >= 0.35:
+      return "🟡 **[ELEVATED WATCH]**"
+    else:
+      return "🟢 **[INFORMATIONAL]**"
   if chosen_key in [
-      "hod_z_score", "burst_z", "fail_z", "deficit_z", "z_score", "poisson_z", "fleet_z",
+      "hod_z_score", "burst_z", "beta_binomial_z", "above_max_z", "macd_z",
+      "flow_surge_score", "adaptive_z", "rel_dev_z_equiv", "cusum_drift_score",
+      "windowed_slack_sum", "fail_z", "z_score", "poisson_z", "fleet_z",
       "targeted_delta_z", "delta_z", "personal_z", "bayesian_z", "anomaly_score",
       "threat_distance", "threat_score", "markov_threat_score",
       "z_log", "hurdle_anomaly_score", "hurdle_threat_score", "velocity_score",
@@ -2420,6 +2468,9 @@ def format_triage_report(
   out.append("| Entity (Host / User) | Spike Window | Observed Activity | Normal Baseline (± Spread) | Data Confidence | Threat Severity | Calibrated Risk Index | Visual Magnitude |")
   out.append("| :------------------- | :----------- | :---------------- | :------------------------- | :-------------- | :-------------- | :-------------------- | :--------------- |")
 
+  is_bool_flag = bool(
+      chosen_key and get_score_semantics(chosen_key).kind == "boolean_flag"
+  )
   row_z_equivs = [
       score_to_z_equivalent(chosen_key, r.get(chosen_key)) if chosen_key else None
       for r in top_rows
@@ -2443,10 +2494,15 @@ def format_triage_report(
     
     conf_badge, _ = evaluate_confidence_tier(row)
     score_val = _coerce_finite_float(row.get(chosen_key)) if chosen_key else None
-    if score_val is None or row_z_eq is None:
+    if score_val is None or (row_z_eq is None and not is_bool_flag):
       badge = "⚪ **[N/A]**"
       score_str = "N/A"
       vbar = "`" + (" " * 10) + "`"
+      cri_val = None
+    elif is_bool_flag:
+      badge = get_soc_severity_badge(chosen_key, score_val)
+      score_str = format_score_with_unit(chosen_key, score_val)
+      vbar = f"`{generate_visual_bar(3.0 if score_val >= 1.0 else 0.0, 6.0)}`"
       cri_val = None
     else:
       badge = get_soc_severity_badge(chosen_key, score_val)
@@ -2460,7 +2516,7 @@ def format_triage_report(
   top_ent = top_rows[0]
   top_score_val = _coerce_finite_float(top_ent.get(chosen_key)) if chosen_key else None
   top_cri_val = cri_from_model_score(chosen_key, top_score_val) if chosen_key else None
-  if top_score_val is None or top_cri_val is None:
+  if top_score_val is None or (top_cri_val is None and not is_bool_flag):
     top_score_str = "N/A"
     top_badge = "⚪ **[N/A]**"
     top_cri_val = None
@@ -2677,9 +2733,14 @@ def generate_chart_spec(
     if clean_r:
       rows.append(clean_r)
   
+  _chart_score_candidates = (
+      ["z_score"]
+      + [c for c in PRIMARY_SCORE_KEYS if c not in ("z_score", "score")]
+      + ["score"]
+  )
   if plot_type == "DUAL_Y_TIMESERIES":
     time_key = next((k for k in ["TIME_BUCKET", "date", "time", "timestamp", "window_start", "evaluation_date"] if rows and k in rows[0]), "TIME_BUCKET")
-    score_key = next((k for k in ["z_score", "score", "delta_z", "poisson_z", "fleet_z", "fano_factor", "m_z_score", "surge_ratio", "cv"] if rows and k in rows[0]), "z_score")
+    score_key = next((k for k in _chart_score_candidates if rows and k in rows[0]), "z_score")
     score_title = "Z-Score (σ)" if is_true_sigma_key(score_key) else "Anomaly Score"
     vol_key = next((k for k in ["observation_count", "observed_volume", "observed_count", "observed_today", "observed", "total_fails", "daily_mb", "event_count", "volume", "count"] if rows and k in rows[0]), "observation_count")
     vol_title = "Observed Volume / Activity"
@@ -2745,7 +2806,7 @@ def generate_chart_spec(
   elif plot_type == "4D_BUBBLE":
     time_key = next((k for k in ["TIME_BUCKET", "date", "time", "timestamp", "window_start"] if rows and k in rows[0]), "TIME_BUCKET")
     vol_key = next((k for k in ["observation_count", "observed_volume", "observed_count", "event_count", "daily_mb"] if rows and k in rows[0]), "observation_count")
-    score_key = next((k for k in ["z_score", "score", "delta_z", "poisson_z", "fano_factor"] if rows and k in rows[0]), "z_score")
+    score_key = next((k for k in _chart_score_candidates if rows and k in rows[0]), "z_score")
     card_key = next((k for k in ["distinct_binaries", "distinct_subdomains", "cardinality", "breadth"] if rows and k in rows[0]), "distinct_binaries")
     ent_key = next((k for k in ["host", "user", "entity", "principal_ip"] if rows and k in rows[0]), "host")
 
@@ -2858,9 +2919,14 @@ def generate_chartjs_spec(
         }
     }
   elif plot_type == "DUAL_Y_TIMESERIES":
+    _cjs_score_candidates = (
+        ["z_score"]
+        + [c for c in PRIMARY_SCORE_KEYS if c not in ("z_score", "score")]
+        + ["score"]
+    )
     time_key = next((k for k in ["TIME_BUCKET", "date", "time", "timestamp", "window_start"] if k in rows[0]), "TIME_BUCKET")
     vol_key = next((k for k in ["observation_count", "observed_volume", "observed_count", "event_count", "daily_mb"] if k in rows[0]), "observation_count")
-    score_key = next((k for k in ["z_score", "score", "delta_z", "fleet_z", "poisson_z", "fano_factor"] if k in rows[0]), "z_score")
+    score_key = next((k for k in _cjs_score_candidates if k in rows[0]), "z_score")
     
     valid_rows = [r for r in rows if r.get(vol_key) is not None or r.get(score_key) is not None]
     time_labels = [str(r.get(time_key, "N/A")) for r in valid_rows]
