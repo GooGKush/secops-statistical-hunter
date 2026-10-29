@@ -14,7 +14,7 @@
 // --- STAGE 1: Period byte aggregation & log-transformation per host ---
 stage host_bytes {
   metadata.event_type = "NETWORK_CONNECTION"
-  principal.hostname = $host
+  {{entity_field}} = $host
   $host != ""
   network.sent_bytes > 0
 

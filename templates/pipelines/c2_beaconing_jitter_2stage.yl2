@@ -15,7 +15,8 @@
 stage host_intervals {
     metadata.event_type = "{{event_type}}"
     target.ip = $dst_ip
-    principal.asset.ip = $src_ip
+    {{entity_field}} = $src_ip
+    $src_ip != ""
     // Exclude internal RFC 1918 subnets for destination
     not net.ip_in_range_cidr($dst_ip, "10.0.0.0/8")
     not net.ip_in_range_cidr($dst_ip, "172.16.0.0/12")

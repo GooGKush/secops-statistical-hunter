@@ -468,6 +468,133 @@ def compute_zero_inclusive_dispersion(
       "fano_factor": fano_factor,
   }
 
+
+HOSTNAME_COVERAGE_MIN_RATIO: float = 0.20
+VALID_IDENTIFIER_PROBE_ROLES: Tuple[str, ...] = ("principal", "target", "src", "about")
+ASSET_CONTEXT_JOIN_GUIDANCE: str = (
+    'Join hostnames to IPs ONLY through an asset context stage '
+    '(graph.metadata.source_type = "DERIVED_CONTEXT", graph.metadata.entity_type = "ASSET"); '
+    'never equate hostname and IP fields directly.'
+)
+
+
+def build_identifier_coverage_probe(
+    event_type: str = "NETWORK_CONNECTION",
+    role: str = "principal",
+) -> str:
+  """Builds a single 1-hour read-only YARA-L stats probe measuring hostname vs IP coverage (D4 / WS1-07)."""
+  et_clean = str(event_type or "").strip().upper()
+  if not et_clean or not re.match(r"^[A-Z0-9_]+$", et_clean):
+    raise ValueError(f"event_type must be a valid UDM event_type token, got {event_type!r}")
+  role_norm = str(role or "").strip().lower()
+  if role_norm not in VALID_IDENTIFIER_PROBE_ROLES:
+    raise ValueError(
+        f"role must be one of {VALID_IDENTIFIER_PROBE_ROLES}, got {role!r}"
+    )
+
+  hostname_field = f"{role_norm}.asset.hostname"
+  ip_field = f"{role_norm}.ip"
+  return (
+      "// ============================================================================\n"
+      "// Goal: Turn-1 per-tenant identifier coverage probe (D4 / WS1-07)\n"
+      f"// Target Telemetry: UDM_EVENTS ({et_clean})\n"
+      "// Statistical Model: Single-Stage Identifier Population Coverage Screen (1h Read-Only Window)\n"
+      "// Note: Join hostnames to IPs ONLY through an asset context stage (DERIVED_CONTEXT ASSET),\n"
+      "//       never equate hostname and IP fields directly.\n"
+      "// ============================================================================\n\n"
+      f'metadata.event_type = "{et_clean}"\n'
+      "$et = metadata.event_type\n\n"
+      "match:\n"
+      "  $et\n\n"
+      "outcome:\n"
+      "  $total_events = count(metadata.id)\n"
+      f'  $hostname_events = sum(if({hostname_field} != "", 1, 0))\n'
+      f'  $ip_events = sum(if({ip_field} != "", 1, 0))\n'
+  )
+
+
+def select_identifier_from_coverage(
+    probe_payload: Dict[str, Any],
+    role: str = "principal",
+) -> Dict[str, Any]:
+  """Selects hostname vs IP UDM field from a Turn-1 coverage probe payload (D4 / WS1-07)."""
+  if not isinstance(probe_payload, dict):
+    raise ValueError(f"probe_payload must be a dict, got {type(probe_payload).__name__}")
+  role_norm = str(role or "").strip().lower()
+  if role_norm not in VALID_IDENTIFIER_PROBE_ROLES:
+    raise ValueError(
+        f"role must be one of {VALID_IDENTIFIER_PROBE_ROLES}, got {role!r}"
+    )
+
+  hostname_field = f"{role_norm}.asset.hostname"
+  ip_field = f"{role_norm}.ip"
+
+  total_events: float
+  hostname_events: float
+  ip_events: float
+
+  if all(k in probe_payload for k in ("total_events", "hostname_events", "ip_events")):
+    total_events = float(probe_payload["total_events"])
+    hostname_events = float(probe_payload["hostname_events"])
+    ip_events = float(probe_payload["ip_events"])
+  elif "hostname_coverage" in probe_payload and "ip_coverage" in probe_payload:
+    total_events = float(probe_payload.get("total_events", 100))
+    hostname_cov = float(probe_payload["hostname_coverage"])
+    ip_cov = float(probe_payload["ip_coverage"])
+    hostname_events = round(total_events * hostname_cov)
+    ip_events = round(total_events * ip_cov)
+  elif "stats" in probe_payload or "results" in probe_payload:
+    rows = parse_columnar_stats(probe_payload)
+    if not rows:
+      return {
+          "selected_field": hostname_field,
+          "entity_type": "host",
+          "role": role_norm,
+          "total_events": 0,
+          "hostname_events": 0,
+          "ip_events": 0,
+          "hostname_coverage": 0.0,
+          "ip_coverage": 0.0,
+          "empty_window": True,
+          "join_guidance": ASSET_CONTEXT_JOIN_GUIDANCE,
+      }
+    if not any("total_events" in r for r in rows):
+      raise ValueError("probe_payload stats rows are missing required 'total_events' column")
+    total_events = sum(float(r.get("total_events", 0)) for r in rows)
+    hostname_events = sum(float(r.get("hostname_events", 0)) for r in rows)
+    ip_events = sum(float(r.get("ip_events", 0)) for r in rows)
+  else:
+    raise ValueError(
+        "Malformed probe_payload: expected Chronicle 'stats'/'results' payload or 'total_events'/'hostname_events'/'ip_events'"
+    )
+
+  if total_events < 0 or hostname_events < 0 or ip_events < 0:
+    raise ValueError("Identifier coverage counts cannot be negative")
+
+  if total_events == 0:
+    hostname_cov = 0.0
+    ip_cov = 0.0
+    selected_field = hostname_field
+  else:
+    hostname_cov = min(1.0, hostname_events / total_events)
+    ip_cov = min(1.0, ip_events / total_events)
+    if hostname_cov >= HOSTNAME_COVERAGE_MIN_RATIO or hostname_cov >= ip_cov:
+      selected_field = hostname_field
+    else:
+      selected_field = ip_field
+
+  return {
+      "selected_field": selected_field,
+      "entity_type": "ip" if selected_field.endswith(".ip") else "host",
+      "role": role_norm,
+      "total_events": int(total_events),
+      "hostname_events": int(hostname_events),
+      "ip_events": int(ip_events),
+      "hostname_coverage": round(hostname_cov, 6),
+      "ip_coverage": round(ip_cov, 6),
+      "join_guidance": ASSET_CONTEXT_JOIN_GUIDANCE,
+  }
+
 THREAT_EXPLANATIONS = {
     "z_score": {
         "name": "Process Execution Volume Surge (Parametric Z-Score)",
@@ -2612,6 +2739,8 @@ class MultiStageTemplateRouter:
       bucket_size: Optional[str] = None,
       entity_field: Optional[str] = None,
       peer_sample_field: Optional[str] = None,
+      identifier_coverage_payload: Optional[Dict[str, Any]] = None,
+      preferred_entity_field: Optional[str] = None,
   ) -> str:
     tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
     template_file = self.get_template_filename(archetype)
@@ -2673,22 +2802,31 @@ class MultiStageTemplateRouter:
     else:
       resolved_total_buckets = compute_total_window_buckets(window_hours, resolved_bucket_size)
 
-    # Entity field resolution
+    # Entity field resolution (D4 / WS1-07: explicit override -> coverage probe -> entity_type / template default)
     entity_field_map = {
         "host": "principal.hostname",
         "user": "target.user.userid",
-        "ip": "principal.asset.ip",
+        "ip": "principal.ip",
     }
-    if entity_field:
-      resolved_entity_field = entity_field
+    explicit_field = preferred_entity_field or entity_field
+    if explicit_field:
+      resolved_entity_field = explicit_field
+    elif identifier_coverage_payload is not None:
+      cov_decision = select_identifier_from_coverage(identifier_coverage_payload)
+      resolved_entity_field = cov_decision["selected_field"]
     else:
-      resolved_entity_field = entity_field_map.get(entity_type.lower(), "principal.hostname")
-      if ("impossible_travel" in template_file or "privileged_lateral" in template_file) and entity_type.lower() == "host":
+      ent_norm = entity_type.lower().strip()
+      resolved_entity_field = entity_field_map.get(ent_norm, "principal.hostname")
+      if ("impossible_travel" in template_file or "privileged_lateral" in template_file) and ent_norm == "host":
         resolved_entity_field = "target.user.userid"
-      elif "producer_consumer" in template_file and entity_type.lower() == "host":
+      elif (
+          "producer_consumer" in template_file
+          or "derived_context_domain" in template_file
+          or "global_threat_intel" in template_file
+      ) and ent_norm == "host":
         resolved_entity_field = "principal.asset.hostname"
-      elif "poisson_burst" in template_file and entity_type.lower() == "ip":
-        resolved_entity_field = "principal.ip"
+      elif "c2_beaconing" in template_file and ent_norm == "host":
+        resolved_entity_field = "principal.asset.ip"
 
     if peer_sample_field:
       resolved_peer_sample_field = peer_sample_field

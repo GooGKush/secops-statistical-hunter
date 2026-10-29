@@ -7,7 +7,7 @@
 // --- STAGE 1: Event-Plane Traffic Extraction ---
 stage raw_traffic {
   $net.metadata.event_type = "NETWORK_CONNECTION"
-  $host = $net.principal.asset.hostname
+  $host = $net.{{entity_field}}
   $domain = $net.target.hostname
   $domain != ""
   $host != ""

@@ -7,7 +7,7 @@
 // --- STAGE 1: Event-Plane Network Egress Extraction ---
 stage raw_network {
   $net.metadata.event_type = "NETWORK_CONNECTION"
-  $host = $net.principal.asset.hostname
+  $host = $net.{{entity_field}}
   $domain = $net.target.hostname
   $host != ""
   $domain != ""
