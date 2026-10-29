@@ -282,9 +282,9 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"z_threshold": 2.0, "min_active_samples": 12},
     },
     "PRODUCER_CONSUMER_RATIO_INVERSION": {
-        "CONSERVATIVE": {"min_producer_ratio": 0.85, "z_score": 3.5, "min_sent_bytes": 50000000.0, "min_active_samples": 14},
-        "BALANCED": {"min_producer_ratio": 0.70, "z_score": 2.5, "min_sent_bytes": 10000000.0, "min_active_samples": 7},
-        "AGGRESSIVE": {"min_producer_ratio": 0.55, "z_score": 1.8, "min_sent_bytes": 1000000.0, "min_active_samples": 3},
+        "CONSERVATIVE": {"min_producer_ratio": 0.85, "z_score": 3.5, "min_sent_bytes": 50000000, "min_active_samples": 14},
+        "BALANCED": {"min_producer_ratio": 0.70, "z_score": 2.5, "min_sent_bytes": 10000000, "min_active_samples": 7},
+        "AGGRESSIVE": {"min_producer_ratio": 0.55, "z_score": 1.8, "min_sent_bytes": 1000000, "min_active_samples": 3},
     },
     "DUAL_BASELINE_DELTA_Z": {
         "CONSERVATIVE": {"delta_z": 4.0, "min_count": 50, "min_sd": 5.0, "min_active_samples": 60, "min_active_hosts": 10},
@@ -1550,6 +1550,59 @@ def _extract_if_calls(code: str) -> List[Tuple[str, List[str]]]:
   return results
 
 
+def _collapse_function_calls(expr: str) -> str:
+  """Replaces FunctionCall nodes (ident(...) / ns.ident(...)) with atomic FUNC leaves.
+
+  Mirrors Malachite's semantic_analysis.go countArithmeticOperations(expr), which
+  stops recursion whenever !utils.IsArithmeticExpr(expr) (e.g. FunctionCall).
+  """
+  s = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`[^`]*`', "STR", expr)
+  out: List[str] = []
+  i = 0
+  n = len(s)
+  fn_pat = re.compile(r"[a-zA-Z_][a-zA-Z0-9_.]*\s*\(")
+  while i < n:
+    m = fn_pat.match(s, i)
+    if m and (i == 0 or not (s[i - 1].isalnum() or s[i - 1] in "_$.")):
+      depth = 1
+      j = m.end()
+      while j < n and depth > 0:
+        if s[j] == "(":
+          depth += 1
+        elif s[j] == ")":
+          depth -= 1
+        j += 1
+      out.append("FUNC")
+      i = j
+    else:
+      out.append(s[i])
+      i += 1
+  return "".join(out)
+
+
+def _extract_named_calls(code: str, func_regex: str) -> List[str]:
+  """Extracts full balanced calls matching func_regex (e.g. strings.coalesce(...))."""
+  calls: List[str] = []
+  pat = re.compile(func_regex)
+  pos = 0
+  n = len(code)
+  while pos < n:
+    m = pat.search(code, pos)
+    if not m:
+      break
+    depth = 1
+    j = m.end()
+    while j < n and depth > 0:
+      if code[j] == "(":
+        depth += 1
+      elif code[j] == ")":
+        depth -= 1
+      j += 1
+    calls.append(code[m.start() : j])
+    pos = j
+  return calls
+
+
 def validate_multistage_syntax(query: str) -> List[str]:
   """Performs structural validation on multi-stage YARA-L search queries."""
   errors = []
@@ -1590,7 +1643,7 @@ def validate_multistage_syntax(query: str) -> List[str]:
   errors.extend(check_bare_negative_literal_assignments(query))
   errors.extend(check_constant_outcome_in_if_or_condition(query))
 
-  # Chronicle Common Compiler Grammar Invariants for if():
+  # Chronicle Common Compiler Grammar Invariants for if(), strings.coalesce(), and re.regex():
   for full_call, args in _extract_if_calls(code_only):
     if len(args) < 3:
       errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' is missing required else-clause: {full_call}")
@@ -1599,15 +1652,43 @@ def validate_multistage_syntax(query: str) -> List[str]:
       then_clean = re.sub(r"\([^)]*\)", "", then_clause)
       if re.search(r"[\+\-\*\/]", then_clean):
         errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {full_call}")
+      # Law D: uint64 network byte fields mixed with int64 integer literal fallback in if(...)
+      byte_tok_pat = r"\b(?:sent_bytes|received_bytes|sum_bytes|peak_bytes|recv_bytes)\b"
+      if (
+          (re.search(byte_tok_pat, args[1]) and re.match(r"^\s*\d+\s*$", args[2]))
+          or (re.search(byte_tok_pat, args[2]) and re.match(r"^\s*\d+\s*$", args[1]))
+      ):
+        errors.append(
+            f"UINT64_BYTES_IF_LITERAL_CONFLICT: Mixing uint64 byte expression with int64 integer literal in if() fails Dremel execution: {full_call}. "
+            "Coerce byte ratios with floating-point '+ 1.0' instead."
+        )
+
+  # Law C: Repeated UDM '.ip' fields inside strings.coalesce(...) must index element 0 ('[0]')
+  repeated_ip_pat = re.compile(
+      r"(?:\$[a-zA-Z0-9_]+\.)?\b(?:principal|target|src|about|intermediary|observer)(?:\.(?:asset|nat))?\.ip\b(?!\s*\[)"
+  )
+  for coalesce_call in _extract_named_calls(code_no_regex_strings, r"\bstrings\.coalesce\s*\("):
+    if repeated_ip_pat.search(coalesce_call):
+      errors.append(
+          f"REPEATED_IP_IN_COALESCE: Repeated UDM '.ip' field passed to strings.coalesce() without '[0]' index: {coalesce_call}. "
+          "Index element 0 (e.g. 'principal.ip[0]' or 'target.ip[0]')."
+      )
+
+  # re.regex() must target a UDM field path, not a bare bound placeholder ($entity)
+  for m_rx in re.finditer(r"\bre\.regex\s*\(\s*(\$[a-zA-Z0-9_]+)\s*,", code_no_regex_strings):
+    errors.append(
+        f"INVALID_REGEX_ON_PLACEHOLDER: re.regex() called on bound placeholder '{m_rx.group(1)}' instead of a UDM field path."
+    )
 
   stages = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{", code_only)
+  stage_name_set = set(stages)
   is_multistage = bool(stages)
 
   if is_multistage:
-    if len(stages) > 3:
+    if len(stages) > 4:
       errors.append(
           f"STAGE COUNT LIMIT EXCEEDED ({len(stages)} named stages found): Malachite supports a maximum "
-          f"of 3 named intermediate stages plus 1 unwrapped root stage (4 stages total). Reduce stage count."
+          f"of 4 named intermediate stages plus 1 unwrapped root stage (5 stages total). Reduce stage count."
       )
 
     # Verify that the final stage is unwrapped at the root level
@@ -1634,21 +1715,27 @@ def validate_multistage_syntax(query: str) -> List[str]:
     if not re.search(r"^\s*outcome\s*:", code_only, re.MULTILINE):
       errors.append("MISSING OUTCOME SECTION: Single-stage stats searches require an 'outcome:' section.")
 
-  # Validate all outcome blocks for Malachite AST rules, OutcomeLimit (20), and Intra-Stage Race Conditions
+  # Validate all outcome blocks for Malachite AST rules, OutcomeLimit (20), Arithmetic Op Limit (50), and Raw-Stage Rules
   stage_blocks = re.findall(r"stage\s+[a-zA-Z0-9_]+\s*\{([^}]*)\}", query, flags=re.DOTALL)
   outcome_blocks = []
   for sb in stage_blocks:
+    sb_code = re.sub(r"//.*", "", sb)
+    refs_prior_stage = any(
+        ref_prefix in stage_name_set
+        for ref_prefix in re.findall(r"\$([a-zA-Z0-9_]+)\.[a-zA-Z0-9_]+", sb_code)
+    )
     om = re.search(r"outcome\s*:(.*?)(?=\n\s*(?:condition|order)|\Z)", sb, flags=re.DOTALL | re.MULTILINE)
     if om:
-      outcome_blocks.append((True, om.group(1)))
+      outcome_blocks.append((True, not refs_prior_stage, om.group(1)))
 
   stripped_root = re.sub(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", "", query, flags=re.DOTALL)
   root_om = re.search(r"outcome\s*:(.*?)(?=\n\s*(?:condition|order)|\Z)", stripped_root, flags=re.DOTALL | re.MULTILINE)
   if root_om:
-    outcome_blocks.append((False, root_om.group(1)))
+    outcome_blocks.append((False, False, root_om.group(1)))
 
-  for b_idx, (is_stage, block) in enumerate(outcome_blocks):
+  for b_idx, (is_stage, is_raw_stage, block) in enumerate(outcome_blocks):
     defined_vars = []
+    var_expr_map: Dict[str, str] = {}
     lines = block.splitlines()
     outcome_assignments_count = 0
 
@@ -1656,28 +1743,49 @@ def validate_multistage_syntax(query: str) -> List[str]:
       line_clean = re.sub(r"//.*", "", line).strip()
       if not line_clean or "=" not in line_clean:
         continue
-      
+
       outcome_assignments_count += 1
       lhs, rhs = line_clean.split("=", 1)
       var_name = lhs.strip().lstrip("$")
       rhs_clean = rhs.strip()
-      
-      # Check for intra-stage dependency / race condition:
-      # In intermediate stages, chaining across variables is invalid because each stage aggregates raw events.
-      # In the root stage, Chronicle Common Compiler natively permits sequential derived assignments.
-      if is_stage:
+
+      # Check for intra-stage dependency / race condition in raw-event stages:
+      # Raw event-aggregating stages reject sibling variable chaining, whereas derived downstream stages and Root allow OIO.
+      if is_raw_stage:
         for prev_var in defined_vars:
-          if re.search(r"\$" + re.escape(prev_var) + r"\b", rhs):
+          if re.search(r"\$" + re.escape(prev_var) + r"\b(?!\s*\.)", rhs):
             errors.append(
                 f"INTRA-STAGE RACE CONDITION: Variable '${prev_var}' is defined on an earlier line in outcome block #{b_idx+1} "
-                f"and referenced in '${line_clean}'. In YARA-L, multi-stage pipelines require dependent calculations "
-                f"to be computed in an earlier stage or decomposed across stages."
+                f"and referenced in '${line_clean}'. In YARA-L, raw-event stages require dependent calculations "
+                f"to be computed in a downstream stage."
             )
+        if re.search(r"\bcount_distinct\s*\([^)]*\)\s*\*\s*count_distinct\s*\(", rhs_clean):
+          errors.append(
+              f"RAW_STAGE_COUNT_DISTINCT_SQUARING: Multiplying count_distinct() * count_distinct() in a raw stage fails Malachite compilation: '{line_clean}'."
+          )
+        if re.search(r"\bsum\s*\([^)]*\b(?:sent_bytes|received_bytes)\b[^)]*\)\s*/", rhs_clean):
+          errors.append(
+              f"RAW_STAGE_COMPOUND_BYTE_RATIO: Dividing raw uint64 sum(network.*_bytes) inside a raw stage fails compilation: '{line_clean}'. Compute ratios in a downstream stage."
+          )
+
+      # Law B: Expand same-stage ParentOutcomeVariables and enforce maxArithmeticOperationsInOutcomeAssignment = 50
+      expanded_rhs = re.sub(
+          r"\$([a-zA-Z0-9_]+)\b(?!\s*\.)",
+          lambda m: f"({var_expr_map[m.group(1)]})" if m.group(1) in var_expr_map else m.group(0),
+          rhs_clean,
+      )
+      var_expr_map[var_name] = expanded_rhs
+      op_count = len(re.findall(r"[\+\-\*\/\%]", _collapse_function_calls(expanded_rhs)))
+      if op_count > 50:
+        errors.append(
+            f"ARITHMETIC_OP_LIMIT_EXCEEDED ({op_count} expanded arithmetic operators in '${var_name}' in outcome block #{b_idx+1}): "
+            "Malachite enforces maxArithmeticOperationsInOutcomeAssignment = 50. Split intermediate calculations into an earlier stage."
+        )
 
       defined_vars.append(var_name)
 
-      # Check for bare scalar if in intermediate stage outcome
-      if is_stage and re.match(r"^if\s*\(", rhs_clean):
+      # Check for bare scalar if in raw-event intermediate stage outcome
+      if is_raw_stage and re.match(r"^if\s*\(", rhs_clean):
         errors.append(
             f"MALACHITE AST ERROR: Bare scalar if() in intermediate stage outcome: '{line_clean}'. "
             f"Intermediate stages reject scalar if(); use linear arithmetic or compute conditions in the root stage."
@@ -1689,7 +1797,6 @@ def validate_multistage_syntax(query: str) -> List[str]:
             f"MALACHITE AST ERROR: Inline if() inside outcome arithmetic: '{line_clean}'. "
             f"Chronicle compiler requires computing conditional expressions into intermediate variables before arithmetic (e.g. '$safe_std = if(...); $z = $diff / $safe_std')."
         )
-
 
     if outcome_assignments_count > 20:
       errors.append(
@@ -2836,7 +2943,12 @@ def audit_query_execution(
     else:
       actual_arch = "3STAGE_DAG"
   elif stage_count == 3:
-    if "threat_norm" in query_text.lower() or "threat_vector" in query_text.lower() or "composite" in query_text.lower():
+    if (
+        "threat_norm" in query_text.lower()
+        or "threat_vector" in query_text.lower()
+        or "threat_distance" in query_text.lower()
+        or "composite" in query_text.lower()
+    ):
       actual_arch = "MULTI_SECTOR_FUSION_4STAGE"
     elif "beta_prior" in query_text.lower() or "alpha_prior" in query_text.lower():
       actual_arch = "BAYESIAN_GAMMA_4STAGE"
@@ -2848,6 +2960,8 @@ def audit_query_execution(
       actual_arch = "DERIVED_CONTEXT_4STAGE"
     else:
       actual_arch = "4STAGE_DAG"
+  elif stage_count == 4:
+    actual_arch = "5STAGE_DAG"
   else:
     actual_arch = f"{stage_count + 1}STAGE_EXCEEDS_SUPPORTED_LIMIT"
 
@@ -2858,6 +2972,8 @@ def audit_query_execution(
   if "3STAGE" in exp_norm and "3STAGE" in act_norm:
     is_arch_match = True
   if "4STAGE" in exp_norm and "4STAGE" in act_norm:
+    is_arch_match = True
+  if "5STAGE" in exp_norm and "5STAGE" in act_norm:
     is_arch_match = True
   if "2STAGE" in exp_norm and ("2STAGE" in act_norm or act_norm == "LOCAL_2STAGE"):
     is_arch_match = True
@@ -2925,7 +3041,13 @@ def audit_query_execution(
     elif "FANO" in m_norm and ("fano" not in q_lower and "variance" not in q_lower):
       model_verified = False
       findings.append("❌ Model Mismatch: Expected Poisson Dispersion / Fano Factor ($fano_factor = $var / $mu), but variance/Fano variables were not found.")
-    elif "FUSION" in m_norm and ("threat_norm" not in q_lower and "composite" not in q_lower and "threat_vector" not in q_lower and "_sq" not in q_lower):
+    elif "FUSION" in m_norm and (
+        "threat_norm" not in q_lower
+        and "threat_distance" not in q_lower
+        and "composite" not in q_lower
+        and "threat_vector" not in q_lower
+        and "_sq" not in q_lower
+    ):
       model_verified = False
       findings.append("❌ Model Mismatch: Expected Multi-Sector Threat Fusion orthogonal norm ($composite_threat_norm_sq = $z1_sq + $z2_sq), but vector norm variables were not found.")
     elif ("MAD" in m_norm or "MODIFIED_Z" in m_norm) and ("0.6745" not in query_text and "mad" not in q_lower):
@@ -3229,52 +3351,61 @@ class MultiStageTemplateRouter:
           "//     isolating true role inversions on consumer endpoints.\n"
           "// Sensitivity Boundary: {{tier}} (Producer Ratio >= {{min_producer_ratio}}, Ratio Inversion Z >= {{z_score}}σ, Sent Bytes >= {{min_sent_bytes}}, Active Samples >= {{min_active_samples}})\n"
           "// ============================================================================\n\n"
-          "// Stage 1: Aggregate per-window directional bytes, producer ratio moments, and destination diversity\n"
+          "// Stage 1: Aggregate per-window directional bytes and destination diversity (pure raw uint64 sums)\n"
           "stage stage1_directional_bytes {\n"
           "    metadata.event_type = \"{{event_type}}\"\n"
           "    {{entity_field}} = $entity\n"
           "    $entity != \"\"\n"
-          "    target.ip = $dst_ip\n"
-          "    $dst_ip != \"\"\n\n"
+          "    target.ip != \"\"\n\n"
           "  match:\n"
           "    $entity by {{bucket_size}}\n\n"
           "  outcome:\n"
           "    $event_count = count(metadata.id)\n"
           "    $sent_bytes = sum(network.sent_bytes)\n"
           "    $recv_bytes = sum(network.received_bytes)\n"
-          "    $bucket_ratio = 1.0 * sum(network.sent_bytes) / (sum(network.sent_bytes) + sum(network.received_bytes) + 1.0)\n"
-          "    $bucket_ratio_sq = (1.0 * sum(network.sent_bytes) / (sum(network.sent_bytes) + sum(network.received_bytes) + 1.0)) * (1.0 * sum(network.sent_bytes) / (sum(network.sent_bytes) + sum(network.received_bytes) + 1.0))\n"
-          "    $distinct_targets = count_distinct($dst_ip)\n"
+          "    $distinct_targets = count_distinct(target.ip)\n"
           "}\n\n"
-          "// Stage 2: Accumulate per-entity historical producer ratio moments across active windows\n"
-          "stage stage2_entity_baseline {\n"
-          "    $entity = $stage1_directional_bytes.entity\n\n"
+          "// Stage 2: Compute per-window floating-point producer ratio and squared ratio\n"
+          "stage stage2_window_ratio {\n"
+          "    $entity = $stage1_directional_bytes.entity\n"
+          "    $ws = $stage1_directional_bytes.window_start\n\n"
+          "  match:\n"
+          "    $entity, $ws by {{bucket_size}}\n\n"
+          "  outcome:\n"
+          "    $sent_bytes = max($stage1_directional_bytes.sent_bytes)\n"
+          "    $distinct_targets = max($stage1_directional_bytes.distinct_targets)\n"
+          "    $bucket_ratio = 1.0 * max($stage1_directional_bytes.sent_bytes) / (max($stage1_directional_bytes.sent_bytes) + max($stage1_directional_bytes.recv_bytes) + 1.0)\n"
+          "    $bucket_ratio_sq = $bucket_ratio * $bucket_ratio\n"
+          "}\n\n"
+          "// Stage 3: Accumulate per-entity historical producer ratio moments across active windows\n"
+          "stage stage3_entity_baseline {\n"
+          "    $entity = $stage2_window_ratio.entity\n\n"
           "  match:\n"
           "    $entity\n\n"
           "  outcome:\n"
-          "    $active_windows = count($stage1_directional_bytes.window_start)\n"
-          "    $sum_ratio = sum($stage1_directional_bytes.bucket_ratio)\n"
-          "    $sum_ratio_sq = sum($stage1_directional_bytes.bucket_ratio_sq)\n"
+          "    $active_windows = count($stage2_window_ratio.ws)\n"
+          "    $sum_ratio = sum($stage2_window_ratio.bucket_ratio)\n"
+          "    $sum_ratio_sq = sum($stage2_window_ratio.bucket_ratio_sq)\n"
           "}\n\n"
           "// Root Stage: Score Leave-One-Out Producer Ratio Inversion Z-Score & 6 Evidence Pillars\n"
-          "$entity = $stage1_directional_bytes.entity\n"
-          "$entity = $stage2_entity_baseline.entity\n"
-          "$ws = $stage1_directional_bytes.window_start\n\n"
+          "$entity = $stage2_window_ratio.entity\n"
+          "$entity = $stage3_entity_baseline.entity\n"
+          "$ws = $stage2_window_ratio.ws\n\n"
           "match:\n"
           "  $entity, $ws by {{bucket_size}}\n\n"
           "outcome:\n"
           "  // 6 Core Evidence Pillars & Leave-One-Out Ratio Baseline\n"
-          "  $observation_count = max($stage1_directional_bytes.sent_bytes)\n"
-          "  $baseline_active_samples = max($stage2_entity_baseline.active_windows)\n"
+          "  $observation_count = max($stage2_window_ratio.sent_bytes)\n"
+          "  $baseline_active_samples = max($stage3_entity_baseline.active_windows)\n"
           "  $fleet_prevalence = 0 - 1\n"
-          "  $distinct_binaries = max($stage1_directional_bytes.distinct_targets)\n"
-          "  $producer_ratio = max($stage1_directional_bytes.bucket_ratio)\n\n"
+          "  $distinct_binaries = max($stage2_window_ratio.distinct_targets)\n"
+          "  $producer_ratio = max($stage2_window_ratio.bucket_ratio)\n\n"
           "  $raw_n_prior = $baseline_active_samples - 1\n"
           "  $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)\n"
-          "  $raw_loo_sum = max($stage2_entity_baseline.sum_ratio) - $producer_ratio\n"
+          "  $raw_loo_sum = max($stage3_entity_baseline.sum_ratio) - $producer_ratio\n"
           "  $loo_sum = if($raw_loo_sum > 0.0, $raw_loo_sum, 0.0)\n"
           "  $baseline_mean = $loo_sum / $n_prior\n"
-          "  $raw_loo_var = ((max($stage2_entity_baseline.sum_ratio_sq) - ($producer_ratio * $producer_ratio)) / $n_prior) - ($baseline_mean * $baseline_mean)\n"
+          "  $raw_loo_var = ((max($stage3_entity_baseline.sum_ratio_sq) - ($producer_ratio * $producer_ratio)) / $n_prior) - ($baseline_mean * $baseline_mean)\n"
           "  $safe_var = if($raw_loo_var > 0.0025, $raw_loo_var, 0.0025)\n"
           "  $baseline_dispersion = math.sqrt($safe_var)\n"
           "  $z_score = ($producer_ratio - $baseline_mean) / $baseline_dispersion\n\n"
@@ -3441,21 +3572,23 @@ class MultiStageTemplateRouter:
     else:
       resolved_peer_sample_field = "principal.ip"
 
-    # Coalesced multi-sector entity expression (WS5-OOS)
+    # Coalesced multi-sector entity expression (WS5-OOS / Law C indexed .ip[0])
     ent_norm_fusion = entity_type.lower().strip()
     if explicit_field:
       if explicit_field.startswith("$e.") or "strings.coalesce(" in explicit_field:
         fusion_entity_expr = explicit_field
+      elif explicit_field.endswith(".ip"):
+        fusion_entity_expr = f"$e.{explicit_field}[0]"
       else:
         fusion_entity_expr = f"$e.{explicit_field}"
     elif identifier_coverage_payload is not None and resolved_entity_field == "principal.ip":
-      fusion_entity_expr = "strings.coalesce($e.principal.ip, $e.principal.hostname, $e.principal.asset.hostname)"
+      fusion_entity_expr = "strings.coalesce($e.principal.ip[0], $e.principal.hostname, $e.principal.asset.hostname)"
     elif ent_norm_fusion == "user":
       fusion_entity_expr = "strings.coalesce($e.target.user.userid, $e.principal.user.userid)"
     elif ent_norm_fusion == "ip":
-      fusion_entity_expr = "strings.coalesce($e.principal.ip, $e.principal.hostname, $e.principal.asset.hostname)"
+      fusion_entity_expr = "strings.coalesce($e.principal.ip[0], $e.principal.hostname, $e.principal.asset.hostname)"
     else:
-      fusion_entity_expr = "strings.coalesce($e.principal.hostname, $e.principal.asset.hostname, $e.principal.ip)"
+      fusion_entity_expr = "strings.coalesce($e.principal.hostname, $e.principal.asset.hostname, $e.principal.ip[0])"
 
     # Default event type resolution
     if not event_type:
@@ -3653,7 +3786,7 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{velocity_threshold}}", str(thresh.get("velocity_threshold", 2.0)))
     rendered = rendered.replace("{{z_threshold}}", str(thresh.get("z_threshold", 3.0)))
     rendered = rendered.replace("{{min_producer_ratio}}", str(thresh.get("min_producer_ratio", 0.70)))
-    rendered = rendered.replace("{{min_sent_bytes}}", str(thresh.get("min_sent_bytes", 10000000.0)))
+    rendered = rendered.replace("{{min_sent_bytes}}", str(int(thresh.get("min_sent_bytes", 10000000))))
     rendered = rendered.replace("{{surge_ratio}}", str(thresh.get("surge_ratio", 2.0)))
     rendered = rendered.replace("{{min_iqr}}", str(thresh.get("min_iqr", 10.0)))
 

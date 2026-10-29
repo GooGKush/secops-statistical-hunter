@@ -22,7 +22,6 @@ stage window_metrics {
   outcome:
     $current_count = count(metadata.id)
     $distinct_targets = count_distinct(target.ip)
-    $distinct_targets_sq = 1.0 * count_distinct(target.ip) * count_distinct(target.ip)
     $peak_bytes = max(network.sent_bytes)
     $sum_bytes = sum(network.sent_bytes)
 }
@@ -36,31 +35,49 @@ stage entity_baseline {
 
   outcome:
     $sum_targets = sum($window_metrics.distinct_targets)
-    $sum_targets_sq = sum($window_metrics.distinct_targets_sq)
+    $avg_targets = avg($window_metrics.distinct_targets)
+    $sd_targets = stddev($window_metrics.distinct_targets)
     $active_samples = count($window_metrics.window_start)
 }
 
+// Stage 3: Leave-One-Out Destination Breadth Variance & Byte Concentration Ratio
+stage loo_stats {
+    $entity = $window_metrics.entity
+    $entity = $entity_baseline.entity
+    $ws = $window_metrics.window_start
+
+  match:
+    $entity, $ws by {{bucket_size}}
+
+  outcome:
+    $obs_count = max($window_metrics.current_count)
+    $active_n = max($entity_baseline.active_samples)
+    $k_targets = max($window_metrics.distinct_targets)
+    $conc_ratio = 1.0 * max($window_metrics.peak_bytes) / (max($window_metrics.sum_bytes) + 1.0)
+    $raw_n_prior = $active_n - 1
+    $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
+    $loo_mean = 1.0 * (max($entity_baseline.sum_targets) - $k_targets) / $n_prior
+    $safe_sd = if($active_n > 1, max($entity_baseline.sd_targets), 0.0)
+    $avg_t = max($entity_baseline.avg_targets)
+    $total_sq = (($active_n - 1) * $safe_sd * $safe_sd) + ($active_n * $avg_t * $avg_t)
+    $loo_var = (($total_sq - (1.0 * $k_targets * $k_targets)) / $n_prior) - ($loo_mean * $loo_mean)
+}
+
 // Root Stage: Positive-Rectified Diversity Deficit Z & Calibrated Concentration Screen
-$entity = $window_metrics.entity
-$entity = $entity_baseline.entity
-$ws = $window_metrics.window_start
+$entity = $loo_stats.entity
+$ws = $loo_stats.ws
 
 match:
   $entity, $ws by {{bucket_size}}
 
 outcome:
   // 6 Core Evidence Pillars & Leave-One-Out Destination Breadth Baseline
-  $observation_count = max($window_metrics.current_count)
-  $baseline_active_samples = max($entity_baseline.active_samples)
+  $observation_count = max($loo_stats.obs_count)
+  $baseline_active_samples = max($loo_stats.active_n)
   $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($window_metrics.distinct_targets)
-  $raw_n_prior = $baseline_active_samples - 1
-  $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
-  $loo_sum = max($entity_baseline.sum_targets) - $distinct_binaries
-  $raw_loo_sq = max($entity_baseline.sum_targets_sq) - (1.0 * $distinct_binaries * $distinct_binaries)
-  $loo_sq = if($raw_loo_sq > 0.0, $raw_loo_sq, 0.0)
-  $baseline_mean = 1.0 * $loo_sum / $n_prior
-  $raw_loo_var = ($loo_sq / $n_prior) - ($baseline_mean * $baseline_mean)
+  $distinct_binaries = max($loo_stats.k_targets)
+  $baseline_mean = max($loo_stats.loo_mean)
+  $raw_loo_var = max($loo_stats.loo_var)
   $floor_var = if($baseline_mean > 1.0, $baseline_mean, 1.0)
   $safe_var = if($raw_loo_var > $floor_var, $raw_loo_var, $floor_var)
   $baseline_dispersion = math.sqrt($safe_var)
@@ -68,10 +85,10 @@ outcome:
   // Positive-Rectified Diversity Deficit Z & Calibrated Euclidean Threat Score
   $raw_deficit_z = ($baseline_mean - $distinct_binaries) / $baseline_dispersion
   $deficit_z = if($raw_deficit_z > 0.0, $raw_deficit_z, 0.0)
-  $diversity_ratio = 1.0 * $distinct_binaries / $observation_count
-  $safe_sum = if(max($window_metrics.sum_bytes) > 0, max($window_metrics.sum_bytes), 1)
-  $concentration_ratio = 1.0 * max($window_metrics.peak_bytes) / $safe_sum
-  $threat_score = 3.0 * math.sqrt((($deficit_z / {{min_deficit_z}}) * ($deficit_z / {{min_deficit_z}})) + (($concentration_ratio / {{min_concentration_ratio}}) * ($concentration_ratio / {{min_concentration_ratio}})))
+  $safe_obs = if($observation_count > 0, $observation_count, 1)
+  $diversity_ratio = 1.0 * $distinct_binaries / $safe_obs
+  $concentration_ratio = max($loo_stats.conc_ratio)
+  $threat_score = math.sqrt((9.0 * ($deficit_z / {{min_deficit_z}}) * ($deficit_z / {{min_deficit_z}})) + (9.0 * ($concentration_ratio / {{min_concentration_ratio}}) * ($concentration_ratio / {{min_concentration_ratio}})))
 
 condition:
   $baseline_active_samples >= {{min_active_samples}}

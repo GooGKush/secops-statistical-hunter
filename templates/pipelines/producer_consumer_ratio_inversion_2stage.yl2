@@ -12,13 +12,12 @@
 // Sensitivity Boundary: {{tier}} (Producer Ratio >= {{min_producer_ratio}}, Ratio Inversion Z >= {{z_score}}σ, Sent Bytes >= {{min_sent_bytes}}, Active Samples >= {{min_active_samples}})
 // ============================================================================
 
-// Stage 1: Aggregate per-window directional bytes, producer ratio moments, and destination diversity
+// Stage 1: Aggregate per-window directional bytes and destination diversity (pure raw uint64 sums)
 stage stage1_directional_bytes {
     metadata.event_type = "{{event_type}}"
     {{entity_field}} = $entity
     $entity != ""
-    target.ip = $dst_ip
-    $dst_ip != ""
+    target.ip != ""
 
   match:
     $entity by {{bucket_size}}
@@ -27,46 +26,59 @@ stage stage1_directional_bytes {
     $event_count = count(metadata.id)
     $sent_bytes = sum(network.sent_bytes)
     $recv_bytes = sum(network.received_bytes)
-    $bucket_ratio = 1.0 * sum(network.sent_bytes) / (sum(network.sent_bytes) + sum(network.received_bytes) + 1.0)
-    $bucket_ratio_sq = (1.0 * sum(network.sent_bytes) / (sum(network.sent_bytes) + sum(network.received_bytes) + 1.0)) * (1.0 * sum(network.sent_bytes) / (sum(network.sent_bytes) + sum(network.received_bytes) + 1.0))
-    $distinct_targets = count_distinct($dst_ip)
+    $distinct_targets = count_distinct(target.ip)
 }
 
-// Stage 2: Accumulate per-entity historical producer ratio moments across active windows
-stage stage2_entity_baseline {
+// Stage 2: Compute per-window floating-point producer ratio and squared ratio
+stage stage2_window_ratio {
     $entity = $stage1_directional_bytes.entity
+    $ws = $stage1_directional_bytes.window_start
+
+  match:
+    $entity, $ws by {{bucket_size}}
+
+  outcome:
+    $sent_bytes = max($stage1_directional_bytes.sent_bytes)
+    $distinct_targets = max($stage1_directional_bytes.distinct_targets)
+    $bucket_ratio = 1.0 * max($stage1_directional_bytes.sent_bytes) / (max($stage1_directional_bytes.sent_bytes) + max($stage1_directional_bytes.recv_bytes) + 1.0)
+    $bucket_ratio_sq = $bucket_ratio * $bucket_ratio
+}
+
+// Stage 3: Accumulate per-entity historical producer ratio moments across active windows
+stage stage3_entity_baseline {
+    $entity = $stage2_window_ratio.entity
 
   match:
     $entity
 
   outcome:
-    $active_windows = count($stage1_directional_bytes.window_start)
-    $sum_ratio = sum($stage1_directional_bytes.bucket_ratio)
-    $sum_ratio_sq = sum($stage1_directional_bytes.bucket_ratio_sq)
+    $active_windows = count($stage2_window_ratio.ws)
+    $sum_ratio = sum($stage2_window_ratio.bucket_ratio)
+    $sum_ratio_sq = sum($stage2_window_ratio.bucket_ratio_sq)
 }
 
 // Root Stage: Score Leave-One-Out Producer Ratio Inversion Z-Score & 6 Evidence Pillars
-$entity = $stage1_directional_bytes.entity
-$entity = $stage2_entity_baseline.entity
-$ws = $stage1_directional_bytes.window_start
+$entity = $stage2_window_ratio.entity
+$entity = $stage3_entity_baseline.entity
+$ws = $stage2_window_ratio.ws
 
 match:
   $entity, $ws by {{bucket_size}}
 
 outcome:
   // 6 Core Evidence Pillars & Leave-One-Out Ratio Baseline
-  $observation_count = max($stage1_directional_bytes.sent_bytes)
-  $baseline_active_samples = max($stage2_entity_baseline.active_windows)
+  $observation_count = max($stage2_window_ratio.sent_bytes)
+  $baseline_active_samples = max($stage3_entity_baseline.active_windows)
   $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($stage1_directional_bytes.distinct_targets)
-  $producer_ratio = max($stage1_directional_bytes.bucket_ratio)
+  $distinct_binaries = max($stage2_window_ratio.distinct_targets)
+  $producer_ratio = max($stage2_window_ratio.bucket_ratio)
 
   $raw_n_prior = $baseline_active_samples - 1
   $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
-  $raw_loo_sum = max($stage2_entity_baseline.sum_ratio) - $producer_ratio
+  $raw_loo_sum = max($stage3_entity_baseline.sum_ratio) - $producer_ratio
   $loo_sum = if($raw_loo_sum > 0.0, $raw_loo_sum, 0.0)
   $baseline_mean = $loo_sum / $n_prior
-  $raw_loo_var = ((max($stage2_entity_baseline.sum_ratio_sq) - ($producer_ratio * $producer_ratio)) / $n_prior) - ($baseline_mean * $baseline_mean)
+  $raw_loo_var = ((max($stage3_entity_baseline.sum_ratio_sq) - ($producer_ratio * $producer_ratio)) / $n_prior) - ($baseline_mean * $baseline_mean)
   $safe_var = if($raw_loo_var > 0.0025, $raw_loo_var, 0.0025)
   $baseline_dispersion = math.sqrt($safe_var)
   $z_score = ($producer_ratio - $baseline_mean) / $baseline_dispersion

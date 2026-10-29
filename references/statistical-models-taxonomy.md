@@ -298,9 +298,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `PRIVILEGED_LATERAL_EXPANSION` | **CONSERVATIVE** | `z_score=3.5`, `min_distinct_targets=5`, `min_active_samples=30` |
 | `PRIVILEGED_LATERAL_EXPANSION` | **BALANCED** | `z_score=2.5`, `min_distinct_targets=3`, `min_active_samples=14` |
 | `PRIVILEGED_LATERAL_EXPANSION` | **AGGRESSIVE** | `z_score=1.5`, `min_distinct_targets=2`, `min_active_samples=7` |
-| `PRODUCER_CONSUMER_RATIO_INVERSION` | **CONSERVATIVE** | `min_producer_ratio=0.85`, `z_score=3.5`, `min_sent_bytes=50000000.0`, `min_active_samples=14` |
-| `PRODUCER_CONSUMER_RATIO_INVERSION` | **BALANCED** | `min_producer_ratio=0.7`, `z_score=2.5`, `min_sent_bytes=10000000.0`, `min_active_samples=7` |
-| `PRODUCER_CONSUMER_RATIO_INVERSION` | **AGGRESSIVE** | `min_producer_ratio=0.55`, `z_score=1.8`, `min_sent_bytes=1000000.0`, `min_active_samples=3` |
+| `PRODUCER_CONSUMER_RATIO_INVERSION` | **CONSERVATIVE** | `min_producer_ratio=0.85`, `z_score=3.5`, `min_sent_bytes=50000000`, `min_active_samples=14` |
+| `PRODUCER_CONSUMER_RATIO_INVERSION` | **BALANCED** | `min_producer_ratio=0.7`, `z_score=2.5`, `min_sent_bytes=10000000`, `min_active_samples=7` |
+| `PRODUCER_CONSUMER_RATIO_INVERSION` | **AGGRESSIVE** | `min_producer_ratio=0.55`, `z_score=1.8`, `min_sent_bytes=1000000`, `min_active_samples=3` |
 | `SHANNON_ENTROPY_CHARACTER` | **CONSERVATIVE** | `entropy_threshold=7.0`, `min_length=40` |
 | `SHANNON_ENTROPY_CHARACTER` | **BALANCED** | `entropy_threshold=5.5`, `min_length=25` |
 | `SHANNON_ENTROPY_CHARACTER` | **AGGRESSIVE** | `entropy_threshold=4.0`, `min_length=15` |

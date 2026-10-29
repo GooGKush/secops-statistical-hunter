@@ -3,19 +3,19 @@
 // Goal: Hunt for coordinated multi-stage intrusions across Auth, Endpoint, and Network (Multi-Sector Threat Fusion)
 // Target Telemetry: UDM_EVENTS (USER_LOGIN + PROCESS_LAUNCH + NETWORK_CONNECTION)
 // Statistical Model: Leave-One-Out Multi-Sector Fusion & Positive-Rectified Euclidean Vector Norm (D = sqrt(pos_Z1^2 + pos_Z2^2 + pos_Z3^2))
-// Topology: ONE raw stage with coalesced entity & per-sector conditional sums -> whole-window sums -> LOO sector moments -> root fusion.
+// Topology: ONE raw stage with coalesced entity & per-sector conditional sums -> whole-window moments -> LOO sector moments -> root fusion.
 // Operational Analogy: "The Combined Arms Threat Radar"
 // Mathematical Rationale:
-//   - Coalesces principal.hostname / principal.asset.hostname / principal.ip so all three telemetry families align
+//   - Coalesces principal.hostname / principal.asset.hostname / principal.ip[0] so all three telemetry families align
 //     onto the same endpoint key, and counts both "BLOCK" and "FAIL" auth actions.
-//   - Computes leave-one-out (n - 1) means and sample variances per sector with a continuous Poisson floor
-//     sqrt(max(mean, 1.0)) per sector, eliminating sub-unit SD blowups on sparse sectors.
+//   - Reconstructs exact leave-one-out (n - 1) means and sample variances per sector from Stage 2 moments with a
+//     continuous Poisson floor sqrt(max(mean, 1.0)) per sector, eliminating sub-unit dispersion blowups on sparse sectors.
 // Sensitivity Boundary: BALANCED (Composite Threat Distance D >= 3.0σ, Min Events >= 5, Min Prior Active Samples >= 7)
 // ============================================================================
 
-// --- STAGE 1: Bucketed per-host activity and squared counts in each sector ---
+// --- STAGE 1: Bucketed per-host activity counts across all three sectors ---
 stage sector_counts {
-  $entity = strings.coalesce($e.principal.hostname, $e.principal.asset.hostname, $e.principal.ip)
+  $entity = strings.coalesce($e.principal.hostname, $e.principal.asset.hostname, $e.principal.ip[0])
   $entity != ""
   (
     $e.metadata.event_type = "USER_LOGIN"
@@ -28,14 +28,11 @@ stage sector_counts {
 
   outcome:
     $auth_fails = sum(if($e.metadata.event_type = "USER_LOGIN" and ($e.security_result.action = "BLOCK" or $e.security_result.action = "FAIL"), 1, 0))
-    $auth_fails_sq = 1.0 * sum(if($e.metadata.event_type = "USER_LOGIN" and ($e.security_result.action = "BLOCK" or $e.security_result.action = "FAIL"), 1, 0)) * sum(if($e.metadata.event_type = "USER_LOGIN" and ($e.security_result.action = "BLOCK" or $e.security_result.action = "FAIL"), 1, 0))
     $proc_launches = sum(if($e.metadata.event_type = "PROCESS_LAUNCH", 1, 0))
-    $proc_launches_sq = 1.0 * sum(if($e.metadata.event_type = "PROCESS_LAUNCH", 1, 0)) * sum(if($e.metadata.event_type = "PROCESS_LAUNCH", 1, 0))
     $net_flows = sum(if($e.metadata.event_type = "NETWORK_CONNECTION", 1, 0))
-    $net_flows_sq = 1.0 * sum(if($e.metadata.event_type = "NETWORK_CONNECTION", 1, 0)) * sum(if($e.metadata.event_type = "NETWORK_CONNECTION", 1, 0))
 }
 
-// --- STAGE 2: Per-entity whole-window sufficient statistics across all sectors ---
+// --- STAGE 2: Per-entity whole-window moments across all three sectors (10 outcomes) ---
 stage host_sector_baseline {
   $entity = $sector_counts.entity
 
@@ -44,15 +41,18 @@ stage host_sector_baseline {
 
   outcome:
     $sum_auth = sum($sector_counts.auth_fails)
-    $sum_auth2 = sum($sector_counts.auth_fails_sq)
+    $avg_auth = avg($sector_counts.auth_fails)
+    $sd_auth = stddev($sector_counts.auth_fails)
     $sum_proc = sum($sector_counts.proc_launches)
-    $sum_proc2 = sum($sector_counts.proc_launches_sq)
+    $avg_proc = avg($sector_counts.proc_launches)
+    $sd_proc = stddev($sector_counts.proc_launches)
     $sum_net = sum($sector_counts.net_flows)
-    $sum_net2 = sum($sector_counts.net_flows_sq)
+    $avg_net = avg($sector_counts.net_flows)
+    $sd_net = stddev($sector_counts.net_flows)
     $active_hours = count($sector_counts.window_start)
 }
 
-// --- STAGE 3: Leave-one-out (n - 1) per-(entity, bucket) sector means and sample variances ---
+// --- STAGE 3: Leave-one-out (n - 1) per-(entity, bucket) sector means and sample variances (18 outcomes) ---
 stage sector_loo {
   $entity = $sector_counts.entity
   $entity = $host_sector_baseline.entity
@@ -66,13 +66,20 @@ stage sector_loo {
     $auth_obs = max($sector_counts.auth_fails)
     $proc_obs = max($sector_counts.proc_launches)
     $net_obs = max($sector_counts.net_flows)
-    $n_prior = max($host_sector_baseline.active_hours) - 1
-    $auth_mean = 1.0 * (max($host_sector_baseline.sum_auth) - max($sector_counts.auth_fails)) / (max(if($host_sector_baseline.active_hours > 2, $host_sector_baseline.active_hours, 2)) - 1)
-    $auth_var = ((max($host_sector_baseline.sum_auth2) - max($sector_counts.auth_fails_sq)) - (1.0 * (max($host_sector_baseline.sum_auth) - max($sector_counts.auth_fails)) * (max($host_sector_baseline.sum_auth) - max($sector_counts.auth_fails)) / (max(if($host_sector_baseline.active_hours > 2, $host_sector_baseline.active_hours, 2)) - 1))) / (max(if($host_sector_baseline.active_hours > 3, $host_sector_baseline.active_hours, 3)) - 2)
-    $proc_mean = 1.0 * (max($host_sector_baseline.sum_proc) - max($sector_counts.proc_launches)) / (max(if($host_sector_baseline.active_hours > 2, $host_sector_baseline.active_hours, 2)) - 1)
-    $proc_var = ((max($host_sector_baseline.sum_proc2) - max($sector_counts.proc_launches_sq)) - (1.0 * (max($host_sector_baseline.sum_proc) - max($sector_counts.proc_launches)) * (max($host_sector_baseline.sum_proc) - max($sector_counts.proc_launches)) / (max(if($host_sector_baseline.active_hours > 2, $host_sector_baseline.active_hours, 2)) - 1))) / (max(if($host_sector_baseline.active_hours > 3, $host_sector_baseline.active_hours, 3)) - 2)
-    $net_mean = 1.0 * (max($host_sector_baseline.sum_net) - max($sector_counts.net_flows)) / (max(if($host_sector_baseline.active_hours > 2, $host_sector_baseline.active_hours, 2)) - 1)
-    $net_var = ((max($host_sector_baseline.sum_net2) - max($sector_counts.net_flows_sq)) - (1.0 * (max($host_sector_baseline.sum_net) - max($sector_counts.net_flows)) * (max($host_sector_baseline.sum_net) - max($sector_counts.net_flows)) / (max(if($host_sector_baseline.active_hours > 2, $host_sector_baseline.active_hours, 2)) - 1))) / (max(if($host_sector_baseline.active_hours > 3, $host_sector_baseline.active_hours, 3)) - 2)
+    $n_all = max($host_sector_baseline.active_hours)
+    $raw_n_prior = $n_all - 1
+    $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
+    $raw_df = $n_all - 2
+    $df_prior = if($raw_df > 1, $raw_df, 1)
+    $safe_sd_auth = if($n_all > 1, max($host_sector_baseline.sd_auth), 0.0)
+    $auth_mean = 1.0 * (max($host_sector_baseline.sum_auth) - $auth_obs) / $n_prior
+    $auth_var = ((($raw_n_prior * $safe_sd_auth * $safe_sd_auth) + ($n_all * max($host_sector_baseline.avg_auth) * max($host_sector_baseline.avg_auth)) - (1.0 * $auth_obs * $auth_obs)) - ($n_prior * $auth_mean * $auth_mean)) / $df_prior
+    $safe_sd_proc = if($n_all > 1, max($host_sector_baseline.sd_proc), 0.0)
+    $proc_mean = 1.0 * (max($host_sector_baseline.sum_proc) - $proc_obs) / $n_prior
+    $proc_var = ((($raw_n_prior * $safe_sd_proc * $safe_sd_proc) + ($n_all * max($host_sector_baseline.avg_proc) * max($host_sector_baseline.avg_proc)) - (1.0 * $proc_obs * $proc_obs)) - ($n_prior * $proc_mean * $proc_mean)) / $df_prior
+    $safe_sd_net = if($n_all > 1, max($host_sector_baseline.sd_net), 0.0)
+    $net_mean = 1.0 * (max($host_sector_baseline.sum_net) - $net_obs) / $n_prior
+    $net_var = ((($raw_n_prior * $safe_sd_net * $safe_sd_net) + ($n_all * max($host_sector_baseline.avg_net) * max($host_sector_baseline.avg_net)) - (1.0 * $net_obs * $net_obs)) - ($n_prior * $net_mean * $net_mean)) / $df_prior
 }
 
 // --- ROOT STAGE: Continuous Poisson Sector Floors, Positive Rectification & Euclidean Norm ---

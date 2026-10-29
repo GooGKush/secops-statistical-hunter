@@ -6,10 +6,10 @@
 // Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
 // Mathematical Rationale:
 //   - Stage 1 extracts unique ($entity, $target) pairs per window from coalesced destination identifiers.
-//   - Stage 2 (user_target_history) records the earliest window ($first_ws) each ($entity, $target) pair appeared,
-//     counting brand-new lateral hops ($new_targets) without cross-product array joins or duplicate raw stages.
-//   - Stage 3 (user_breadth_baseline) tracks historical target-visit breadth with a continuous Poisson floor
-//     sqrt(max(loo_mean, 1.0)) and no hard SD cliff so clockwork jump-box admins (sd = 0) are never blinded.
+//   - Stage 2 (user_target_history) records the earliest window ($first_ws) each ($entity, $target) pair appeared.
+//   - Stage 3 (window_user_breadth) aggregates per-(entity, window) distinct target breadth and brand-new lateral hops ($new_targets).
+//   - Stage 4 (user_breadth_baseline) tracks historical target-visit moments so Root computes leave-one-out variance
+//     with a continuous Poisson floor sqrt(max(loo_var, max(loo_mean, 1.0))) and no hard dispersion cliff on jump-box admins.
 // Sensitivity Boundary: {{tier}} (Lateral Score >= {{z_score}}, Distinct Endpoints >= {{min_distinct_targets}} or New Targets >= 1, Min Active Samples >= {{min_active_samples}})
 // ============================================================================
 
@@ -19,8 +19,8 @@ stage daily_user_breadth {
     security_result.action = "ALLOW"
     {{entity_field}} = $entity
     $entity != ""
-    re.regex($entity, `(?i)(admin|adm_|svc_).*`)
-    $target = strings.coalesce(target.asset.hostname, target.hostname, target.ip)
+    re.regex({{entity_field}}, `(?i)(admin|adm_|svc_).*`)
+    $target = strings.coalesce(target.asset.hostname, target.hostname, target.ip[0])
     $target != ""
 
   match:
@@ -40,43 +40,62 @@ stage user_target_history {
     $first_ws = min($daily_user_breadth.window_start)
 }
 
-// Stage 3: Historical destination breadth totals per privileged account
-stage user_breadth_baseline {
+// Stage 3: Per-window distinct target breadth and first-seen lateral hop count
+stage window_user_breadth {
     $entity = $daily_user_breadth.entity
+    $target = $daily_user_breadth.target
+    $entity = $user_target_history.entity
+    $target = $user_target_history.target
+    $ws = $daily_user_breadth.window_start
+
+  match:
+    $entity, $ws by {{bucket_size}}
+  outcome:
+    $targets_in_window = count_distinct($daily_user_breadth.target)
+    $new_targets = sum(if($daily_user_breadth.window_start = $user_target_history.first_ws, 1, 0))
+    $window_logins = sum($daily_user_breadth.pair_logins)
+    $sample_targets = array_distinct($daily_user_breadth.target)
+}
+
+// Stage 4: Historical destination breadth moments per privileged account
+stage user_breadth_baseline {
+    $entity = $window_user_breadth.entity
 
   match:
     $entity
   outcome:
-    $total_target_visits = count($daily_user_breadth.window_start)
-    $active_days = count_distinct($daily_user_breadth.window_start)
+    $total_target_visits = sum($window_user_breadth.targets_in_window)
+    $avg_visits = avg($window_user_breadth.targets_in_window)
+    $sd_visits = stddev($window_user_breadth.targets_in_window)
+    $active_windows = count($window_user_breadth.ws)
 }
 
 // Root Stage: Score First-Seen Destination Expansion & Leave-One-Out Breadth Z
-$entity = $daily_user_breadth.entity
-$target = $daily_user_breadth.target
-$entity = $user_target_history.entity
-$target = $user_target_history.target
+$entity = $window_user_breadth.entity
 $entity = $user_breadth_baseline.entity
-$window_start = $daily_user_breadth.window_start
+$ws = $window_user_breadth.ws
 
 match:
-  $entity, $window_start by {{bucket_size}}
+  $entity, $ws by {{bucket_size}}
 outcome:
-  $observation_count = count_distinct($daily_user_breadth.target)
-  $new_targets = sum(if($daily_user_breadth.window_start = $user_target_history.first_ws, 1, 0))
-  $baseline_active_samples = max($user_breadth_baseline.active_days)
+  $observation_count = max($window_user_breadth.targets_in_window)
+  $new_targets = max($window_user_breadth.new_targets)
+  $baseline_active_samples = max($user_breadth_baseline.active_windows)
   $fleet_prevalence = 0 - 1
-  $distinct_binaries = sum($daily_user_breadth.pair_logins)
-  $sample_commands = array_distinct($daily_user_breadth.target)
+  $distinct_binaries = max($window_user_breadth.window_logins)
+  $sample_commands = array_distinct($window_user_breadth.sample_targets)
 
-  // Leave-One-Out Breadth Baseline with Continuous Poisson Floor (No Hard SD Cliff)
+  // Leave-One-Out Breadth Baseline with Sample Variance & Continuous Poisson Floor
   $raw_n_prior = $baseline_active_samples - 1
   $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
-  $raw_prior_visits = max($user_breadth_baseline.total_target_visits) - $observation_count
-  $prior_visits = if($raw_prior_visits > 0, $raw_prior_visits, 0)
-  $baseline_mean = 1.0 * $prior_visits / $n_prior
+  $baseline_mean = 1.0 * (max($user_breadth_baseline.total_target_visits) - $observation_count) / $n_prior
+  $safe_sd = if($baseline_active_samples > 1, max($user_breadth_baseline.sd_visits), 0.0)
+  $raw_df = $baseline_active_samples - 2
+  $df_prior = if($raw_df > 1, $raw_df, 1)
+  $loo_var = ((($raw_n_prior * $safe_sd * $safe_sd) + ($baseline_active_samples * max($user_breadth_baseline.avg_visits) * max($user_breadth_baseline.avg_visits)) - (1.0 * $observation_count * $observation_count)) - ($n_prior * $baseline_mean * $baseline_mean)) / $df_prior
   $floor_var = if($baseline_mean > 1.0, $baseline_mean, 1.0)
-  $baseline_dispersion = math.sqrt($floor_var)
+  $safe_var = if($loo_var > $floor_var, $loo_var, $floor_var)
+  $baseline_dispersion = math.sqrt($safe_var)
   $raw_breadth_z = ($observation_count - $baseline_mean) / $baseline_dispersion
   $pos_breadth_z = if($raw_breadth_z > 0.0, $raw_breadth_z, 0.0)
   $z_score = $pos_breadth_z + (1.5 * $new_targets)
