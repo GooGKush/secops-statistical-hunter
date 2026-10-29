@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v3.0.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-300%2F300%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v3.0.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-326%2F326%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -51,7 +51,7 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
 11. **6 Hybrid Mathematical Models**:
     * Implements Diversity Deficit, Elephant Flow Concentration, Orthogonal Threat Space, Bayesian Joint Odds, Two-Part Hurdle, and Fleet Prevalence Normalization directly over raw event streams.
 12. **Calibrated Risk Index (CRI [0–100])**:
-    * Standardizes multi-dimensional statistics onto a unified, logistic sigmoid 0–100 scale anchoring $3.0\sigma$ at CRI 50 across 4 operational severity tiers: 🟢 Nominal (0–29), 🟡 Elevated (30–49), 🟠 High (50–84), and 🔴 Critical (85–100).
+    * Standardizes multi-dimensional statistics onto a unified, piecewise logistic sigmoid 0–100 scale (`CRI(Z) = 0` for `Z <= 0`, anchoring $3.0\sigma$ at CRI 50; `N/A` on missing/error) across 5 canonical `D5` severity bands (`26 / 46 / 70 / 90`): 🟢 Nominal (`0–25`), 🟡 Low / Guarded (`26–45`), 🟠 Elevated (`46–69`), 🔴 High (`70–89`), and 🚨 Critical (`90–100`).
 13. **Standardized 5-Section CommonMark Triage Reporting & `QueryIntegrityGate`**:
     * Generates structured forensic reports: 1. Executive Summary, 2. Calibrated Risk Index, 3. Forensic Evidence Pillars with visual ASCII bars (`████░░░░░░`), 4. Baseline Distribution Context, and 5. Actionable Next Steps & 1-Click Drill-Down Queries (omitting redundant `Executed Multi-Stage Query` code dumps while verifying every dispatched query via `QueryIntegrityGate`).
     * `QueryIntegrityGate` (`scripts/multistage_query_builder.py`) audits pre-dispatch queries for unresolved `{{slot}}` placeholders, missing target entity scoping, and malformed `%<table_name>.<column>` Data Table syntax, and inspects post-execution `udm_search` responses so backend compiler/RPC errors never masquerade as `0.00σ` clean baselines.
@@ -132,7 +132,7 @@ secops-statistical-hunter/
 │   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & schema validator
 │   ├── generate_references.py               # Generates taxonomy and windowing reference markdown
 │   └── multistage_query_builder.py          # Python linter, AST validator, QueryIntegrityGate & report/chart generator
-└── tests/                                   # Automated unit test suite (178 tests across 17 modules, 100% pass rate)
+└── tests/                                   # Automated unit test suite (326 offline tests + 1 opt-in live test, 100% pass rate)
     ├── test_chart_specifications.py         # Dual-axis visualization spec tests
     ├── test_clean_handoff.py                # Clean Hand-Off UDM schema validation & batching tests
     ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, bare match identifiers, QueryIntegrityGate
@@ -298,14 +298,14 @@ The skill package is verified through a rigorous three-tier testing hierarchy:
 ```bash
 pytest tests/
 ```
-* **Status**: **178 / 178 passing unit tests** across 17 test modules (100% pass rate).
-* **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution verification, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, 28.0 KB (`28,672` bytes) progressive-loading budget ceilings, hands-off `run_command` restriction contracts, and template router permutations across all 23 mathematical models.
+* **Status**: **326 / 326 passing offline unit tests** (+1 opt-in live test and 788 subtests) across 30 test modules (100% pass rate).
+* **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution verification, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, 28.0 KB (`28,672` bytes) progressive-loading budget ceilings, `D6` `G1`–`G5` vetted helper guardrails, cross-skill contracts, synthetic golden-math verification, and template router permutations across all 27 active pipeline templates.
 
 ### 2. Chronicle Compiler AST & Invariant Validation
 ```bash
 python3 scripts/multistage_query_builder.py
 ```
-* **Status**: **100% clean compilation** across all 23 golden pipeline templates.
+* **Status**: **100% clean compilation** across all 27 golden pipeline templates.
 * **Scope**: Verifies Malachite AST compliance, continuous outcome arithmetic, Function Factory built-ins (`math.*`), bare identifier match binding (`ZERO DOTS IN MATCH`), and safe non-zero dispersion floor guards.
 
 ### 3. Maintainer Dual-Platform Regression Validation
@@ -316,6 +316,11 @@ End-to-end multi-turn conversational regression is validated by the maintainer t
 ---
 
 ## 📦 Release Notes
+
+### v3.0.0 (October 29, 2026) — Cross-Review Remediation Release: 27 Verified Pipelines, `D1`/`D4`/`D5`/`D6`/`D7` Dispositions, Vetted Python Helpers (`G1`–`G5`), Score Semantics Registry & Cross-Skill Contracts
+* **Zero-Bucket Dispersion, Tenant Identifier Probe & ECG Anchoring (`WS1-06`–`WS1-08`)**: Reconstructed zero-count buckets via `{{total_window_buckets}}` in `poisson_burst_clustering_2stage.yl2` (target & source spray variants), added `D4` `build_identifier_coverage_probe` / `select_identifier_from_coverage`, and anchored `DERIVED_CONTEXT` hunts at `D-2` with `build_day0_companion_query`.
+* **27 Active Pipelines, `D1` Retirement & Learned 24-Bin Hour-of-Day Profile (`WS5`, `WS5-HOD`, `WS6-02`–`WS6-04`)**: Retired `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` with backward-compatible error aliases, built `hour_of_day_profile_3stage.yl2`, added `$ws` root match keys (`S-WS`), mode-dependent sample floors (`S-M30`), surging-only fleet prevalence (`S-FP`), leave-one-out baselines, Empirical-Bayes Gamma/Beta-Binomial rebuilds, and shipped `scripts/micro_python_helpers.py` (`ewma`, `shannon`, `c2-jitter`) + 3 stateless `D6-G5` screens (`BURST_Z_SCREEN`, `LONG_STRING_SCREEN`, `FLOW_GAP_RATIO_SCREEN`).
+* **Unified `D5` CRI, Score Registry & Cross-Skill Contracts (`WS7-01`–`WS7-03`, `WS8-01`–`WS8-04`, `WS9-03`–`WS9-04`, `WS0-01`–`WS0-04`)**: Synchronized `scripts/ueba_constants.py` and `tests/test_ws0_02_cross_skill_contracts.py` byte-for-byte with `secops-risk-metrics-multistage`, bound `target_entity.value` across all 27 templates in `HandoffEndpoint.ingest`, routed `EXFILTRATION_IQR_OUTLIER` to `iqr_tukey_skew_fences_3stage.yl2` (`sum(network.sent_bytes)`), pinned frozen `D7` `clean_handoff.py`, and verified **326/326 offline unit tests** (+788 subtests).
 
 ### v2.8.3 (October 27, 2026) — The Bilateral UEBA Harness Co-Execution, Telemetry Physics & Window Guardrail & Multi-Plane CTI / Exploit Synthesis
 * **Bilateral UEBA Harness Co-Execution (`SKILL.md`, `references/statistical-hunting-cooperative-framework.md` §8)**: Co-executes with `secops-risk-metrics-multistage` and `agentic_ueba` (`PlaybookRunner`) on open-ended threat, exploit, CTI, and detection-gap UEBA inquiries (such as `http2shell` / `CVE-2026-111497`), pairing 30-day `metrics.*` baselines with bounded-window raw `UDM_EVENTS` statistical pipelines while preserving 100% of single-skill routing interceptor behavior when `Active Skill: secops-statistical-hunter` is specified.

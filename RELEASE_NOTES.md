@@ -22,7 +22,7 @@
   * Synchronized `CANONICAL_SKILL_ROUTING_TABLE` across `SKILL.md` and `check_routing_recommendation()` with zero cross-skill ping-pong (`WS8-02`), pinned the frozen `D7` write-back contract in `tests/test_ws8_03_writeback_frozen_contract.py` (`WS8-03` — zero changes to `scripts/clean_handoff.py`), and routed `EXFILTRATION_IQR_OUTLIER` to `iqr_tukey_skew_fences_3stage.yl2` over `NETWORK_CONNECTION` `sum(network.sent_bytes)` (`WS8-04`).
   * Upgraded `scripts/generate_references.py` (`WS9-03`) to generate a complete 27-pipeline slot, topology, execution-mode, match-spine, and primary-score matrix plus `D1` retired dispositions in `references/statistical-models-taxonomy.md` (enforced byte-for-byte in CI), and documented explicit `D6` `G1`–`G5` guardrails in `SKILL.md` (`WS9-04`, maintained `<= 28,200` bytes).
 * **Verification**:
-  * **Unit, Contract & Golden Math Suite (`WS0-01`–`WS0-05`)**: `300 passed, 4 live-opt-in skipped, 702 subtests passed` (`0 failed`) across all test modules, plus opt-in `tests/live/live_compile_harness.py` (`WS0-03`) verified against `gus-sdl`.
+  * **Unit, Contract & Golden Math Suite (`WS0-01`–`WS0-05`)**: `326 passed, 1 live-opt-in skipped, 788 subtests passed` (`0 failed`) across all test modules, plus opt-in `tests/live/test_live_compile_matrix.py` (`WS0-03`) verified against `gus-sdl`.
 
 
 ## 📦 Version 2.9.0 (October 28, 2026) — Non-Parametric Quantiles (`window.percentile`), Bowley Quartile Skewness, Hubert–Vandervieren Skewness-Adjusted Tukey Fences, Intra-Bucket Payload Shape Fingerprinting & Ingestion-Lag Quantile Auditing
