@@ -10,7 +10,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from multistage_query_builder import HandoffEndpoint
+from multistage_query_builder import HandoffEndpoint, QueryIntegrityGate
 
 
 class TestHandoffEndpoint(unittest.TestCase):
@@ -49,6 +49,10 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertIn("stage host_intervals", res["compiled_query"])
     self.assertIn("array_distinct($ts)", res["compiled_query"])
     self.assertIn("order:\n  $total_conns desc", res["compiled_query"])
+    self.assertIn("site-rev-proxy.lan", res["compiled_query"])
+    self.assertTrue(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="site-rev-proxy.lan")["valid"]
+    )
     self.assertIn("CV = sigma / mu <= 0.20", res["preflight_spec"]["formula"])
 
   def test_ingest_valid_handoff_privileged_lateral_expansion(self):
@@ -85,6 +89,10 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertNotIn("stage current_breadth", res["compiled_query"])
     self.assertIn("$new_targets", res["compiled_query"])
     self.assertIn("order:\n  $z_score desc", res["compiled_query"])
+    self.assertIn("domain_admins", res["compiled_query"])
+    self.assertTrue(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="domain_admins")["valid"]
+    )
 
   def test_ingest_json_string_with_fences(self):
     """Payload provided as markdown-fenced JSON string must parse and compile cleanly."""
@@ -144,6 +152,8 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
     self.assertEqual(res["model_routed"], "DATA_EXFILTRATION_SPIKE")
     self.assertIn("stage", res["compiled_query"])
+    self.assertIn("site-rev-proxy.lan", res["compiled_query"])
+    self.assertEqual(res["preflight_spec"]["formula"], "m_z_score = 0.6745 * (obs - median) / MAD >= 3.5")
 
   def test_ingest_valid_handoff_dual_plane_correlation(self):
     """DUAL_PLANE_CORRELATION intent must route to DATA_EXFILTRATION_SPIKE with STEP_OUT_CONFIRMED."""
@@ -171,6 +181,7 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertEqual(res["status"], "HANDOFF_ACK_ACCEPTED")
     self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
     self.assertEqual(res["model_routed"], "DATA_EXFILTRATION_SPIKE")
+    self.assertIn("srv-prod-01", res["compiled_query"])
 
 
 if __name__ == "__main__":
