@@ -20,6 +20,7 @@ stage raw_execution {
   outcome:
     $hourly_executions = count($proc.metadata.id)
     $event_ts = max($proc.metadata.event_timestamp.seconds)
+    $in_scoring_window = max(if($proc.metadata.event_timestamp.seconds >= {{ecg_scoring_start_epoch}} and $proc.metadata.event_timestamp.seconds < {{ecg_scoring_end_epoch}}, 1, 0))
 }
 
 // --- STAGE 2: Chronicle Derived Context Graph Lookup (Binary Prevalence & Age — Inner-Join Filter) ---
@@ -88,9 +89,11 @@ outcome:
   $is_rare_binary = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
   $multiplier = if($is_rare_binary = 1.0, {{rare_multiplier}}, 1.0)
   $threat_score = $z_score * $multiplier
+  $in_scoring_window = max($raw_execution.in_scoring_window)
 
 condition:
-  $baseline_active_samples >= {{min_active_hours}}
+  $in_scoring_window = 1
+  and $baseline_active_samples >= {{min_active_hours}}
   and $observation_count >= {{min_execs}}
   and $threat_score >= {{threat_score}}
 

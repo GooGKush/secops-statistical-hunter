@@ -21,6 +21,7 @@ stage raw_traffic {
     $hourly_bytes = sum($net.network.sent_bytes)
     $conn_count = count($net.metadata.id)
     $event_ts = max($net.metadata.event_timestamp.seconds)
+    $in_scoring_window = max(if($net.metadata.event_timestamp.seconds >= {{ecg_scoring_start_epoch}} and $net.metadata.event_timestamp.seconds < {{ecg_scoring_end_epoch}}, 1, 0))
 }
 
 // --- STAGE 2: Global Context Graph Lookup (Max 1 ECG Alias — Inner-Join Filter) ---
@@ -85,9 +86,11 @@ outcome:
   $baseline_dispersion = $sd_bytes
   $fleet_prevalence = 0 - 1
   $distinct_binaries = 1
+  $in_scoring_window = max($raw_traffic.in_scoring_window)
 
 condition:
-  $baseline_active_samples >= {{min_active_hours}}
+  $in_scoring_window = 1
+  and $baseline_active_samples >= {{min_active_hours}}
   and $observation_count >= {{min_obs_bytes}}
   and $threat_score >= {{threat_score}}
 

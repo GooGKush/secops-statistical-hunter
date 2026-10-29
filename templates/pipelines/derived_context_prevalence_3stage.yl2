@@ -20,6 +20,7 @@ stage raw_auth {
   outcome:
     $daily_logins = count($login.metadata.id)
     $event_ts = max($login.metadata.event_timestamp.seconds)
+    $in_scoring_window = max(if($login.metadata.event_timestamp.seconds >= {{ecg_scoring_start_epoch}} and $login.metadata.event_timestamp.seconds < {{ecg_scoring_end_epoch}}, 1, 0))
 }
 
 // --- STAGE 2: Chronicle Derived Context Graph Lookup (Asset Age — Inner-Join Filter) ---
@@ -83,9 +84,11 @@ outcome:
   $baseline_dispersion = $sd_logins
   $fleet_prevalence = 0 - 1
   $distinct_binaries = 1
+  $in_scoring_window = max($raw_auth.in_scoring_window)
 
 condition:
-  $baseline_active_samples >= {{min_active_days}}
+  $in_scoring_window = 1
+  and $baseline_active_samples >= {{min_active_days}}
   and $observation_count >= {{min_logins}}
   and $threat_score >= {{threat_score}}
 

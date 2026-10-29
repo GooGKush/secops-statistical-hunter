@@ -21,6 +21,7 @@ stage raw_network {
     $hourly_bytes = sum($net.network.sent_bytes)
     $conn_count = count($net.metadata.id)
     $event_ts = max($net.metadata.event_timestamp.seconds)
+    $in_scoring_window = max(if($net.metadata.event_timestamp.seconds >= {{ecg_scoring_start_epoch}} and $net.metadata.event_timestamp.seconds < {{ecg_scoring_end_epoch}}, 1, 0))
 }
 
 // --- STAGE 2: Chronicle Derived Context Graph Lookup (Domain Prevalence & Age — Inner-Join Filter) ---
@@ -89,9 +90,11 @@ outcome:
   $is_rare_domain = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
   $multiplier = if($is_rare_domain = 1.0, {{rare_multiplier}}, 1.0)
   $threat_score = $z_score * $multiplier
+  $in_scoring_window = max($raw_network.in_scoring_window)
 
 condition:
-  $baseline_active_samples >= {{min_active_hours}}
+  $in_scoring_window = 1
+  and $baseline_active_samples >= {{min_active_hours}}
   and $observation_count >= {{min_obs_bytes}}
   and $threat_score >= {{threat_score}}
 

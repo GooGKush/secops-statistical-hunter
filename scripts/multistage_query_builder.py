@@ -621,8 +621,13 @@ def compute_ecg_search_window(
     end_time_iso: str,
     event_alias: str = "$net",
     reference_time_iso: Optional[str] = None,
+    min_baseline_days: int = 2,
 ) -> Dict[str, Any]:
-  """Anchors ECG search windows at D-2 00:00Z while pinning Stage 1 raw events to [start, end) (PF-8 / WS1-08)."""
+  """Anchors ECG search windows at D-2 (or D-N via min_baseline_days) while preserving Stage 3 baselines via $in_scoring_window (PF-8 / WS1-08)."""
+  if int(min_baseline_days) < 0:
+    raise ValueError(f"min_baseline_days must be >= 0, got {min_baseline_days!r}")
+  anchor_days = max(2, int(min_baseline_days))
+
   start_dt = _parse_utc_iso(start_time_iso)
   end_dt = _parse_utc_iso(end_time_iso)
   if start_dt >= end_dt:
@@ -632,24 +637,18 @@ def compute_ecg_search_window(
 
   ref_dt = _parse_utc_iso(reference_time_iso) if reference_time_iso else (end_dt - timedelta(microseconds=1))
   day_d = ref_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-  d_minus_2 = day_d - timedelta(days=2)
+  anchor_dt = day_d - timedelta(days=anchor_days)
 
-  alias_clean = str(event_alias or "").strip()
-  if alias_clean and not alias_clean.startswith("$"):
-    alias_clean = f"${alias_clean}"
-  prefix = f"{alias_clean}." if alias_clean else ""
-
-  if start_dt > d_minus_2:
-    effective_start = d_minus_2.strftime("%Y-%m-%dT%H:%M:%SZ")
+  if start_dt > anchor_dt:
+    effective_start = anchor_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     anchored = True
-    ecg_filter = (
-        f"{prefix}metadata.event_timestamp.seconds >= {int(start_dt.timestamp())}\n"
-        f"  {prefix}metadata.event_timestamp.seconds < {int(end_dt.timestamp())}"
-    )
+    scoring_start_epoch = int(start_dt.timestamp())
+    scoring_end_epoch = int(end_dt.timestamp())
   else:
     effective_start = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     anchored = False
-    ecg_filter = ""
+    scoring_start_epoch = 0
+    scoring_end_epoch = 9999999999
 
   return {
       "requested_start_time": start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -657,7 +656,10 @@ def compute_ecg_search_window(
       "effective_start_time": effective_start,
       "effective_end_time": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
       "anchored_to_d_minus_2": anchored,
-      "ecg_event_time_filter": ecg_filter,
+      "min_baseline_days": anchor_days,
+      "ecg_scoring_start_epoch": scoring_start_epoch,
+      "ecg_scoring_end_epoch": scoring_end_epoch,
+      "ecg_event_time_filter": "",
   }
 
 
@@ -3003,6 +3005,8 @@ class MultiStageTemplateRouter:
       start_time: Optional[str] = None,
       end_time: Optional[str] = None,
       ecg_event_time_filter: Optional[str] = None,
+      ecg_scoring_start_epoch: Optional[int] = None,
+      ecg_scoring_end_epoch: Optional[int] = None,
   ) -> str:
     tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
     template_file = self.get_template_filename(archetype)
@@ -3124,16 +3128,35 @@ class MultiStageTemplateRouter:
     if not sample_field:
       sample_field = MAD_SAMPLE_FIELD_BY_EVENT_TYPE.get(event_type.upper(), "metadata.product_event_type")
 
-    if ecg_event_time_filter is not None:
-      ecg_filter_str = str(ecg_event_time_filter).strip()
-    elif start_time and end_time and template_file in ECG_TEMPLATE_EVENT_ALIASES:
-      ecg_filter_str = compute_ecg_search_window(
+    resolved_scoring_start = 0
+    resolved_scoring_end = 9999999999
+    if start_time and end_time and template_file in ECG_TEMPLATE_EVENT_ALIASES:
+      min_b_days = (
+          max(7, int(thresh.get("min_active_days", 7)))
+          if template_file == "derived_context_prevalence_3stage.yl2"
+          else 2
+      )
+      w_ecg = compute_ecg_search_window(
           start_time,
           end_time,
           event_alias=ECG_TEMPLATE_EVENT_ALIASES[template_file],
-      )["ecg_event_time_filter"]
+          min_baseline_days=min_b_days,
+      )
+      resolved_scoring_start = w_ecg["ecg_scoring_start_epoch"]
+      resolved_scoring_end = w_ecg["ecg_scoring_end_epoch"]
+      default_ecg_filter = w_ecg["ecg_event_time_filter"]
     else:
-      ecg_filter_str = ""
+      default_ecg_filter = ""
+
+    if ecg_scoring_start_epoch is not None:
+      resolved_scoring_start = int(ecg_scoring_start_epoch)
+    if ecg_scoring_end_epoch is not None:
+      resolved_scoring_end = int(ecg_scoring_end_epoch)
+
+    if ecg_event_time_filter is not None:
+      ecg_filter_str = str(ecg_event_time_filter).strip()
+    else:
+      ecg_filter_str = default_ecg_filter
 
     # Substitutions
     rendered = raw_template
@@ -3142,6 +3165,8 @@ class MultiStageTemplateRouter:
     else:
       rendered = re.sub(r"\n[ \t]*\{\{ecg_event_time_filter\}\}[ \t]*(?=\n)", "", rendered)
       rendered = rendered.replace("{{ecg_event_time_filter}}", "")
+    rendered = rendered.replace("{{ecg_scoring_start_epoch}}", str(resolved_scoring_start))
+    rendered = rendered.replace("{{ecg_scoring_end_epoch}}", str(resolved_scoring_end))
     rendered = rendered.replace("{{tier}}", tier_up)
     rendered = rendered.replace("{{event_type}}", event_type)
     rendered = rendered.replace("{{entity_field}}", resolved_entity_field)
