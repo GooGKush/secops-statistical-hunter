@@ -27,6 +27,53 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+  from scripts.ueba_constants import (
+      CANONICAL_FROM_MICRO_SENSITIVITY,
+      DEFAULT_ANOMALY_THRESHOLD,
+      DEFAULT_FOLD_CHANGE_THRESHOLD,
+      DEFAULT_FUSION_THRESHOLD_SQ,
+      DEFAULT_MIN_BASELINE_DAYS,
+      DEFAULT_ROBUST_THRESHOLD,
+      LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD,
+      LOOPBACK_MIN_DISTINCT_HITS,
+      MAX_CUSUM_MODE_B_DAYS_MACRO,
+      MAX_MODE_B_DAYS_MACRO,
+      MAX_MODE_B_DAYS_MICRO,
+      MAX_MODE_C_DAYS_MACRO,
+      MICRO_SENSITIVITY_FROM_CANONICAL,
+      RADAR_FUSION_DISTANCE_THRESHOLD,
+      SENSITIVITY_ALIASES,
+      SENSITIVITY_THRESHOLD_MAP,
+      WRITEBACK_CRI_THRESHOLD,
+      resolve_micro_sensitivity_tier,
+      resolve_sensitivity_thresholds,
+      resolve_sensitivity_tier,
+  )
+except ImportError:
+  from ueba_constants import (  # type: ignore[no-redef]
+      CANONICAL_FROM_MICRO_SENSITIVITY,
+      DEFAULT_ANOMALY_THRESHOLD,
+      DEFAULT_FOLD_CHANGE_THRESHOLD,
+      DEFAULT_FUSION_THRESHOLD_SQ,
+      DEFAULT_MIN_BASELINE_DAYS,
+      DEFAULT_ROBUST_THRESHOLD,
+      LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD,
+      LOOPBACK_MIN_DISTINCT_HITS,
+      MAX_CUSUM_MODE_B_DAYS_MACRO,
+      MAX_MODE_B_DAYS_MACRO,
+      MAX_MODE_B_DAYS_MICRO,
+      MAX_MODE_C_DAYS_MACRO,
+      MICRO_SENSITIVITY_FROM_CANONICAL,
+      RADAR_FUSION_DISTANCE_THRESHOLD,
+      SENSITIVITY_ALIASES,
+      SENSITIVITY_THRESHOLD_MAP,
+      WRITEBACK_CRI_THRESHOLD,
+      resolve_micro_sensitivity_tier,
+      resolve_sensitivity_thresholds,
+      resolve_sensitivity_tier,
+  )
+
 EXCLUDED_PATTERNS = [
     (r"\bmetrics\.", "UEBA metric functions (metrics.*) are excluded from ad-hoc time range searches. Use secops-risk-metrics-multistage."),
     (r"\brisk_score\b", "Entity Risk Score fields (risk_score) are excluded. Use secops-risk-metrics-multistage."),
@@ -107,17 +154,17 @@ SENSITIVITY_MAP = {
         # Modified Z (Iglewicz-Hoaglin): 3.5 is the standard outlier cut-off.
         # min_daily_volume is in the units of {{daily_aggregation}} (event count by default).
         "CONSERVATIVE": {"m_z": 5.0, "min_daily_volume": 500, "dispersion_floor": 1.0, "min_baseline_days": 14},
-        "BALANCED": {"m_z": 3.5, "min_daily_volume": 100, "dispersion_floor": 1.0, "min_baseline_days": 7},
+        "BALANCED": {"m_z": DEFAULT_ROBUST_THRESHOLD, "min_daily_volume": 100, "dispersion_floor": 1.0, "min_baseline_days": DEFAULT_MIN_BASELINE_DAYS},
         "AGGRESSIVE": {"m_z": 3.0, "min_daily_volume": 25, "dispersion_floor": 1.0, "min_baseline_days": 3},
     },
     "HEAVY_TAIL_OUTLIERS": {
         "CONSERVATIVE": {"surge_ratio": 3.0, "min_daily_volume": 500, "min_iqr": 50.0, "min_baseline_days": 14},
-        "BALANCED": {"surge_ratio": 2.0, "min_daily_volume": 100, "min_iqr": 10.0, "min_baseline_days": 7},
+        "BALANCED": {"surge_ratio": DEFAULT_FOLD_CHANGE_THRESHOLD, "min_daily_volume": 100, "min_iqr": 10.0, "min_baseline_days": DEFAULT_MIN_BASELINE_DAYS},
         "AGGRESSIVE": {"surge_ratio": 1.5, "min_daily_volume": 25, "min_iqr": 5.0, "min_baseline_days": 3},
     },
     "IQR_TUKEY_SKEW_FENCES": {
         "CONSERVATIVE": {"surge_ratio": 3.0, "min_daily_volume": 500, "min_iqr": 50.0, "min_baseline_days": 14},
-        "BALANCED": {"surge_ratio": 2.0, "min_daily_volume": 100, "min_iqr": 10.0, "min_baseline_days": 7},
+        "BALANCED": {"surge_ratio": DEFAULT_FOLD_CHANGE_THRESHOLD, "min_daily_volume": 100, "min_iqr": 10.0, "min_baseline_days": DEFAULT_MIN_BASELINE_DAYS},
         "AGGRESSIVE": {"surge_ratio": 1.5, "min_daily_volume": 25, "min_iqr": 5.0, "min_baseline_days": 3},
     },
     "VELOCITY_SURGE_RATIO": {
@@ -172,12 +219,12 @@ SENSITIVITY_MAP = {
     },
     "MULTI_SECTOR_FUSION": {
         "CONSERVATIVE": {"threat_distance": 4.0, "min_active_samples": 14, "min_events": 10},
-        "BALANCED": {"threat_distance": 3.0, "min_active_samples": 7, "min_events": 5},
+        "BALANCED": {"threat_distance": RADAR_FUSION_DISTANCE_THRESHOLD, "min_active_samples": DEFAULT_MIN_BASELINE_DAYS, "min_events": 5},
         "AGGRESSIVE": {"threat_distance": 2.0, "min_active_samples": 3, "min_events": 2},
     },
     "MULTI_SECTOR_THREAT_FUSION": {
         "CONSERVATIVE": {"threat_distance": 4.0, "min_active_samples": 14, "min_events": 10},
-        "BALANCED": {"threat_distance": 3.0, "min_active_samples": 7, "min_events": 5},
+        "BALANCED": {"threat_distance": RADAR_FUSION_DISTANCE_THRESHOLD, "min_active_samples": DEFAULT_MIN_BASELINE_DAYS, "min_events": 5},
         "AGGRESSIVE": {"threat_distance": 2.0, "min_active_samples": 3, "min_events": 2},
     },
     "LOG_NORMAL_VOLUME": {
@@ -260,7 +307,7 @@ def get_adaptive_window_parameters(
 ) -> Dict[str, Any]:
   """Calculates adaptive bucket granularity, proportional sample floors, and model fit based on search window duration."""
   archetype_up = archetype.upper()
-  tier_up = tier.upper()
+  tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
   base_thresh = SENSITIVITY_MAP.get(archetype_up, {}).get(tier_up, {})
 
   # Macro-aligned daily models that benefit from a 1d temporal spine on extended horizons (>= 7 days)
@@ -1983,14 +2030,15 @@ def get_thresholds_for_tier(
 ) -> Dict[str, float]:
   """Resolves semantic sensitivity tier to concrete statistical thresholds."""
   archetype_up = archetype.upper()
-  tier_up = tier.upper()
   if archetype_up not in SENSITIVITY_MAP:
     raise ValueError(f"Unknown threat archetype: {archetype}")
-  if tier_up not in SENSITIVITY_MAP[archetype_up]:
+  try:
+    tier_up = resolve_micro_sensitivity_tier(tier, strict=True)
+  except ValueError as exc:
     raise ValueError(
         f"Invalid sensitivity tier '{tier}' for {archetype}. Choose from"
         f" {list(SENSITIVITY_MAP[archetype_up].keys())}."
-    )
+    ) from exc
   return SENSITIVITY_MAP[archetype_up][tier_up]
 
 
@@ -2488,7 +2536,7 @@ class MultiStageTemplateRouter:
       daily_aggregation: Optional[str] = None,
       sample_field: Optional[str] = None,
   ) -> str:
-    tier_up = tier.upper()
+    tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
     template_file = self.get_template_filename(archetype)
     template_path = self.template_dir / template_file
     if template_path.exists():
@@ -2993,10 +3041,8 @@ class HandoffEndpoint:
 
     tier = "BALANCED"
     if isinstance(model_info, dict):
-      raw_tier = model_info.get("sensitivity", "BALANCED").upper()
-      tier = {"HIGH": "AGGRESSIVE", "MEDIUM": "BALANCED", "LOW": "CONSERVATIVE"}.get(raw_tier, raw_tier)
-      if tier not in ("CONSERVATIVE", "BALANCED", "AGGRESSIVE"):
-        tier = "BALANCED"
+      raw_tier = model_info.get("sensitivity", "BALANCED")
+      tier = resolve_micro_sensitivity_tier(str(raw_tier), strict=False)
 
     try:
       compiled_query = router.build_query(
