@@ -39,6 +39,7 @@ import argparse
 from collections import Counter
 from datetime import datetime, timezone
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -64,6 +65,49 @@ ARRAY_DISTINCT_CAP = 25
 DEFAULT_CUSTOMER_ID = "8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5"
 DEFAULT_PROJECT_ID = "gus-sdl"
 DEFAULT_REGION = "us"
+
+_EXCLUDED_C2_IPV4_NETWORKS = tuple(
+    ipaddress.IPv4Network(cidr)
+    for cidr in (
+        "0.0.0.0/8",
+        "10.0.0.0/8",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "224.0.0.0/4",
+        "255.255.255.255/32",
+    )
+)
+
+_EXCLUDED_C2_IPV6_NETWORKS = tuple(
+    ipaddress.IPv6Network(cidr)
+    for cidr in (
+        "::/128",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+        "ff00::/8",
+    )
+)
+
+
+def _is_excluded_c2_destination(dst_ip: str) -> bool:
+  """Returns True when `dst_ip` is RFC1918, loopback, link-local, multicast, broadcast, or ULA."""
+  candidate = str(dst_ip).strip().split("%", 1)[0]
+  if not candidate:
+    return False
+  try:
+    ip = ipaddress.ip_address(candidate)
+  except ValueError:
+    return False
+  if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+    ip = ip.ipv4_mapped
+  if ip.is_multicast or ip.is_link_local or ip.is_loopback or ip.is_unspecified:
+    return True
+  if isinstance(ip, ipaddress.IPv4Address):
+    return any(ip in net for net in _EXCLUDED_C2_IPV4_NETWORKS)
+  return any(ip in net for net in _EXCLUDED_C2_IPV6_NETWORKS)
 
 
 def compute_sha256_hex(data: Union[str, bytes]) -> str:
@@ -1010,6 +1054,7 @@ def run_c2_jitter_helper(
   rows = parse_strict_udm_stats_payload(raw_payload, string_columns={"src_ip", "dst_ip", "entity", "ws"})
 
   grouped: Dict[Tuple[str, str], Dict[str, Any]] = {}
+  skipped_non_external_set: set[Tuple[str, str]] = set()
   for r in rows:
     src = r.get("src_ip") or r.get("entity")
     dst = r.get("dst_ip")
@@ -1030,6 +1075,10 @@ def run_c2_jitter_helper(
       if not math.isfinite(tf) or tf <= 0.0:
         raise ValueError(f"G2_MALFORMED_TIMESTAMP: non-positive or non-finite timestamp {t!r} for {pair_key}")
       parsed_ts.append(tf)
+
+    if _is_excluded_c2_destination(pair_key[1]):
+      skipped_non_external_set.add(pair_key)
+      continue
 
     bucket_conns = int(float(r["bucket_conns"])) if r.get("bucket_conns") is not None else len(parsed_ts)
     hit_cap = len(parsed_ts) >= ARRAY_DISTINCT_CAP or (
@@ -1205,6 +1254,9 @@ def run_c2_jitter_helper(
       },
       "pair_results": pair_results,
       "skipped_insufficient_intervals": skipped_insufficient,
+      "skipped_non_external_destinations": [
+          {"src_ip": s, "dst_ip": d} for s, d in sorted(skipped_non_external_set)
+      ],
       "outliers": outliers,
       "warnings": warnings,
       "provenance": provenance,
