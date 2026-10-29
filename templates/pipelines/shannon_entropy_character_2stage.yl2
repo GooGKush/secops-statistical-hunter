@@ -45,9 +45,11 @@ stage token_observation {
 $entity = $entity_baseline.entity
 $entity = $token_observation.entity
 $token = $token_observation.token
+$ws = $entity_baseline.window_start
+$ws = $token_observation.window_start
 
 match:
-  $entity, $token by {{bucket_size}}
+  $entity, $token, $ws by {{bucket_size}}
 
 outcome:
   $total_activity = max($entity_baseline.total_events)

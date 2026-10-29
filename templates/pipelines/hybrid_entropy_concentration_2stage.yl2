@@ -47,9 +47,10 @@ stage entity_baseline {
 // Stage 3 (Root Stage): Common Compiler Fusion for Diversity Deficit & Concentration
 $entity = $window_metrics.entity
 $entity = $entity_baseline.entity
+$ws = $window_metrics.window_start
 
 match:
-  $entity by {{bucket_size}}
+  $entity, $ws by {{bucket_size}}
 
 outcome:
   // 6 Core Evidence Pillars

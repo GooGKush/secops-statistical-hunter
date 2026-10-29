@@ -46,9 +46,11 @@ stage endpoint_process_burst {
 $binary = $fleet_process_popularity.binary
 $binary = $endpoint_process_burst.binary
 $host = $endpoint_process_burst.host
+$ws = $fleet_process_popularity.window_start
+$ws = $endpoint_process_burst.window_start
 
 match:
-  $host, $binary by {{bucket_size}}
+  $host, $binary, $ws by {{bucket_size}}
 
 outcome:
   $adopter_hosts = max($fleet_process_popularity.fleet_hosts)

@@ -52,9 +52,11 @@ $host = $child_transition.host
 $parent = $parent_baseline.parent
 $parent = $child_transition.parent
 $child = $child_transition.child
+$ws = $parent_baseline.window_start
+$ws = $child_transition.window_start
 
 match:
-  $host, $parent, $child by {{bucket_size}}
+  $host, $parent, $child, $ws by {{bucket_size}}
 
 outcome:
   $parent_launches = max($parent_baseline.parent_total_launches)

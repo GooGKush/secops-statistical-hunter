@@ -54,9 +54,10 @@ $entity = $daily_tool_counts.entity
 $tool = $daily_tool_counts.tool
 $entity = $baseline_accumulation.entity
 $tool = $baseline_accumulation.tool
+$ws = $daily_tool_counts.window_start
 
 match:
-  $entity, $tool by 1d
+  $entity, $tool, $ws by 1d
 outcome:
   // Leave-one-out prior runs & Jeffreys-smoothed daily arrival rate over 29 prior calendar days
   $today_k = max($daily_tool_counts.daily_count)

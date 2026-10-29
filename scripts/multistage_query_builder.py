@@ -368,6 +368,28 @@ def _normalize_archetype_token(archetype_or_model: Any) -> str:
   return raw.upper().replace("-", "_").strip()
 
 
+def _compute_tier_window_sample_floor(
+    total_buckets: int,
+    is_daily: bool,
+    tier_up: str,
+    default_sample_floor: int,
+) -> int:
+  """Computes mode- and window-aware min_active_samples bounded by available buckets (WS5-S-M30)."""
+  eff_total = max(1, int(total_buckets))
+  if eff_total <= 1:
+    return 1
+  if is_daily:
+    ratio = {"CONSERVATIVE": 0.55, "BALANCED": 0.50, "AGGRESSIVE": 0.30}.get(tier_up, 0.50)
+    min_floor = {"CONSERVATIVE": 4, "BALANCED": 3, "AGGRESSIVE": 2}.get(tier_up, 3)
+    cap = eff_total
+  else:
+    ratio = {"CONSERVATIVE": 0.35, "BALANCED": 0.25, "AGGRESSIVE": 0.15}.get(tier_up, 0.25)
+    min_floor = {"CONSERVATIVE": 4, "BALANCED": 3, "AGGRESSIVE": 2}.get(tier_up, 3)
+    cap = max(1, eff_total // 2)
+  raw_floor = max(min_floor, int(eff_total * ratio))
+  return max(1, min(cap, int(default_sample_floor), raw_floor))
+
+
 def get_adaptive_window_parameters(
     duration_hours: float,
     archetype: str,
@@ -426,11 +448,18 @@ def get_adaptive_window_parameters(
       or 30
   )
   
-  if "daily" in sample_unit or "days" in sample_unit or (duration_hours >= 168.0 and archetype_up in daily_macro_archetypes):
-    total_days = max(1, int(duration_hours / 24.0))
-    proportional_sample_floor = max(3, min(default_sample_floor, int(total_days * 0.4)))
-  else:
-    proportional_sample_floor = max(3, min(default_sample_floor, max(4, int(total_buckets * 0.25))))
+  is_daily_window = (
+      "daily" in sample_unit
+      or "days" in sample_unit
+      or (duration_hours >= 168.0 and archetype_up in daily_macro_archetypes)
+  )
+  eff_buckets = max(1, int(duration_hours / 24.0)) if is_daily_window else max(1, total_buckets)
+  proportional_sample_floor = _compute_tier_window_sample_floor(
+      total_buckets=eff_buckets,
+      is_daily=is_daily_window,
+      tier_up=tier_up,
+      default_sample_floor=int(default_sample_floor),
+  )
 
   # Model feasibility checks
   model_warnings = []
@@ -1831,7 +1860,11 @@ def resolve_fleet_prevalence(row: Dict[str, Any]) -> Optional[float]:
   return None
 
 
-def evaluate_confidence_tier(row: Dict[str, Any]) -> Tuple[str, str]:
+def evaluate_confidence_tier(
+    row: Dict[str, Any],
+    min_active_samples: Optional[int] = None,
+    fleet_prevalence_ceiling: int = 3,
+) -> Tuple[str, str]:
   """Evaluates statistical evidence confidence rating (High vs Moderate vs Insufficient Baseline).
 
   HIGH CONFIDENCE requires a known, low fleet prevalence; a missing or not-computed
@@ -1842,12 +1875,33 @@ def evaluate_confidence_tier(row: Dict[str, Any]) -> Tuple[str, str]:
   disp = float(row.get("baseline_dispersion", row.get("stddev_val", row.get("mad_val", 10.0))))
   prevalence = resolve_fleet_prevalence(row)
 
-  if active_samples < 30 or obs < 5 or disp <= 0.1:
-    return "⚪ **INSUFFICIENT BASELINE**", "Denominator too small (< 30 active samples or near-zero dispersion). Risk of false-positive anomaly."
-  elif active_samples >= 120 and obs >= 25 and disp >= 5.0 and prevalence is not None and prevalence <= 3:
-    return "🟢 **HIGH CONFIDENCE**", "Robust historical baseline (>= 120 active samples, verified dispersion, low fleet prevalence)."
-  elif active_samples >= 120 and obs >= 25 and disp >= 5.0 and prevalence is None:
-    return "🟡 **MODERATE CONFIDENCE**", "Robust historical baseline, but fleet prevalence was not computed; HIGH requires verified low fleet prevalence."
+  is_daily_row = (
+      "active_days" in row
+      or any(k in row for k in ("m_z_score", "modified_z", "fence_z", "quantile_z", "surge_ratio", "poisson_z_sq"))
+  )
+  sample_floor = int(min_active_samples) if min_active_samples is not None else (7 if is_daily_row else 30)
+  high_floor = 21 if is_daily_row else 120
+
+  if active_samples < sample_floor or obs < 5 or disp <= 0.1:
+    return (
+        "⚪ **INSUFFICIENT BASELINE**",
+        f"Denominator too small (< {sample_floor} active samples or near-zero dispersion). Risk of false-positive anomaly.",
+    )
+  elif active_samples >= high_floor and obs >= 25 and disp >= 5.0 and prevalence is not None and prevalence <= fleet_prevalence_ceiling:
+    return (
+        "🟢 **HIGH CONFIDENCE**",
+        f"Robust historical baseline (>= {high_floor} active samples, verified dispersion, low fleet prevalence <= {fleet_prevalence_ceiling}).",
+    )
+  elif active_samples >= high_floor and obs >= 25 and disp >= 5.0 and prevalence is None:
+    return (
+        "🟡 **MODERATE CONFIDENCE**",
+        "Robust historical baseline, but fleet prevalence was not computed; HIGH requires verified low fleet prevalence.",
+    )
+  elif prevalence is not None and prevalence > fleet_prevalence_ceiling:
+    return (
+        "🟡 **MODERATE CONFIDENCE**",
+        f"Adequate baseline, but fleet prevalence ({int(prevalence)} surging peers > {fleet_prevalence_ceiling}) indicates broader fleet activity.",
+    )
   else:
     return "🟡 **MODERATE CONFIDENCE**", "Adequate baseline with acceptable statistical support."
 
@@ -2414,12 +2468,39 @@ def format_triage_report(
 
   out.append("")
   out.append("##### 🛡️ Statistical Validity & Safeguard Verification")
-  out.append(f"* **Sample Density Floor**: `{active_samples}` active units (Threshold $\\ge 30$ $\\to$ **PASSED**).")
-  out.append(f"* **Dispersion Non-Zero Floor**: Spread `{base_disp}` (Threshold $\\ge 5.0$ $\\to$ **PASSED**).")
+  is_daily_key = chosen_key in ("m_z_score", "modified_z", "fence_z", "quantile_z", "surge_ratio", "poisson_z_sq") or bucket_seconds == 86400
+  req_sample_floor = 7 if is_daily_key else 30
+  if code_no_comments:
+    m_sf = re.search(
+        r"\$(?:baseline_active_samples|entity_active_hours|active_days|active_samples)\s*>=\s*(\d+)",
+        code_no_comments,
+    )
+    if m_sf:
+      req_sample_floor = int(m_sf.group(1))
+  fp_ceiling = 3
+  if code_no_comments:
+    m_fp = re.search(r"\$(?:fleet_prevalence|adopter_hosts)\s*<=\s*(\d+)", code_no_comments)
+    if m_fp:
+      fp_ceiling = int(m_fp.group(1))
+
+  active_samples_num = _coerce_finite_float(top_ent.get("baseline_active_samples", top_ent.get("active_samples", top_ent.get("active_days"))))
+  sample_verdict = "**PASSED**" if (active_samples_num is None or active_samples_num >= req_sample_floor) else "**FAILED**"
+  out.append(f"* **Sample Density Floor**: `{active_samples}` active units (Threshold $\\ge {req_sample_floor}$ $\\to$ {sample_verdict}).")
+
+  disp_num = _coerce_finite_float(top_ent.get("baseline_dispersion", top_ent.get("stddev_val", top_ent.get("mad_val"))))
+  disp_floor = 0.1 if is_daily_key else 1.0
+  disp_verdict = "**PASSED**" if (disp_num is None or disp_num >= disp_floor) else "**FAILED**"
+  out.append(f"* **Dispersion Non-Zero Floor**: Spread `{base_disp}` (Threshold $\\ge {disp_floor}$ $\\to$ {disp_verdict}).")
+
   if fleet_prev_num is None:
-    out.append("* **Fleet Prevalence Isolation**: `not computed` (Threshold $\\le 3$ $\\to$ **NOT EVALUATED**).")
+    out.append(f"* **Fleet Prevalence Isolation**: `not computed` (Threshold $\\le {fp_ceiling}$ $\\to$ **NOT EVALUATED**).")
+  elif fleet_prev_num <= fp_ceiling:
+    out.append(f"* **Fleet Prevalence Isolation**: `{fleet_prev}` surging entity(s) (Threshold $\\le {fp_ceiling}$ $\\to$ **PASSED**).")
   else:
-    out.append(f"* **Fleet Prevalence Isolation**: `{fleet_prev}` host(s) (Threshold $\\le 3$ $\\to$ **PASSED**).")
+    out.append(
+        f"* **Fleet Prevalence Isolation**: `{fleet_prev}` surging entity(s) "
+        f"(Threshold $\\le {fp_ceiling}$ $\\to$ **FAILED** — widespread fleet surge exceeds isolation ceiling)."
+    )
   out.append("</details>")
 
   return "\n".join(out)
@@ -3124,9 +3205,10 @@ class MultiStageTemplateRouter:
           "}\n\n"
           "// Root Stage: Score directional producer ratio inversion and outbound byte Z-score\n"
           "$entity = $stage1_directional_bytes.entity\n"
-          "$entity = $stage2_entity_baseline.entity\n\n"
+          "$entity = $stage2_entity_baseline.entity\n"
+          "$ws = $stage1_directional_bytes.window_start\n\n"
           "match:\n"
-          "  $entity by {{bucket_size}}\n\n"
+          "  $entity, $ws by {{bucket_size}}\n\n"
           "outcome:\n"
           "  // 6 Core Evidence Pillars\n"
           "  $observation_count = max($stage1_directional_bytes.sent_bytes)\n"
@@ -3242,10 +3324,12 @@ class MultiStageTemplateRouter:
             or thresh.get("min_active_days")
             or 30
         )
-        if resolved_bucket_size.endswith("d"):
-          min_samples = max(3, min(default_floor, int(eff_total * 0.4)))
-        else:
-          min_samples = max(3, min(default_floor, max(4, int(eff_total * 0.25))))
+        min_samples = _compute_tier_window_sample_floor(
+            total_buckets=eff_total,
+            is_daily=resolved_bucket_size.endswith("d"),
+            tier_up=tier_up,
+            default_sample_floor=int(default_floor),
+        )
       else:
         min_samples = adapt["proportional_sample_floor"]
       for sample_key in ("min_active_samples", "min_baseline_days", "min_active_hours", "min_active_days"):
@@ -3440,7 +3524,9 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{nrd_multiplier}}", str(thresh.get("nrd_multiplier", 2.5)))
     rendered = rendered.replace("{{min_bytes}}", str(thresh.get("min_bytes", 10000000.0)))
     rendered = rendered.replace("{{fano_factor}}", str(thresh.get("fano_factor", 4.0)))
-    rendered = rendered.replace("{{min_fails}}", str(thresh.get("min_fails", 15)))
+    min_fails_val = int(thresh.get("min_fails", 15))
+    rendered = rendered.replace("{{min_fails}}", str(min_fails_val))
+    rendered = rendered.replace("{{min_burst_fails}}", str(max(2, min_fails_val // 3)))
     rendered = rendered.replace("{{min_mu}}", str(thresh.get("min_mu", 0.1)))
     poisson_z_val = thresh.get("poisson_z", 3.5)
     rendered = rendered.replace("{{poisson_z}}", str(poisson_z_val))

@@ -49,7 +49,7 @@ stage fleet_breadth {
   match:
     $ws by {{bucket_size}}
   outcome:
-    $fleet_users = count_distinct($hourly_failures.entity)
+    $fleet_users = sum(if($hourly_failures.hourly_fails >= {{min_burst_fails}}, 1, 0))
 }
 
 // Root Stage: Join stages, rebuild zero-inclusive Fano Factor over T = {{total_window_buckets}}, and emit 6 Evidence Pillars

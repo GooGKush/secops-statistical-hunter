@@ -42,9 +42,10 @@ stage entity_historical_stats {
 // Root Stage: EWMA Velocity Divergence & Kinetic Burst Scoring
 $entity = $entity_baseline.entity
 $entity = $entity_historical_stats.entity
+$ws = $entity_baseline.window_start
 
 match:
-  $entity by {{bucket_size}}
+  $entity, $ws by {{bucket_size}}
 
 outcome:
   // 6 Core Evidence Pillars

@@ -50,7 +50,7 @@ stage fleet_context {
     $ws by {{bucket_size}}
 
   outcome:
-    $fleet_hosts = count_distinct($host_hourly_activity.host)
+    $fleet_hosts = sum(if($host_hourly_activity.hourly_count >= {{min_count}}, 1, 0))
 }
 
 // Root Stage: Bayesian Conjugate Updating & Credibility Scoring

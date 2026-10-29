@@ -50,7 +50,7 @@ stage fleet_stats {
     $ws by {{bucket_size}}
 
   outcome:
-    $fleet_users = count_distinct($entity_hourly_trials.user)
+    $fleet_users = sum(if($entity_hourly_trials.failed_trials >= {{min_fails}}, 1, 0))
 }
 
 // Root Stage: Beta-Binomial Conjugate Updating & Shrinkage

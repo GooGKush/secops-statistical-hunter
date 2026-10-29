@@ -48,7 +48,7 @@ stage fleet_breadth {
   match:
     $ws by {{bucket_size}}
   outcome:
-    $fleet_hosts = count_distinct($host_hourly.entity)
+    $fleet_hosts = sum(if($host_hourly.hourly_count >= {{min_count}}, 1, 0))
 }
 
 // Root Stage: Join all stages, calculate Z-score in outcome section, and emit standardized 6 Evidence Pillars

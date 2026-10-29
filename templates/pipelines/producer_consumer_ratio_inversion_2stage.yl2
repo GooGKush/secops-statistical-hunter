@@ -44,9 +44,10 @@ stage stage2_entity_baseline {
 // Root Stage: Score directional producer ratio inversion and outbound byte Z-score
 $entity = $stage1_directional_bytes.entity
 $entity = $stage2_entity_baseline.entity
+$ws = $stage1_directional_bytes.window_start
 
 match:
-  $entity by {{bucket_size}}
+  $entity, $ws by {{bucket_size}}
 
 outcome:
   // 6 Core Evidence Pillars

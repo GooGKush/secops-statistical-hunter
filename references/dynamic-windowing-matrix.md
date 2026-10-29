@@ -19,7 +19,7 @@ This matrix defines adaptive bucket granularity and proportional sample floors a
 | **24 Hours (Daily Rolling)** | `15m` | *N/A (Intra-day)* | `7` samples | `24h` |
 | **72 Hours (Weekend Burst)** | `1h` | *N/A (Intra-day)* | `7` samples | `72h` |
 | **7 Days (Weekly Horizon)** | `1h` | `1d` | `3` samples | `168h` |
-| **14 Days (Bi-Weekly Horizon)** | `1h` | `1d` | `5` samples | `336h` |
+| **14 Days (Bi-Weekly Horizon)** | `1h` | `1d` | `7` samples | `336h` |
 | **30 Days (Monthly Baseline)** | `1h` | `1d` | `7` samples | `720h` |
 
 ---

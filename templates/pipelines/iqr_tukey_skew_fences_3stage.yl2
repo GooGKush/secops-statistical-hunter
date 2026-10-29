@@ -57,7 +57,7 @@ stage fleet_breadth {
   match:
     $ws by {{bucket_size}}
   outcome:
-    $fleet_hosts = count_distinct($daily_stats.entity)
+    $fleet_hosts = sum(if($daily_stats.daily_value >= {{min_daily_volume}}, 1, 0))
 }
 
 // Root Stage: Bowley Skewness, Tail Heaviness, Skewness-Adjusted Tukey Fence & 6 Evidence Pillars
