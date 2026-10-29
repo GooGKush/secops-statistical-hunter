@@ -6,15 +6,14 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 1. Parametric Historical Standardization ($Z$-Score)
-* **Goal**: Detect sudden vertical bursts in volume over a Gaussian historical baseline.
+## 1. Leave-One-Out Parametric Historical Standardization ($Z$-Score)
+* **Goal**: Detect sudden vertical bursts in volume over an out-of-sample Gaussian historical baseline.
 * **Formula**:
-  $$Z = \frac{x - \mu}{\sigma}$$
+  $$Z = \frac{x_t - \mu_{-t}}{\max\left(s_{-t}, \sqrt{\max(\mu_{-t}, 1.0)}\right)}$$
 * **Where**:
-  - $x$: Current window observation count (`$obs`).
-  - $\mu$: Historical sample mean (`$mu = \text{avg}(\$stage1.count)`).
-  - $\sigma$: Historical standard deviation (`$sd = \text{stddev}(\$stage1.count)`).
-* **Guards**: Requires $\sigma > 0$ and $N \ge 24$ active baseline intervals.
+  - $x_t$: Scored bucket observation count (`$observation_count`).
+  - $\mu_{-t}, s_{-t}$: Leave-one-out ($n - 1$) sample mean and sample standard deviation excluding bucket $t$.
+* **Guards**: Replaces brittle `min_sd` condition cliffs with the continuous Poisson floor $\sqrt{\max(\mu_{-t}, 1.0)}$.
 
 ---
 
@@ -103,12 +102,12 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 11. Log-Normal Volumetric Standardization ($Z_{\log}$)
+## 11. Leave-One-Out Log-Normal Volumetric Standardization ($Z_{\log}$)
 * **Goal**: Isolate extreme byte bursts over heavy-tailed, skewed network and data exfiltration streams without parametric Gaussian distortion.
 * **Formula**:
-  $$Y = \text{math.log}(\text{bytes} + 1.0), \quad Z_{\log} = \frac{Y - \mu_Y}{\sigma_Y}$$
+  $$Y_t = \text{math.log}(\text{bytes}_t + 1.0), \quad Z_{\log} = \frac{Y_t - \mu_{Y,-t}}{\max(s_{Y,-t}, 0.25)}$$
 * **Interpretation**:
-  - Log-transform stabilizes variance across several orders of magnitude, isolating true exfiltration anomalies.
+  - Leave-one-out log-standardization with a continuous $0.25$ log-SD floor suppresses routine $<2\times$ jitter while keeping all 6 Evidence Pillars in byte units.
 
 ---
 

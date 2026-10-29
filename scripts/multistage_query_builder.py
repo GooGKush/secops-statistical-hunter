@@ -381,7 +381,7 @@ def _compute_tier_window_sample_floor(
   if is_daily:
     ratio = {"CONSERVATIVE": 0.55, "BALANCED": 0.50, "AGGRESSIVE": 0.30}.get(tier_up, 0.50)
     min_floor = {"CONSERVATIVE": 4, "BALANCED": 3, "AGGRESSIVE": 2}.get(tier_up, 3)
-    cap = eff_total
+    cap = max(1, eff_total - 1)
   else:
     ratio = {"CONSERVATIVE": 0.35, "BALANCED": 0.25, "AGGRESSIVE": 0.15}.get(tier_up, 0.25)
     min_floor = {"CONSERVATIVE": 4, "BALANCED": 3, "AGGRESSIVE": 2}.get(tier_up, 3)
@@ -547,6 +547,50 @@ def compute_zero_inclusive_dispersion(
       "variance": variance,
       "stddev": stddev,
       "fano_factor": fano_factor,
+  }
+
+
+def compute_loo_zscore(
+    prior_values: Sequence[float],
+    observed_value: float,
+    *,
+    floor_mode: str = "poisson",
+    fixed_floor: float = 0.25,
+) -> Dict[str, float]:
+  """Computes leave-one-out (n - 1) baseline mean, sample SD, continuous floor, and Z-score (WS5-OOS)."""
+  priors = [float(x) for x in prior_values]
+  if not priors:
+    raise ValueError("prior_values must contain at least 1 prior bucket for leave-one-out scoring")
+  obs = float(observed_value)
+  n_prior = len(priors)
+  safe_n = max(1, n_prior)
+  loo_sum = sum(priors)
+  loo_sum_sq = sum(v * v for v in priors)
+  loo_mean = loo_sum / float(safe_n)
+  safe_df = max(1, n_prior - 1)
+  raw_ss = loo_sum_sq - ((loo_sum * loo_sum) / float(safe_n))
+  pos_ss = raw_ss if raw_ss > 0.0 else 0.0
+  loo_var = pos_ss / float(safe_df)
+  loo_sd = math.sqrt(loo_var)
+
+  mode_norm = str(floor_mode or "poisson").strip().lower()
+  if mode_norm == "poisson":
+    floor_val = math.sqrt(max(loo_mean, 1.0))
+  elif mode_norm == "fixed":
+    floor_val = max(0.0, float(fixed_floor))
+  else:
+    raise ValueError(f"Unsupported floor_mode: {floor_mode!r}")
+
+  safe_sd = max(loo_sd, floor_val)
+  z_score = (obs - loo_mean) / safe_sd if safe_sd > 0.0 else 0.0
+  return {
+      "n_prior": n_prior,
+      "loo_mean": loo_mean,
+      "loo_var": loo_var,
+      "loo_sd": loo_sd,
+      "floor": floor_val,
+      "safe_sd": safe_sd,
+      "z_score": z_score,
   }
 
 
@@ -3384,6 +3428,22 @@ class MultiStageTemplateRouter:
     else:
       resolved_peer_sample_field = "principal.ip"
 
+    # Coalesced multi-sector entity expression (WS5-OOS)
+    ent_norm_fusion = entity_type.lower().strip()
+    if explicit_field:
+      if explicit_field.startswith("$e.") or "strings.coalesce(" in explicit_field:
+        fusion_entity_expr = explicit_field
+      else:
+        fusion_entity_expr = f"$e.{explicit_field}"
+    elif identifier_coverage_payload is not None and resolved_entity_field == "principal.ip":
+      fusion_entity_expr = "strings.coalesce($e.principal.ip, $e.principal.hostname, $e.principal.asset.hostname)"
+    elif ent_norm_fusion == "user":
+      fusion_entity_expr = "strings.coalesce($e.target.user.userid, $e.principal.user.userid)"
+    elif ent_norm_fusion == "ip":
+      fusion_entity_expr = "strings.coalesce($e.principal.ip, $e.principal.hostname, $e.principal.asset.hostname)"
+    else:
+      fusion_entity_expr = "strings.coalesce($e.principal.hostname, $e.principal.asset.hostname, $e.principal.ip)"
+
     # Default event type resolution
     if not event_type:
       if (
@@ -3485,6 +3545,7 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{tier}}", tier_up)
     rendered = rendered.replace("{{event_type}}", event_type)
     rendered = rendered.replace("{{entity_field}}", resolved_entity_field)
+    rendered = rendered.replace("{{fusion_entity_expr}}", fusion_entity_expr)
     rendered = rendered.replace("{{peer_sample_field}}", resolved_peer_sample_field)
     rendered = rendered.replace("{{bucket_size}}", resolved_bucket_size)
     rendered = rendered.replace("{{total_window_buckets}}", str(resolved_total_buckets))
