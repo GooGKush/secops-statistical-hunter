@@ -1142,6 +1142,39 @@ def check_bare_negative_literal_assignments(query: str) -> List[str]:
   return errors
 
 
+_PURE_LITERAL_OUTCOME_RE = re.compile(
+    r"^[ \t]*(\$[a-zA-Z0-9_]+)[ \t]*=[ \t]*(?:0[ \t]*-[ \t]*)?\d+(?:\.\d+)?[ \t]*$",
+    re.MULTILINE,
+)
+
+
+def check_constant_outcome_in_if_or_condition(query: str) -> List[str]:
+  """Flags pure-literal outcome variables referenced inside if(...) or condition: (verified live on gus-sdl, WS1-06)."""
+  code_only = re.sub(r"//.*", "", query)
+  errors: List[str] = []
+  literal_vars = set()
+  for om in re.finditer(r"\boutcome\s*:(.*?)(?=\n\s*(?:condition|order|match)\s*:|\}|\Z)", code_only, flags=re.DOTALL):
+    literal_vars.update(_PURE_LITERAL_OUTCOME_RE.findall(om.group(1)))
+  if not literal_vars:
+    return errors
+
+  cond_m = re.search(r"\bcondition\s*:(.*?)(?=\border\s*:|\Z)", code_only, flags=re.DOTALL)
+  cond_text = cond_m.group(1) if cond_m else ""
+  if_calls = _extract_if_calls(code_only)
+
+  for var in sorted(literal_vars):
+    var_re = re.compile(re.escape(var) + r"\b")
+    in_if = any(any(var_re.search(arg) for arg in args) for _, args in if_calls)
+    in_cond = bool(var_re.search(cond_text))
+    if in_if or in_cond:
+      errors.append(
+          f"SYNTAX ERROR (CONSTANT_OUTCOME_IN_IF_OR_CONDITION): Pure-literal outcome variable '{var}' "
+          "is referenced in if() or condition:. Malachite rejects conditions on constant outcome variables "
+          "that do not depend on any stage/event column; inline the constant directly in arithmetic instead."
+      )
+  return errors
+
+
 def check_stage_name_collisions(query: str) -> List[str]:
   """Flags outcome variables whose identifier equals a declared stage name.
 
@@ -1301,6 +1334,7 @@ def validate_multistage_syntax(query: str) -> List[str]:
   errors.extend(check_stage_name_collisions(query))
   errors.extend(check_independent_raw_stages(query))
   errors.extend(check_bare_negative_literal_assignments(query))
+  errors.extend(check_constant_outcome_in_if_or_condition(query))
 
   # Chronicle Common Compiler Grammar Invariants for if():
   for full_call, args in _extract_if_calls(code_only):

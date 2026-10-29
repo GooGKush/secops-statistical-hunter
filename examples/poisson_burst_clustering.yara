@@ -8,9 +8,9 @@
 //     where variance equals the mean (Fano Factor F = σ² / μ ≈ 1.0). Coordinated attack waves (password spraying from a
 //     source IP via principal.ip or concentrated waves against target.user.userid) arrive in intermittent bursts separated
 //     by silent intervals, creating extreme zero-inclusive over-dispersion (μ = Σx / T, σ² = Σx² / T - μ², F >> 4.0).
-//   - Noise protection: Enforces an activity floor of >= 15 failed logins, a zero-inclusive window capacity floor
-//     (T >= 30 buckets), and a zero-inclusive rate floor (μ >= 0.1) while keeping Stage 2 purely numeric.
-// Sensitivity Boundary: BALANCED (Fano Factor F >= 4.0x, Min Total Failures >= 15, Zero-Inclusive Mean μ >= 0.1, Window Buckets T >= 30)
+//   - Noise protection: Enforces an activity floor of >= 15 failed logins, router-validated window bucket count
+//     (T = 168 >= 1), and a zero-inclusive rate floor (μ >= 0.1) while keeping Stage 2 purely numeric.
+// Sensitivity Boundary: BALANCED (Fano Factor F >= 4.0x, Min Total Failures >= 15, Zero-Inclusive Mean μ >= 0.1, Window Buckets T = 168)
 // ============================================================================
 
 // Stage 1: Hourly authentication failure counts, squared counts, and source IP diversity per target user
@@ -61,12 +61,10 @@ $ws = $fleet_breadth.ws
 match:
   $entity
 outcome:
-  $total_buckets = 168
-  $safe_buckets = if($total_buckets > 0, $total_buckets, 1.0)
   $sum_x = max($dispersion_baseline.sum_x)
   $sum_x2 = max($dispersion_baseline.sum_x2)
-  $zero_incl_mean = $sum_x / $safe_buckets
-  $mean_sq = $sum_x2 / $safe_buckets
+  $zero_incl_mean = 1.0 * $sum_x / 168
+  $mean_sq = 1.0 * $sum_x2 / 168
   $raw_var = $mean_sq - ($zero_incl_mean * $zero_incl_mean)
   $zero_incl_var = if($raw_var > 0.0, $raw_var, 0.0)
   $zero_incl_sd = math.sqrt($zero_incl_var)
@@ -85,7 +83,6 @@ outcome:
 
 condition:
   $baseline_active_samples >= 1
-  and $total_buckets >= 30
   and $observation_count >= 15
   and $baseline_mean >= 0.1
   and $fano_factor >= 4.0

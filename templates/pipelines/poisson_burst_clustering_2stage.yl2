@@ -8,9 +8,9 @@
 //     where variance equals the mean (Fano Factor F = σ² / μ ≈ 1.0). Coordinated attack waves (password spraying from a
 //     source IP via principal.ip or concentrated waves against target.user.userid) arrive in intermittent bursts separated
 //     by silent intervals, creating extreme zero-inclusive over-dispersion (μ = Σx / T, σ² = Σx² / T - μ², F >> 4.0).
-//   - Noise protection: Enforces an activity floor of >= {{min_fails}} failed logins, a zero-inclusive window capacity floor
-//     (T >= {{min_active_samples}} buckets), and a zero-inclusive rate floor (μ >= {{min_mu}}) while keeping Stage 2 purely numeric.
-// Sensitivity Boundary: {{tier}} (Fano Factor F >= {{fano_factor}}x, Min Total Failures >= {{min_fails}}, Zero-Inclusive Mean μ >= {{min_mu}}, Window Buckets T >= {{min_active_samples}})
+//   - Noise protection: Enforces an activity floor of >= {{min_fails}} failed logins, router-validated window bucket count
+//     (T = {{total_window_buckets}} >= 1), and a zero-inclusive rate floor (μ >= {{min_mu}}) while keeping Stage 2 purely numeric.
+// Sensitivity Boundary: {{tier}} (Fano Factor F >= {{fano_factor}}x, Min Total Failures >= {{min_fails}}, Zero-Inclusive Mean μ >= {{min_mu}}, Window Buckets T = {{total_window_buckets}})
 // ============================================================================
 
 // Stage 1: Bucketed authentication failure counts, squared counts, and peer diversity per entity
@@ -61,12 +61,10 @@ $ws = $fleet_breadth.ws
 match:
   $entity
 outcome:
-  $total_buckets = {{total_window_buckets}}
-  $safe_buckets = if($total_buckets > 0, $total_buckets, 1.0)
   $sum_x = max($dispersion_baseline.sum_x)
   $sum_x2 = max($dispersion_baseline.sum_x2)
-  $zero_incl_mean = $sum_x / $safe_buckets
-  $mean_sq = $sum_x2 / $safe_buckets
+  $zero_incl_mean = 1.0 * $sum_x / {{total_window_buckets}}
+  $mean_sq = 1.0 * $sum_x2 / {{total_window_buckets}}
   $raw_var = $mean_sq - ($zero_incl_mean * $zero_incl_mean)
   $zero_incl_var = if($raw_var > 0.0, $raw_var, 0.0)
   $zero_incl_sd = math.sqrt($zero_incl_var)
@@ -85,7 +83,6 @@ outcome:
 
 condition:
   $baseline_active_samples >= 1
-  and $total_buckets >= {{min_active_samples}}
   and $observation_count >= {{min_fails}}
   and $baseline_mean >= {{min_mu}}
   and $fano_factor >= {{fano_factor}}
