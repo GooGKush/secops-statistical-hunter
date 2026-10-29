@@ -1,22 +1,23 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect obfuscated command lines and DGA domains via Shannon Character-Class Entropy.
+// Goal: Screen unusually long and rare command lines or domain strings (long-string screen).
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Shannon Character-Class Information Density & Length Ratio
+// Statistical Model: Long-String & Rare-Token Candidate Screen (long-string screen — stateless YARA-L candidate filter; true per-character Shannon entropy requires vetted Python helper WS6-03)
 // Mathematical Rationale:
-//   - Why this model: Normal natural-language command lines and domain names exhibit low character randomness
-//     and predictable structural patterns. Malicious payloads (base64-encoded scripts, PowerShell flags, and
-//     algorithmic DGA domains) exhibit collapsed compression redundancy and elevated character entropy.
-//   - Small-Sample & Multiple-Comparison Protection: Requires minimum string length (>= {{min_length}}) to prevent
-//     short identifier false positives.
-// Sensitivity Boundary: {{tier}} (Entropy Score >= {{entropy_threshold}}, Min String Length >= {{min_length}})
+//   - Honest D6 G5 In-Query Screen: YARA-L 2.0 has no per-character iteration primitive (PF-5).
+//     This pipeline screens candidate strings on {{token_field}} using log-length plus within-entity
+//     token rarity: score = ln(length) + ln(1 + total_events / token_count).
+//   - Parameterized Token Field: Inspects {{token_field}} (default principal.process.command_line;
+//     overridable to network.dns.questions.name, target.url, etc.) with minimum length >= {{min_length}}.
+// Sensitivity Boundary: {{tier}} (Long-String Screen Score >= {{entropy_threshold}}, Min String Length >= {{min_length}}, Token Field = {{token_field}})
 // ============================================================================
 
-// Stage 1: Entity Volume & Distinct Token Breadth Baseline
+// Stage 1: Entity Bucket Event Volume
 stage entity_baseline {
     metadata.event_type = "{{event_type}}"
     {{entity_field}} = $entity
     $entity != ""
+    {{event_filter}}
 
   match:
     $entity by {{bucket_size}}
@@ -25,13 +26,14 @@ stage entity_baseline {
     $total_events = count(metadata.id)
 }
 
-// Stage 2: Target Token Extraction & Character Diversity Observation
+// Stage 2: Target Token Extraction & String Length Observation
 stage token_observation {
     metadata.event_type = "{{event_type}}"
     {{entity_field}} = $entity
     $entity != ""
-    $token = target.process.command_line
+    $token = {{token_field}}
     $token != ""
+    {{event_filter}}
 
   match:
     $entity, $token by {{bucket_size}}
@@ -41,7 +43,7 @@ stage token_observation {
     $token_length = max(strings.length($token))
 }
 
-// Root Stage: Character-Class Information Entropy & Obfuscation Scoring
+// Root Stage: Long-String & Rare-Token Candidate Scoring
 $entity = $entity_baseline.entity
 $entity = $token_observation.entity
 $token = $token_observation.token
@@ -56,13 +58,12 @@ outcome:
   $token_executions = max($token_observation.token_count)
   $raw_length = max($token_observation.token_length)
   $safe_length = if($raw_length > 0, $raw_length, 1)
+  $safe_total = if($total_activity > 0, $total_activity, 1)
+  $safe_tok = if($token_executions > 0, $token_executions, 1)
 
-  // 1. Natural Logarithm of Length
   $log_len = math.log($safe_length)
-
-  // 2. Character Density & Entropy Proxy
-  $length_factor = if($safe_length >= 25, 2.0, 1.0)
-  $shannon_entropy_score = $log_len * $length_factor
+  $rarity_lift = math.log(1.0 + (1.0 * $safe_total / $safe_tok))
+  $shannon_entropy_score = $log_len + $rarity_lift
 
   // 6 Core Evidence Pillars
   $observation_count = $token_executions

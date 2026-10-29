@@ -272,9 +272,9 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"zipf_threshold": 1.5, "max_adopters": 3, "min_count": 1},
     },
     "EWMA_BURST_VELOCITY": {
-        "CONSERVATIVE": {"velocity_threshold": 3.0, "min_count": 50, "min_sd": 5.0, "min_active_samples": 60},
-        "BALANCED": {"velocity_threshold": 2.0, "min_count": 25, "min_sd": 2.0, "min_active_samples": 30},
-        "AGGRESSIVE": {"velocity_threshold": 1.5, "min_count": 10, "min_sd": 1.0, "min_active_samples": 14},
+        "CONSERVATIVE": {"velocity_threshold": 4.0, "min_count": 50, "min_sd": 5.0, "min_active_samples": 60},
+        "BALANCED": {"velocity_threshold": 3.0, "min_count": 25, "min_sd": 2.0, "min_active_samples": 30},
+        "AGGRESSIVE": {"velocity_threshold": 2.0, "min_count": 10, "min_sd": 1.0, "min_active_samples": 14},
     },
     "HOUR_OF_DAY_PROFILE": {
         "CONSERVATIVE": {"z_threshold": 4.0, "min_active_samples": 48},
@@ -1141,12 +1141,12 @@ THREAT_EXPLANATIONS = {
         ]
     },
     "cv": {
-        "name": "Robotic Periodic Beaconing (Inter-Arrival Timing Regularity)",
-        "plain_concept": "Computer making network callbacks on an unnaturally regular, clockwork schedule (like a robotic heartbeat).",
+        "name": "Cross-Bucket Flow-Gap Ratio Regularity Screen (flow-gap ratio)",
+        "plain_concept": "External (src_ip, dst_ip) pair exhibiting low cross-bucket flow-gap ratio dispersion.",
         "why_it_matters": (
-            "Human web browsing is chaotic and irregular (random intervals). Malware implants (like Cobalt Strike or Sliver) "
-            "are programmed to 'call home' to an attacker's server at regular intervals with a little bit of randomized delay ('sleep jitter'). "
-            "A low timing variation score indicates robotic software, not a human."
+            "Human web browsing is chaotic and irregular across hours. Persistent automated callbacks exhibit stable "
+            "bucket span-to-count flow-gap ratios (low CV <= 0.20) across external non-multicast destinations; "
+            "use the vetted Python jitter helper for exact consecutive inter-arrival sleep timing."
         ),
         "malicious_scenarios": [
             "Active Command & Control (C2) implant beaconing out to an external attacker-controlled server.",
@@ -1923,20 +1923,21 @@ def evaluate_confidence_tier(
       "active_days" in row
       or any(k in row for k in ("m_z_score", "modified_z", "fence_z", "quantile_z", "surge_ratio", "poisson_z_sq"))
   )
-  sample_floor = int(min_active_samples) if min_active_samples is not None else (7 if is_daily_row else 30)
-  high_floor = 21 if is_daily_row else 120
+  is_inverted_disp = "cv" in row
+  sample_floor = int(min_active_samples) if min_active_samples is not None else (6 if is_inverted_disp else (7 if is_daily_row else 30))
+  high_floor = 24 if is_inverted_disp else (21 if is_daily_row else 120)
 
-  if active_samples < sample_floor or obs < 5 or disp <= 0.1:
+  if active_samples < sample_floor or obs < 5 or (not is_inverted_disp and disp <= 0.1):
     return (
         "⚪ **INSUFFICIENT BASELINE**",
         f"Denominator too small (< {sample_floor} active samples or near-zero dispersion). Risk of false-positive anomaly.",
     )
-  elif active_samples >= high_floor and obs >= 25 and disp >= 5.0 and prevalence is not None and prevalence <= fleet_prevalence_ceiling:
+  elif active_samples >= high_floor and obs >= 25 and (is_inverted_disp or disp >= 5.0) and prevalence is not None and prevalence <= fleet_prevalence_ceiling:
     return (
         "🟢 **HIGH CONFIDENCE**",
         f"Robust historical baseline (>= {high_floor} active samples, verified dispersion, low fleet prevalence <= {fleet_prevalence_ceiling}).",
     )
-  elif active_samples >= high_floor and obs >= 25 and disp >= 5.0 and prevalence is None:
+  elif active_samples >= high_floor and obs >= 25 and (is_inverted_disp or disp >= 5.0) and prevalence is None:
     return (
         "🟡 **MODERATE CONFIDENCE**",
         "Robust historical baseline, but fleet prevalence was not computed; HIGH requires verified low fleet prevalence.",
@@ -1952,6 +1953,7 @@ def evaluate_confidence_tier(
 
 PRIMARY_SCORE_KEYS = [
     "hod_z_score",
+    "burst_z",
     "hurdle_anomaly_score",
     "hurdle_threat_score",
     "threat_distance",
@@ -3323,6 +3325,7 @@ class MultiStageTemplateRouter:
       hod_scoring_start_epoch: Optional[int] = None,
       hod_scoring_end_epoch: Optional[int] = None,
       baseline_days: Optional[int] = None,
+      token_field: Optional[str] = None,
   ) -> str:
     tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
     arch_norm = _normalize_archetype_token(archetype)
@@ -3522,6 +3525,8 @@ class MultiStageTemplateRouter:
       resolved_hod_end = int(hod_scoring_end_epoch) if hod_scoring_end_epoch is not None else 9999999999
       resolved_baseline_days = int(baseline_days) if baseline_days is not None else max(1, int(round(((eff_window_hours or 168.0) - 24.0) / 24.0)))
 
+    resolved_token_field = str(token_field).strip() if token_field and str(token_field).strip() else "principal.process.command_line"
+
     event_filter_str = str(event_filter).strip() if event_filter is not None else ""
 
     # Substitutions
@@ -3551,6 +3556,7 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{total_window_buckets}}", str(resolved_total_buckets))
     rendered = rendered.replace("{{daily_aggregation}}", daily_aggregation)
     rendered = rendered.replace("{{sample_field}}", sample_field)
+    rendered = rendered.replace("{{token_field}}", resolved_token_field)
 
     # Threshold substitutions
     for k, v in thresh.items():
@@ -4272,6 +4278,10 @@ def main():
       "--event_type",
       help="Override UDM event_type for query builder (e.g. PROCESS_LAUNCH, USER_LOGIN, NETWORK_CONNECTION)",
   )
+  parser.add_argument(
+      "--token_field",
+      help="Override token UDM field for long-string screen (default: principal.process.command_line)",
+  )
 
   args = parser.parse_args()
 
@@ -4304,6 +4314,7 @@ def main():
           entity_type=args.entity_type,
           event_type=args.event_type,
           window_hours=args.window_hours,
+          token_field=args.token_field,
       )
       print(q)
       sys.exit(0)

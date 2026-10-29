@@ -132,13 +132,13 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 14. Shannon Character-Class Information Density & Entropy
-* **Goal**: Detect obfuscated, randomized command lines, base64 payloads, and algorithmic DGA domains.
+## 14. Long-String & Rare-Token Candidate Screen (`SHANNON_ENTROPY_CHARACTER` — long-string screen)
+* **Goal**: Screen unusually long and rare command lines (`principal.process.command_line`), URLs, or DNS query names (`{{token_field}}`) in stateless YARA-L (`D6 G5`; true per-character Shannon entropy runs in the vetted Python helper `WS6-03`).
 * **Formula**:
-  $$\text{Score} = \ln(\text{Length}) \times \text{LengthFactor}$$
-* **Guards**: Enforces minimum token length ($L \ge 25$) to prevent false alarms on brief command flags.
+  $$\text{Score} = \ln(\text{Length}) + \ln\left(1.0 + \frac{N_{\text{entity}}}{N_{\text{token}}}\right)$$
+* **Guards**: Enforces minimum token length ($L \ge 25$ in `BALANCED`) on parameterized `{{token_field}}`.
 * **Interpretation**:
-  - Natural language commands exhibit high redundancy and low character entropy; encoded scripts and DGA tokens exhibit collapsed compression redundancy.
+  - Suppresses short repetitive command flags while surfacing long, low-frequency obfuscated command lines and rare DGA query strings for character-entropy inspection.
 
 ---
 
@@ -152,11 +152,11 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 16. Intraday Exponentially Weighted Moving Average (EWMA) Velocity
-* **Goal**: Detect sudden acute rate acceleration diverging from an exponentially smoothed trailing trajectory without lagging behind abrupt shifts.
-* **Formula**:
-  $$S_t = \alpha \cdot x_t + (1 - \alpha) \cdot S_{t-1}, \quad \Delta_{\text{velocity}} = x_t - S_t, \quad V = \frac{\Delta_{\text{velocity}}}{\sigma}$$
-* **Where**: $\alpha = 0.30$ provides rapid kinetic response to burst surges while anchoring to the trailing hourly baseline.
+## 16. Leave-One-Out Intraday Burst Z (`EWMA_BURST_VELOCITY` — burst Z) & Flow-Gap Ratio (`C2_BEACONING_JITTER` — flow-gap ratio)
+* **Goal**: Provide honest stateless in-query YARA-L screens (`D6 G5`) where recursive lag EWMA (`WS6-02`) and consecutive inter-arrival jitter (`WS6-04`) require vetted Python helpers.
+* **Formulas**:
+  $$\text{Burst } Z = \frac{x_t - \mu_{-t}}{\max\left(s_{-t}, \sqrt{\max(\mu_{-t}, 1.0)}\right)}, \quad \text{Flow-Gap Ratio CV} = \frac{s_{\text{gap}}}{\max(\mu_{\text{gap}}, 1.0)}$$
+* **Where**: `burst Z` excludes the scored bucket ($n - 1$) with a continuous Poisson floor, and `flow-gap ratio` excludes RFC 1918, multicast (`224.0.0.0/4`, `ff00::/8`), broadcast (`255.255.255.255/32`), and link-local (`169.254.0.0/16`, `fe80::/10`) traffic.
 
 ---
 
@@ -263,9 +263,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `ELEPHANT_FLOW_CONCENTRATION` | **CONSERVATIVE** | `max_diversity_z=-2.5`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
 | `ELEPHANT_FLOW_CONCENTRATION` | **BALANCED** | `max_diversity_z=-1.5`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
 | `ELEPHANT_FLOW_CONCENTRATION` | **AGGRESSIVE** | `max_diversity_z=-1.0`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
-| `EWMA_BURST_VELOCITY` | **CONSERVATIVE** | `velocity_threshold=3.0`, `min_count=50`, `min_sd=5.0`, `min_active_samples=60` |
-| `EWMA_BURST_VELOCITY` | **BALANCED** | `velocity_threshold=2.0`, `min_count=25`, `min_sd=2.0`, `min_active_samples=30` |
-| `EWMA_BURST_VELOCITY` | **AGGRESSIVE** | `velocity_threshold=1.5`, `min_count=10`, `min_sd=1.0`, `min_active_samples=14` |
+| `EWMA_BURST_VELOCITY` | **CONSERVATIVE** | `velocity_threshold=4.0`, `min_count=50`, `min_sd=5.0`, `min_active_samples=60` |
+| `EWMA_BURST_VELOCITY` | **BALANCED** | `velocity_threshold=3.0`, `min_count=25`, `min_sd=2.0`, `min_active_samples=30` |
+| `EWMA_BURST_VELOCITY` | **AGGRESSIVE** | `velocity_threshold=2.0`, `min_count=10`, `min_sd=1.0`, `min_active_samples=14` |
 | `FLEET_PEER_ZSCORE` | **CONSERVATIVE** | `fleet_z=3.5`, `min_host_count=50`, `min_fleet_sd=10.0`, `min_active_hosts=25` |
 | `FLEET_PEER_ZSCORE` | **BALANCED** | `fleet_z=2.5`, `min_host_count=25`, `min_fleet_sd=5.0`, `min_active_hosts=15` |
 | `FLEET_PEER_ZSCORE` | **AGGRESSIVE** | `fleet_z=2.0`, `min_host_count=10`, `min_fleet_sd=2.0`, `min_active_hosts=10` |
