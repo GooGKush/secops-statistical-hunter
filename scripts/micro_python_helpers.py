@@ -43,6 +43,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import statistics
 import subprocess
 import sys
@@ -328,6 +329,29 @@ def _epoch_to_iso_utc(epoch: int) -> str:
   return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _extract_pivot_fields_from_query(
+    query_text: Optional[str],
+    *,
+    default_entity_field: str = "principal.hostname",
+    default_event_type: str = "PROCESS_LAUNCH",
+) -> Tuple[str, str]:
+  """Extracts (entity_field, event_type) from YARA-L query_text with safe defaults."""
+  if not query_text:
+    return default_entity_field, default_event_type
+
+  ev_match = re.search(r'metadata\.event_type\s*=\s*"([^"]+)"', query_text)
+  event_type = ev_match.group(1).strip() if ev_match else default_event_type
+
+  ent_match = (
+      re.search(r"\b([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)\s*=\s*\$entity\b", query_text)
+      or re.search(r"\$entity\s*=\s*([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)\b", query_text)
+      or re.search(r"strings\.coalesce\(\s*([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)[^)]*\)\s*=\s*\$entity\b", query_text)
+      or re.search(r"\$entity\s*=\s*strings\.coalesce\(\s*([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)[^)]*\)", query_text)
+  )
+  entity_field = ent_match.group(1).strip() if ent_match else default_entity_field
+  return entity_field, event_type
+
+
 def _severity_badge_from_cri(cri: Optional[int], z_equiv: Optional[float], *, show_sigma: bool = True, raw_display: str = "") -> Tuple[str, str]:
   code, label, emoji = uc.get_cri_band_info(cri)
   cri_fmt, _ = uc.get_cri_badge(cri)
@@ -336,7 +360,7 @@ def _severity_badge_from_cri(cri: Optional[int], z_equiv: Optional[float], *, sh
   if raw_display:
     sev = f"{sev} (`{raw_display}`)"
   elif show_sigma and z_equiv is not None:
-    sev = f"{sev} (`+{z_equiv:.2f}σ`)"
+    sev = f"{sev} (`{z_equiv:+.2f}σ`)"
   return sev, cri_fmt
 
 
@@ -622,6 +646,20 @@ def run_ewma_helper(
     active_total = sum(1 for v in series if v > 0.0)
     peak_iso = _epoch_to_iso_utc(start_epoch + peak_idx * int(bucket_seconds))
 
+    is_outlier = peak_ewma_z >= float(control_l)
+    if is_outlier:
+      ewma_narrative = (
+          f"Entity `{ent}` sustained an elevated post-baseline trajectory reaching `EWMA = {peak_ewma_val:.2f}` "
+          f"at `{peak_iso}`, breaching the Roberts/Lucas-Saccucci control limit `UCL = {ucl:.2f}` "
+          f"(`ewma_z = {peak_ewma_z:+.2f}σ`, peak single-bucket Z `{max_single_z:+.2f}σ`, `CRI = {cri_val}`)."
+      )
+    else:
+      ewma_narrative = (
+          f"Entity `{ent}` remained within the Roberts/Lucas-Saccucci control limit `UCL = {ucl:.2f}`, "
+          f"reaching peak `EWMA = {peak_ewma_val:.2f}` at `{peak_iso}` "
+          f"(`ewma_z = {peak_ewma_z:+.2f}σ`, peak single-bucket Z `{max_single_z:+.2f}σ`, `CRI = {cri_val}`)."
+      )
+
     rec = {
         "entity": ent,
         "display_entity": ent,
@@ -644,12 +682,8 @@ def run_ewma_helper(
         "distinct_binaries": per_entity_procs.get(ent, 1),
         "observed_display": f"EWMA={peak_ewma_val:.2f} (obs={int(round(peak_obs))})",
         "baseline_display": f"{mu_0:.2f} ± {sigma_0:.2f} (UCL={ucl:.2f})",
-        "score_display": f"+{peak_ewma_z:.2f}σ EWMA",
-        "narrative": (
-            f"Entity `{ent}` sustained an elevated post-baseline trajectory reaching `EWMA = {peak_ewma_val:.2f}` "
-            f"at `{peak_iso}`, breaching the Roberts/Lucas-Saccucci control limit `UCL = {ucl:.2f}` "
-            f"(`ewma_z = +{peak_ewma_z:.2f}σ`, peak single-bucket Z `+{max_single_z:.2f}σ`, `CRI = {cri_val}`)."
-        ),
+        "score_display": f"{peak_ewma_z:+.2f}σ EWMA",
+        "narrative": ewma_narrative,
     }
     entity_results.append(rec)
 
@@ -662,6 +696,7 @@ def run_ewma_helper(
   env_mu = f"{statistics.mean([r['baseline_mean'] for r in entity_results]):.2f}" if entity_results else "0.00"
   env_sd = f"{statistics.mean([r['baseline_dispersion'] for r in entity_results]):.2f}" if entity_results else "0.00"
   top_ent = outliers[0]["entity"] if outliers else "<entity>"
+  pivot_entity_field, pivot_event_type = _extract_pivot_fields_from_query(query_text)
   report_md = _render_5section_helper_report(
       hunt_topic=hunt_topic,
       model_title=f"Exponentially Weighted Moving Average Control Chart (λ={lambda_weight}, L={control_l})",
@@ -674,7 +709,7 @@ def run_ewma_helper(
       entity_universe_size=len(entity_results),
       envelope_mu_str=env_mu,
       envelope_sigma_str=env_sd,
-      pivot_filter=f'principal.hostname = "{top_ent}" AND metadata.event_type = "PROCESS_LAUNCH"',
+      pivot_filter=f'{pivot_entity_field} = "{top_ent}" AND metadata.event_type = "{pivot_event_type}"',
       query_text=query_text,
       provenance=provenance,
       warnings=[],
@@ -857,6 +892,13 @@ def run_shannon_helper(
     cri_val = uc.cri_from_model_score("shannon_z", shannon_z, threshold_override=float(z_threshold))
     preview_tok = cand["token"] if len(cand["token"]) <= 48 else cand["token"][:45] + "..."
 
+    is_shannon_outlier = shannon_z >= float(z_threshold)
+    threshold_clause = (
+        f"exceeding the `{z_threshold:.2f}σ` threshold against"
+        if is_shannon_outlier
+        else f"within the `{z_threshold:.2f}σ` threshold against"
+    )
+
     candidate_results.append({
         "entity": cand["entity"],
         "sample_entities": cand["entities"],
@@ -880,11 +922,11 @@ def run_shannon_helper(
         "distinct_binaries": cand["distinct_binaries"],
         "observed_display": f"{cand['entropy_bits']:.2f} bits/ch (len={tok_len})",
         "baseline_display": f"{mean_h:.2f} ± {eff_sd:.2f} bits/ch",
-        "score_display": f"+{shannon_z:.2f}σ H",
+        "score_display": f"{shannon_z:+.2f}σ H",
         "narrative": (
             f"Rare string on `{cand['entity']}` (`host_prevalence = {cand['host_prevalence']}`, length `{tok_len}`) "
-            f"measured `{cand['entropy_bits']:.2f}` bits/char versus `{mean_h:.2f} ± {eff_sd:.2f}` bits/char "
-            f"across `{len(cohort)}` `{cohort_mode}` benign reference strings (`shannon_z = +{shannon_z:.2f}σ`, `CRI = {cri_val}`)."
+            f"measured `{cand['entropy_bits']:.2f}` bits/char, {threshold_clause} `{mean_h:.2f} ± {eff_sd:.2f}` bits/char "
+            f"across `{len(cohort)}` `{cohort_mode}` benign reference strings (`shannon_z = {shannon_z:+.2f}σ`, `CRI = {cri_val}`)."
         ),
     })
 
@@ -904,6 +946,7 @@ def run_shannon_helper(
       else "0.00 bits/ch"
   )
   top_ent = outliers[0]["entity"] if outliers else "<entity>"
+  pivot_entity_field, pivot_event_type = _extract_pivot_fields_from_query(query_text)
   report_md = _render_5section_helper_report(
       hunt_topic=hunt_topic,
       model_title="Length-Normalized Per-Character Shannon Entropy (H bits/char)",
@@ -915,7 +958,7 @@ def run_shannon_helper(
       entity_universe_size=max(1, len(candidate_results)),
       envelope_mu_str=env_mu,
       envelope_sigma_str=env_sd,
-      pivot_filter=f'principal.hostname = "{top_ent}" AND metadata.event_type = "PROCESS_LAUNCH"',
+      pivot_filter=f'{pivot_entity_field} = "{top_ent}" AND metadata.event_type = "{pivot_event_type}"',
       query_text=query_text,
       provenance=provenance,
       warnings=warnings,
@@ -1068,6 +1111,20 @@ def run_c2_jitter_helper(
       capped_pairs.append(f"{src_ip} -> {dst_ip}")
 
     cap_note = " (⚠️ array_distinct 25-element bucket cap hit)" if info["cap_hit"] else ""
+    is_c2_outlier = cv <= float(max_cv)
+    if is_c2_outlier:
+      c2_narrative = (
+          f"External pair `{src_ip} -> {dst_ip}` exhibited clockwork callback regularity across `{m_int}` "
+          f"consecutive intervals (`Δt = {mean_dt:.1f}s ± {sd_dt:.1f}s`, `CV = {cv:.3f} <= {max_cv:.2f}`, "
+          f"`{frac_near_med * 100:.0f}%` within ±{int(tol * 100)}% of median `{med_dt:.1f}s`, `CRI = {cri_val}`){cap_note}."
+      )
+    else:
+      c2_narrative = (
+          f"External pair `{src_ip} -> {dst_ip}` remained irregular across `{m_int}` "
+          f"consecutive intervals (`Δt = {mean_dt:.1f}s ± {sd_dt:.1f}s`, `CV = {cv:.3f} > {max_cv:.2f}`, "
+          f"`{frac_near_med * 100:.0f}%` within ±{int(tol * 100)}% of median `{med_dt:.1f}s`, `CRI = {cri_val}`){cap_note}."
+      )
+
     pair_results.append({
         "src_ip": src_ip,
         "dst_ip": dst_ip,
@@ -1096,11 +1153,7 @@ def run_c2_jitter_helper(
         "observed_display": f"CV={cv:.3f} (periodicity={periodicity_score:.2f})",
         "baseline_display": f"Δt={mean_dt:.1f}s ± {sd_dt:.1f}s",
         "score_display": f"CV={cv:.3f}",
-        "narrative": (
-            f"External pair `{src_ip} -> {dst_ip}` exhibited clockwork callback regularity across `{m_int}` "
-            f"consecutive intervals (`Δt = {mean_dt:.1f}s ± {sd_dt:.1f}s`, `CV = {cv:.3f} <= {max_cv:.2f}`, "
-            f"`{frac_near_med * 100:.0f}%` within ±{int(tol * 100)}% of median `{med_dt:.1f}s`, `CRI = {cri_val}`){cap_note}."
-        ),
+        "narrative": c2_narrative,
     })
 
   if capped_pairs:
@@ -1114,13 +1167,14 @@ def run_c2_jitter_helper(
 
   env_mu = f"{statistics.mean([p['mean_delta_seconds'] for p in pair_results]):.1f}s" if pair_results else "0.0s"
   env_sd = f"{statistics.mean([p['sd_delta_seconds'] for p in pair_results]):.1f}s" if pair_results else "0.0s"
+  _, c2_event_type = _extract_pivot_fields_from_query(query_text, default_event_type="NETWORK_CONNECTION")
   if outliers:
     pivot = (
         f'principal.ip = "{outliers[0]["src_ip"]}" AND target.ip = "{outliers[0]["dst_ip"]}" '
-        'AND metadata.event_type = "NETWORK_CONNECTION"'
+        f'AND metadata.event_type = "{c2_event_type}"'
     )
   else:
-    pivot = 'metadata.event_type = "NETWORK_CONNECTION"'
+    pivot = f'metadata.event_type = "{c2_event_type}"'
 
   report_md = _render_5section_helper_report(
       hunt_topic=hunt_topic,
