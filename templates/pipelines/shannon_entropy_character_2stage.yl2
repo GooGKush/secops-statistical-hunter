@@ -1,33 +1,19 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Screen unusually long and rare command lines or domain strings (long-string screen).
+// Goal: Extract ungated candidate and benign strings on {{token_field}} with fleet prevalence for length-normalized Shannon entropy scoring (WS6-03).
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Long-String & Rare-Token Candidate Screen (long-string screen — stateless YARA-L candidate filter; true per-character Shannon entropy requires vetted Python helper WS6-03)
+// Statistical Model: Length-Normalized Per-Character Shannon Entropy (SHANNON_ENTROPY_CHARACTER — paired with scripts/micro_python_helpers.py shannon; stateless fallback: LONG_STRING_SCREEN)
 // Mathematical Rationale:
-//   - Honest D6 G5 In-Query Screen: YARA-L 2.0 has no per-character iteration primitive (PF-5).
-//     This pipeline screens candidate strings on {{token_field}} using log-length plus within-entity
-//     token rarity: score = ln(length) + ln(1 + total_events / token_count).
-//   - Parameterized Token Field: Inspects {{token_field}} (default principal.process.command_line;
-//     overridable to network.dns.questions.name, target.url, etc.) with minimum length >= {{min_length}}.
-// Sensitivity Boundary: {{tier}} (Long-String Screen Score >= {{entropy_threshold}}, Min String Length >= {{min_length}}, Token Field = {{token_field}})
+//   - Ungated Token & Prevalence Extractor (D6 / WS6-03): Emits strings of length >= {{min_length}} across
+//     both rare candidates (host_prevalence <= 2) and multi-host benign reference strings (host_prevalence >= 3)
+//     together with array_distinct($entity) sample hosts.
+//   - Vetted Python Helper (scripts/micro_python_helpers.py shannon): Computes exact H(s) = -Σ p(c)·log2 p(c)
+//     bits/char and standardizes each rare candidate against length-matched [0.65·L, 1.5·L] benign strings.
+// Sensitivity Boundary: {{tier}} (Min String Length >= {{min_length}}, Token Field = {{token_field}})
 // ============================================================================
 
-// Stage 1: Entity Bucket Event Volume
-stage entity_baseline {
-    metadata.event_type = "{{event_type}}"
-    {{entity_field}} = $entity
-    $entity != ""
-    {{event_filter}}
-
-  match:
-    $entity by {{bucket_size}}
-
-  outcome:
-    $total_events = count(metadata.id)
-}
-
-// Stage 2: Target Token Extraction & String Length Observation
-stage token_observation {
+// Stage 1: Token-Level Volume, Fleet Prevalence & String Length
+stage token_stats {
     metadata.event_type = "{{event_type}}"
     {{entity_field}} = $entity
     $entity != ""
@@ -36,46 +22,46 @@ stage token_observation {
     {{event_filter}}
 
   match:
-    $entity, $token by {{bucket_size}}
+    $token
 
   outcome:
-    $token_count = count(metadata.id)
-    $token_length = max(strings.length($token))
+    $token_events = count(metadata.id)
+    $host_prevalence = count_distinct($entity)
+    $raw_length = max(strings.length($token))
+    $distinct_procs = count_distinct(target.process.file.full_path)
 }
 
-// Root Stage: Long-String & Rare-Token Candidate Scoring
-$entity = $entity_baseline.entity
-$entity = $token_observation.entity
-$token = $token_observation.token
-$ws = $entity_baseline.window_start
-$ws = $token_observation.window_start
+// Root Stage: Ungated Token Cohort & Entity Attribution via array_distinct($entity)
+metadata.event_type = "{{event_type}}"
+{{entity_field}} = $entity
+$entity != ""
+$token = {{token_field}}
+$token != ""
+{{event_filter}}
+$token = $token_stats.token
 
 match:
-  $entity, $token, $ws by {{bucket_size}}
+  $token
 
 outcome:
-  $total_activity = max($entity_baseline.total_events)
-  $token_executions = max($token_observation.token_count)
-  $raw_length = max($token_observation.token_length)
-  $safe_length = if($raw_length > 0, $raw_length, 1)
-  $safe_total = if($total_activity > 0, $total_activity, 1)
-  $safe_tok = if($token_executions > 0, $token_executions, 1)
-
-  $log_len = math.log($safe_length)
-  $rarity_lift = math.log(1.0 + (1.0 * $safe_total / $safe_tok))
-  $shannon_entropy_score = $log_len + $rarity_lift
+  $sample_entities = array_distinct($entity)
+  $token_events = max($token_stats.token_events)
+  $host_prevalence = max($token_stats.host_prevalence)
+  $raw_length = max($token_stats.raw_length)
 
   // 6 Core Evidence Pillars
-  $observation_count = $token_executions
-  $baseline_active_samples = $total_activity
-  $baseline_mean = $raw_length
-  $baseline_dispersion = $log_len
-  $fleet_prevalence = 0 - 1
-  $distinct_binaries = 1
+  $observation_count = max($token_stats.raw_length)
+  $baseline_active_samples = max($token_stats.token_events)
+  $baseline_mean = 1.0 * {{min_length}}
+  $baseline_dispersion = 1.0 * max($token_stats.token_events) / max($token_stats.host_prevalence)
+  $fleet_prevalence = max($token_stats.host_prevalence)
+  $distinct_binaries = max($token_stats.distinct_procs)
 
 condition:
   $raw_length >= {{min_length}}
-  and $shannon_entropy_score >= {{entropy_threshold}}
 
 order:
-  $shannon_entropy_score desc
+  $raw_length desc
+
+limit:
+  500

@@ -171,6 +171,11 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"poisson_z": 2.5, "min_observed": 2, "max_lambda": 3.0, "min_baseline_days": 3},
     },
     "C2_BEACONING_JITTER": {
+        "CONSERVATIVE": {"cv": 0.05, "min_conns": 25, "max_conns": 400, "prevalence": 1, "min_active_hours": 12},
+        "BALANCED": {"cv": 0.20, "min_conns": 10, "max_conns": 500, "prevalence": 2, "min_active_hours": 6},
+        "AGGRESSIVE": {"cv": 0.40, "min_conns": 6, "max_conns": 600, "prevalence": 3, "min_active_hours": 3},
+    },
+    "FLOW_GAP_RATIO_SCREEN": {
         "CONSERVATIVE": {"cv": 0.05, "min_conns": 50, "prevalence": 1, "min_active_hours": 12},
         "BALANCED": {"cv": 0.20, "min_conns": 25, "prevalence": 2, "min_active_hours": 6},
         "AGGRESSIVE": {"cv": 0.40, "min_conns": 15, "prevalence": 1, "min_active_hours": 3},
@@ -272,12 +277,22 @@ SENSITIVITY_MAP = {
         "BALANCED": {"entropy_threshold": 5.5, "min_length": 25},
         "AGGRESSIVE": {"entropy_threshold": 4.0, "min_length": 15},
     },
+    "LONG_STRING_SCREEN": {
+        "CONSERVATIVE": {"entropy_threshold": 7.0, "min_length": 40},
+        "BALANCED": {"entropy_threshold": 5.5, "min_length": 25},
+        "AGGRESSIVE": {"entropy_threshold": 4.0, "min_length": 15},
+    },
     "ZIPFIAN_PROCESS_RARITY": {
         "CONSERVATIVE": {"zipf_threshold": 4.0, "max_adopters": 1, "min_count": 2, "min_fleet_hosts": 15},
         "BALANCED": {"zipf_threshold": 2.5, "max_adopters": 2, "min_count": 1, "min_fleet_hosts": 10},
         "AGGRESSIVE": {"zipf_threshold": 1.5, "max_adopters": 3, "min_count": 1, "min_fleet_hosts": 5},
     },
     "EWMA_BURST_VELOCITY": {
+        "CONSERVATIVE": {"velocity_threshold": 4.0, "min_count": 50, "min_sd": 5.0, "min_active_samples": 60},
+        "BALANCED": {"velocity_threshold": 3.0, "min_count": 25, "min_sd": 2.0, "min_active_samples": 30},
+        "AGGRESSIVE": {"velocity_threshold": 2.0, "min_count": 10, "min_sd": 1.0, "min_active_samples": 14},
+    },
+    "BURST_Z_SCREEN": {
         "CONSERVATIVE": {"velocity_threshold": 4.0, "min_count": 50, "min_sd": 5.0, "min_active_samples": 60},
         "BALANCED": {"velocity_threshold": 3.0, "min_count": 25, "min_sd": 2.0, "min_active_samples": 30},
         "AGGRESSIVE": {"velocity_threshold": 2.0, "min_count": 10, "min_sd": 1.0, "min_active_samples": 14},
@@ -363,6 +378,9 @@ class ModelArchetype(str, Enum):
   SHANNON_ENTROPY_CHARACTER = "SHANNON_ENTROPY_CHARACTER"
   ZIPFIAN_PROCESS_RARITY = "ZIPFIAN_PROCESS_RARITY"
   EWMA_BURST_VELOCITY = "EWMA_BURST_VELOCITY"
+  BURST_Z_SCREEN = "BURST_Z_SCREEN"
+  LONG_STRING_SCREEN = "LONG_STRING_SCREEN"
+  FLOW_GAP_RATIO_SCREEN = "FLOW_GAP_RATIO_SCREEN"
   HOUR_OF_DAY_PROFILE = "HOUR_OF_DAY_PROFILE"
   PRODUCER_CONSUMER_RATIO_INVERSION = "PRODUCER_CONSUMER_RATIO_INVERSION"
   # Retired under D1 (preserved in enum per Rule 10 so callers receive a descriptive ValueError)
@@ -1948,12 +1966,54 @@ def parse_columnar_stats(stats_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
     columns.append(col_name)
     vals = []
     for item in col_entry.get("values", []):
-      val_obj = item.get("value", {})
-      if "int64Val" in val_obj:
+      val_obj = item.get("value", {}) if isinstance(item, dict) else {}
+      list_obj = (
+          (item.get("list") or item.get("listValue"))
+          if isinstance(item, dict)
+          else None
+      ) or (
+          (val_obj.get("listVal") or val_obj.get("listValue"))
+          if isinstance(val_obj, dict)
+          else None
+      )
+      if isinstance(list_obj, dict) and isinstance(list_obj.get("values"), list):
+        decoded_items = []
+        for elem in list_obj["values"]:
+          inner = elem.get("value") if isinstance(elem, dict) and isinstance(elem.get("value"), dict) else elem
+          if not isinstance(inner, dict):
+            decoded_items.append(inner)
+          elif "int64Val" in inner:
+            try:
+              decoded_items.append(int(inner["int64Val"]))
+            except (ValueError, TypeError):
+              decoded_items.append(inner["int64Val"])
+          elif "uint64Val" in inner:
+            try:
+              decoded_items.append(int(inner["uint64Val"]))
+            except (ValueError, TypeError):
+              decoded_items.append(inner["uint64Val"])
+          elif "doubleVal" in inner:
+            try:
+              decoded_items.append(float(inner["doubleVal"]))
+            except (ValueError, TypeError):
+              decoded_items.append(inner["doubleVal"])
+          elif "boolVal" in inner:
+            decoded_items.append(bool(inner["boolVal"]))
+          elif "timestampVal" in inner:
+            decoded_items.append(inner["timestampVal"])
+          elif "stringVal" in inner:
+            decoded_items.append(inner["stringVal"])
+        vals.append(decoded_items)
+      elif "int64Val" in val_obj:
         try:
           vals.append(int(val_obj["int64Val"]))
         except (ValueError, TypeError):
           vals.append(val_obj["int64Val"])
+      elif "uint64Val" in val_obj:
+        try:
+          vals.append(int(val_obj["uint64Val"]))
+        except (ValueError, TypeError):
+          vals.append(val_obj["uint64Val"])
       elif "doubleVal" in val_obj:
         try:
           vals.append(float(val_obj["doubleVal"]))
@@ -3278,6 +3338,8 @@ class MultiStageTemplateRouter:
       "CV": "c2_beaconing_jitter_2stage.yl2",
       "BEACONING": "c2_beaconing_jitter_2stage.yl2",
       "JITTER": "c2_beaconing_jitter_2stage.yl2",
+      "FLOW_GAP_RATIO_SCREEN": "flow_gap_ratio_screen_2stage.yl2",
+      "FLOW_GAP_RATIO": "flow_gap_ratio_screen_2stage.yl2",
       "DATA_EXFILTRATION_SPIKE": "mad_modified_z_4stage.yl2",
       "MAD_EXFILTRATION": "mad_modified_z_4stage.yl2",
       "MAD": "mad_modified_z_4stage.yl2",
@@ -3346,6 +3408,7 @@ class MultiStageTemplateRouter:
       "CHARACTER_ENTROPY": "shannon_entropy_character_2stage.yl2",
       "SHANNON": "shannon_entropy_character_2stage.yl2",
       "ENTROPY": "shannon_entropy_character_2stage.yl2",
+      "LONG_STRING_SCREEN": "long_string_screen_2stage.yl2",
       "ZIPFIAN_PROCESS_RARITY": "zipfian_process_rarity_2stage.yl2",
       "ZIPFIAN_RARITY": "zipfian_process_rarity_2stage.yl2",
       "ZIPFIAN_LONG_TAIL": "zipfian_process_rarity_2stage.yl2",
@@ -3356,6 +3419,8 @@ class MultiStageTemplateRouter:
       "EWMA_VELOCITY": "ewma_burst_velocity_2stage.yl2",
       "EWMA": "ewma_burst_velocity_2stage.yl2",
       "BURST_VELOCITY": "ewma_burst_velocity_2stage.yl2",
+      "BURST_Z_SCREEN": "burst_z_screen_2stage.yl2",
+      "BURST_Z": "burst_z_screen_2stage.yl2",
       "HOUR_OF_DAY_PROFILE": "hour_of_day_profile_3stage.yl2",
       "HOURLY_TEMPORAL_ZSCORE": "hour_of_day_profile_3stage.yl2",
       "CIRCADIAN_VON_MISES": "hour_of_day_profile_3stage.yl2",
@@ -3396,10 +3461,19 @@ class MultiStageTemplateRouter:
       "derived_context_domain_prevalence_3stage.yl2": "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
       "markov_2gram_transition_rarity_2stage.yl2": "MARKOV_2GRAM_TRANSITION_RARITY",
       "shannon_entropy_character_2stage.yl2": "SHANNON_ENTROPY_CHARACTER",
+      "long_string_screen_2stage.yl2": "LONG_STRING_SCREEN",
       "zipfian_process_rarity_2stage.yl2": "ZIPFIAN_PROCESS_RARITY",
       "ewma_burst_velocity_2stage.yl2": "EWMA_BURST_VELOCITY",
+      "burst_z_screen_2stage.yl2": "BURST_Z_SCREEN",
+      "flow_gap_ratio_screen_2stage.yl2": "FLOW_GAP_RATIO_SCREEN",
       "hour_of_day_profile_3stage.yl2": "HOUR_OF_DAY_PROFILE",
       "producer_consumer_ratio_inversion_2stage.yl2": "PRODUCER_CONSUMER_RATIO_INVERSION",
+  }
+
+  PYTHON_HELPER_SCREEN_ALTERNATIVES = {
+      "EWMA_BURST_VELOCITY": ("ewma", "BURST_Z_SCREEN"),
+      "SHANNON_ENTROPY_CHARACTER": ("shannon", "LONG_STRING_SCREEN"),
+      "C2_BEACONING_JITTER": ("c2-jitter", "FLOW_GAP_RATIO_SCREEN"),
   }
 
   INLINE_TEMPLATES = {
@@ -3533,6 +3607,7 @@ class MultiStageTemplateRouter:
       baseline_days: Optional[int] = None,
       token_field: Optional[str] = None,
       window_days: Optional[int] = None,
+      local_execution_available: bool = True,
   ) -> str:
     tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
     arch_norm = _normalize_archetype_token(archetype)
@@ -3553,6 +3628,14 @@ class MultiStageTemplateRouter:
         if k in arch_norm or arch_norm in k:
           canonical_key = k
           break
+
+    if not local_execution_available and canonical_key in self.PYTHON_HELPER_SCREEN_ALTERNATIVES:
+      subcmd, screen_arch = self.PYTHON_HELPER_SCREEN_ALTERNATIVES[canonical_key]
+      raise ValueError(
+          f"{canonical_key}: this model needs a client that can run local scripts "
+          f"(scripts/micro_python_helpers.py {subcmd}); use {screen_arch} for a stateless in-query screen."
+      )
+
     thresh = dict(SENSITIVITY_MAP.get(canonical_key, {}).get(tier_up, {}))
 
     if template_file == "hour_of_day_profile_3stage.yl2" and window_hours is None and not (start_time and end_time):
@@ -3561,15 +3644,20 @@ class MultiStageTemplateRouter:
       eff_window_hours = window_hours
 
     # Adaptive window calculation
-    if template_file == "hour_of_day_profile_3stage.yl2":
+    hourly_fixed_templates = (
+        "hour_of_day_profile_3stage.yl2",
+        "ewma_burst_velocity_2stage.yl2",
+        "c2_beaconing_jitter_2stage.yl2",
+    )
+    if template_file in hourly_fixed_templates:
       resolved_bucket_size = bucket_size or "1h"
     else:
       resolved_bucket_size = bucket_size or ("1d" if "iqr_tukey_skew" in template_file else "1h")
     if eff_window_hours:
       adapt = get_adaptive_window_parameters(eff_window_hours, canonical_key, tier_up)
-      if not bucket_size and template_file != "hour_of_day_profile_3stage.yl2":
+      if not bucket_size and template_file not in hourly_fixed_templates:
         resolved_bucket_size = adapt["recommended_bucket"]
-      if bucket_size or template_file == "hour_of_day_profile_3stage.yl2":
+      if bucket_size or template_file in hourly_fixed_templates:
         eff_total = compute_total_window_buckets(eff_window_hours, resolved_bucket_size)
         default_floor = (
             thresh.get("min_active_samples")
@@ -3628,7 +3716,7 @@ class MultiStageTemplateRouter:
           or "global_threat_intel" in template_file
       ) and ent_norm == "host":
         resolved_entity_field = "principal.asset.hostname"
-      elif "c2_beaconing" in template_file and ent_norm == "host":
+      elif ("c2_beaconing" in template_file or "flow_gap_ratio" in template_file) and ent_norm == "host":
         resolved_entity_field = "principal.asset.ip"
 
     if peer_sample_field:
@@ -3668,6 +3756,7 @@ class MultiStageTemplateRouter:
         event_type = "USER_LOGIN"
       elif (
           "c2_beaconing" in template_file
+          or "flow_gap_ratio" in template_file
           or "producer_consumer" in template_file
           or "hybrid_entropy_concentration" in template_file
       ):
@@ -3831,7 +3920,8 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_observed}}", str(thresh.get("min_observed", 3)))
     rendered = rendered.replace("{{max_lambda}}", str(thresh.get("max_lambda", 2.0)))
     rendered = rendered.replace("{{cv}}", str(thresh.get("cv", 0.20)))
-    rendered = rendered.replace("{{min_conns}}", str(thresh.get("min_conns", 25)))
+    rendered = rendered.replace("{{min_conns}}", str(thresh.get("min_conns", 10)))
+    rendered = rendered.replace("{{max_conns}}", str(thresh.get("max_conns", 500)))
     rendered = rendered.replace("{{prevalence}}", str(thresh.get("prevalence", 2)))
     rendered = rendered.replace("{{m_z}}", str(thresh.get("m_z", 3.5)))
     rendered = rendered.replace("{{fence_z}}", str(thresh.get("fence_z", 3.5)))
@@ -4084,6 +4174,11 @@ class HandoffEndpoint:
       "PRODUCER_CONSUMER_RATIO_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
       "PRODUCER_CONSUMER_ROLE_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
       "BYTE_RATIO_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
+      "BURST_Z_SCREEN": "BURST_Z_SCREEN",
+      "BURST_Z": "BURST_Z_SCREEN",
+      "LONG_STRING_SCREEN": "LONG_STRING_SCREEN",
+      "FLOW_GAP_RATIO_SCREEN": "FLOW_GAP_RATIO_SCREEN",
+      "FLOW_GAP_RATIO": "FLOW_GAP_RATIO_SCREEN",
       "OFF_HOURS_BURST": "POISSON_BURST_CLUSTERING",
       "AFTER_HOURS_ACTIVITY": "POISSON_BURST_CLUSTERING",
   }
@@ -4220,12 +4315,14 @@ class HandoffEndpoint:
       raw_tier = model_info.get("sensitivity", "BALANCED")
       tier = resolve_micro_sensitivity_tier(str(raw_tier), strict=False)
 
+    local_exec = bool(payload.get("local_execution_available", True))
     try:
       compiled_query = router.build_query(
           archetype=mapped_archetype,
           tier=tier,
           entity_type=entity_type,
           window_hours=window_hours,
+          local_execution_available=local_exec,
       )
       if validated_filters:
         filter_block = "\n".join(f"    {cf}" for cf in validated_filters)
@@ -4515,6 +4612,12 @@ def main():
       "--token_field",
       help="Override token UDM field for long-string screen (default: principal.process.command_line)",
   )
+  parser.add_argument(
+      "--no-local-scripts",
+      dest="no_local_scripts",
+      action="store_true",
+      help="D6 Guardrail G5: fail closed when an archetype requires scripts/micro_python_helpers.py.",
+  )
 
   args = parser.parse_args()
 
@@ -4548,6 +4651,7 @@ def main():
           event_type=args.event_type,
           window_hours=args.window_hours,
           token_field=args.token_field,
+          local_execution_available=not args.no_local_scripts,
       )
       print(q)
       sys.exit(0)

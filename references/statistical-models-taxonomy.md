@@ -121,13 +121,13 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 14. Long-String & Rare-Token Candidate Screen (`SHANNON_ENTROPY_CHARACTER` — long-string screen)
-* **Goal**: Screen unusually long and rare command lines (`principal.process.command_line`), URLs, or DNS query names (`{{token_field}}`) in stateless YARA-L (`D6 G5`; true per-character Shannon entropy runs in the vetted Python helper `WS6-03`).
-* **Formula**:
-  $$\text{Score} = \ln(\text{Length}) + \ln\left(1.0 + \frac{N_{\text{entity}}}{N_{\text{token}}}\right)$$
-* **Guards**: Enforces minimum token length ($L \ge 25$ in `BALANCED`) on parameterized `{{token_field}}`.
+## 14. Length-Normalized Shannon Entropy (`SHANNON_ENTROPY_CHARACTER`) & Long-String Screen (`LONG_STRING_SCREEN` — long-string screen)
+* **Goal**: Measure exact per-character Shannon entropy $H(s) = -\sum_c p(c)\log_2 p(c)$ (bits/char) on `{{token_field}}` standardized against length-matched $[0.65 L, 1.50 L]$ multi-host benign strings via `scripts/micro_python_helpers.py shannon` (`WS6-03`), while preserving `LONG_STRING_SCREEN` (`long_string_screen_2stage.yl2`) as the stateless in-query **long-string screen** (`D6 G5`).
+* **Formulas**:
+  $$Z_H = \frac{H(s) - \mu_{H,\text{benign}(L)}}{\max(\sigma_{H,\text{benign}(L)}, 0.15)}, \quad \text{ScreenScore} = \ln(\text{Length}) + \ln\left(1.0 + \frac{N_{\text{entity}}}{N_{\text{token}}}\right)$$
+* **Guards**: Enforces minimum token length ($L \ge 25$ in `BALANCED`) on parameterized `{{token_field}}`, requires $\ge 3$ benign reference strings (`INSUFFICIENT_BENIGN_LENGTH_COHORT` fail-closed), and fails closed with `"this model needs a client that can run local scripts"` when `--no-local-scripts` is set.
 * **Interpretation**:
-  - Suppresses short repetitive command flags while surfacing long, low-frequency obfuscated command lines and rare DGA query strings for character-entropy inspection.
+  - Separates genuinely random base64/encrypted/DGA strings from equally long low-entropy enterprise CLI paths.
 
 ---
 
@@ -140,11 +140,12 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 16. Leave-One-Out Intraday Burst Z (`EWMA_BURST_VELOCITY` — burst Z) & Flow-Gap Ratio (`C2_BEACONING_JITTER` — flow-gap ratio)
-* **Goal**: Provide honest stateless in-query YARA-L screens (`D6 G5`) where recursive lag EWMA (`WS6-02`) and consecutive inter-arrival jitter (`WS6-04`) require vetted Python helpers.
+## 16. Vetted Python-Helper Models (`EWMA_BURST_VELOCITY`, `C2_BEACONING_JITTER`) & Stateless Screens (`BURST_Z_SCREEN` — burst Z, `FLOW_GAP_RATIO_SCREEN` — flow-gap ratio)
+* **Goal**: Pair ungated YARA-L extractors with `scripts/micro_python_helpers.py` (`ewma`, `c2-jitter`) under `D6 G1-G5`, while preserving `BURST_Z_SCREEN` (**burst Z**) and `FLOW_GAP_RATIO_SCREEN` (**flow-gap ratio**) for clients without local script execution (`--no-local-scripts`).
 * **Formulas**:
+  $$S_t = \lambda x_t + (1-\lambda) S_{t-1}, \quad \text{UCL} = \mu_0 + L\,\sigma_0\sqrt{\frac{\lambda}{2-\lambda}}, \quad \text{CV}_{\Delta t} = \frac{\sigma_{\Delta t}}{\mu_{\Delta t}}$$
   $$\text{Burst } Z = \frac{x_t - \mu_{-t}}{\max\left(s_{-t}, \sqrt{\max(\mu_{-t}, 1.0)}\right)}, \quad \text{Flow-Gap Ratio CV} = \frac{s_{\text{gap}}}{\max(\mu_{\text{gap}}, 1.0)}$$
-* **Where**: `burst Z` excludes the scored bucket ($n - 1$) with a continuous Poisson floor, and `flow-gap ratio` excludes RFC 1918, multicast (`224.0.0.0/4`, `ff00::/8`), broadcast (`255.255.255.255/32`), and link-local (`169.254.0.0/16`, `fe80::/10`) traffic.
+* **Where**: `ewma` zero-fills missing buckets across the dense $T$-bucket grid (`PF-4`), `c2-jitter` stitches hourly `array_distinct($ts)` buckets and warns on the 25-element cap while excluding RFC 1918, loopback, multicast (`224.0.0.0/4`, `ff00::/8`), broadcast (`255.255.255.255/32`), and link-local (`169.254.0.0/16`, `fe80::/10`) traffic.
 
 ---
 
@@ -176,23 +177,26 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 20. Canonical Golden Pipeline Template Mapping (24 Templates)
+## 20. Canonical Golden Pipeline Template Mapping (27 Templates)
 
 | Pipeline Template (`.yl2`) | Canonical `SENSITIVITY_MAP` Key |
 | :--- | :--- |
 | `bayesian_gamma_shrinkage_4stage.yl2` | `BAYESIAN_GAMMA_SHRINKAGE` |
 | `beta_binomial_failure_4stage.yl2` | `BETA_BINOMIAL_FAILURE` |
+| `burst_z_screen_2stage.yl2` | `BURST_Z_SCREEN` |
 | `c2_beaconing_jitter_2stage.yl2` | `C2_BEACONING_JITTER` |
 | `derived_context_domain_prevalence_3stage.yl2` | `DERIVED_CONTEXT_DOMAIN_PREVALENCE` |
 | `derived_context_file_prevalence_3stage.yl2` | `DERIVED_CONTEXT_FILE_PREVALENCE` |
 | `derived_context_prevalence_3stage.yl2` | `DERIVED_CONTEXT_PREVALENCE` |
 | `dual_baseline_delta_z_3stage.yl2` | `DUAL_BASELINE_DELTA_Z` |
 | `ewma_burst_velocity_2stage.yl2` | `EWMA_BURST_VELOCITY` |
+| `flow_gap_ratio_screen_2stage.yl2` | `FLOW_GAP_RATIO_SCREEN` |
 | `global_threat_intel_enrichment_3stage.yl2` | `GLOBAL_THREAT_INTEL_ENRICHMENT` |
 | `hour_of_day_profile_3stage.yl2` | `HOUR_OF_DAY_PROFILE` |
 | `hybrid_entropy_concentration_2stage.yl2` | `HYBRID_ENTROPY_CONCENTRATION` |
 | `iqr_tukey_skew_fences_3stage.yl2` | `IQR_TUKEY_SKEW_FENCES` |
 | `log_normal_volume_surge_2stage.yl2` | `LOG_NORMAL_VOLUME_SURGE` |
+| `long_string_screen_2stage.yl2` | `LONG_STRING_SCREEN` |
 | `mad_modified_z_4stage.yl2` | `DATA_EXFILTRATION_SPIKE` |
 | `markov_2gram_transition_rarity_2stage.yl2` | `MARKOV_2GRAM_TRANSITION_RARITY` |
 | `multi_sector_threat_fusion_4stage.yl2` | `MULTI_SECTOR_THREAT_FUSION` |
@@ -217,9 +221,12 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `BETA_BINOMIAL_FAILURE` | **CONSERVATIVE** | `fail_z=4.0`, `posterior_fail_prob=0.65`, `min_attempts=30`, `min_fails=15`, `min_active_samples=24` |
 | `BETA_BINOMIAL_FAILURE` | **BALANCED** | `fail_z=3.0`, `posterior_fail_prob=0.5`, `min_attempts=15`, `min_fails=8`, `min_active_samples=12` |
 | `BETA_BINOMIAL_FAILURE` | **AGGRESSIVE** | `fail_z=2.0`, `posterior_fail_prob=0.35`, `min_attempts=8`, `min_fails=4`, `min_active_samples=6` |
-| `C2_BEACONING_JITTER` | **CONSERVATIVE** | `cv=0.05`, `min_conns=50`, `prevalence=1`, `min_active_hours=12` |
-| `C2_BEACONING_JITTER` | **BALANCED** | `cv=0.2`, `min_conns=25`, `prevalence=2`, `min_active_hours=6` |
-| `C2_BEACONING_JITTER` | **AGGRESSIVE** | `cv=0.4`, `min_conns=15`, `prevalence=1`, `min_active_hours=3` |
+| `BURST_Z_SCREEN` | **CONSERVATIVE** | `velocity_threshold=4.0`, `min_count=50`, `min_sd=5.0`, `min_active_samples=60` |
+| `BURST_Z_SCREEN` | **BALANCED** | `velocity_threshold=3.0`, `min_count=25`, `min_sd=2.0`, `min_active_samples=30` |
+| `BURST_Z_SCREEN` | **AGGRESSIVE** | `velocity_threshold=2.0`, `min_count=10`, `min_sd=1.0`, `min_active_samples=14` |
+| `C2_BEACONING_JITTER` | **CONSERVATIVE** | `cv=0.05`, `min_conns=25`, `max_conns=400`, `prevalence=1`, `min_active_hours=12` |
+| `C2_BEACONING_JITTER` | **BALANCED** | `cv=0.2`, `min_conns=10`, `max_conns=500`, `prevalence=2`, `min_active_hours=6` |
+| `C2_BEACONING_JITTER` | **AGGRESSIVE** | `cv=0.4`, `min_conns=6`, `max_conns=600`, `prevalence=3`, `min_active_hours=3` |
 | `CATEGORICAL_FLEET_PREVALENCE` | **CONSERVATIVE** | `max_adopters=1`, `min_events=10`, `min_active_hours=12` |
 | `CATEGORICAL_FLEET_PREVALENCE` | **BALANCED** | `max_adopters=2`, `min_events=5`, `min_active_hours=6` |
 | `CATEGORICAL_FLEET_PREVALENCE` | **AGGRESSIVE** | `max_adopters=3`, `min_events=2`, `min_active_hours=1` |
@@ -256,6 +263,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `FLEET_PEER_ZSCORE` | **CONSERVATIVE** | `fleet_z=3.5`, `min_host_count=50`, `min_fleet_sd=10.0`, `min_active_hosts=25` |
 | `FLEET_PEER_ZSCORE` | **BALANCED** | `fleet_z=2.5`, `min_host_count=25`, `min_fleet_sd=5.0`, `min_active_hosts=15` |
 | `FLEET_PEER_ZSCORE` | **AGGRESSIVE** | `fleet_z=2.0`, `min_host_count=10`, `min_fleet_sd=2.0`, `min_active_hosts=10` |
+| `FLOW_GAP_RATIO_SCREEN` | **CONSERVATIVE** | `cv=0.05`, `min_conns=50`, `prevalence=1`, `min_active_hours=12` |
+| `FLOW_GAP_RATIO_SCREEN` | **BALANCED** | `cv=0.2`, `min_conns=25`, `prevalence=2`, `min_active_hours=6` |
+| `FLOW_GAP_RATIO_SCREEN` | **AGGRESSIVE** | `cv=0.4`, `min_conns=15`, `prevalence=1`, `min_active_hours=3` |
 | `GLOBAL_THREAT_INTEL` | **CONSERVATIVE** | `threat_score=4.0`, `min_obs_bytes=1000000.0`, `min_active_hours=24`, `nrd_multiplier=2.5` |
 | `GLOBAL_THREAT_INTEL` | **BALANCED** | `threat_score=3.0`, `min_obs_bytes=100000.0`, `min_active_hours=12`, `nrd_multiplier=2.5` |
 | `GLOBAL_THREAT_INTEL` | **AGGRESSIVE** | `threat_score=2.0`, `min_obs_bytes=10000.0`, `min_active_hours=6`, `nrd_multiplier=2.0` |
@@ -280,6 +290,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `LOG_NORMAL_VOLUME_SURGE` | **CONSERVATIVE** | `z_score=3.5`, `min_bytes=100000000.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `LOG_NORMAL_VOLUME_SURGE` | **BALANCED** | `z_score=2.5`, `min_bytes=10000000.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `LOG_NORMAL_VOLUME_SURGE` | **AGGRESSIVE** | `z_score=1.8`, `min_bytes=1000000.0`, `min_sd=0.2`, `min_active_samples=3` |
+| `LONG_STRING_SCREEN` | **CONSERVATIVE** | `entropy_threshold=7.0`, `min_length=40` |
+| `LONG_STRING_SCREEN` | **BALANCED** | `entropy_threshold=5.5`, `min_length=25` |
+| `LONG_STRING_SCREEN` | **AGGRESSIVE** | `entropy_threshold=4.0`, `min_length=15` |
 | `MARKOV_2GRAM_TRANSITION_RARITY` | **CONSERVATIVE** | `surprisal_threshold=4.2`, `min_parent_count=3`, `vocab_smooth=100.0` |
 | `MARKOV_2GRAM_TRANSITION_RARITY` | **BALANCED** | `surprisal_threshold=3.0`, `min_parent_count=1`, `vocab_smooth=100.0` |
 | `MARKOV_2GRAM_TRANSITION_RARITY` | **AGGRESSIVE** | `surprisal_threshold=2.0`, `min_parent_count=1`, `vocab_smooth=100.0` |

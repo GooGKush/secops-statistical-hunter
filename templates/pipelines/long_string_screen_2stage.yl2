@@ -1,0 +1,81 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Screen unusually long and rare command lines or domain strings (long-string screen).
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Long-String & Rare-Token Candidate Screen (LONG_STRING_SCREEN — long-string screen stateless YARA-L filter; true per-character Shannon entropy uses SHANNON_ENTROPY_CHARACTER + scripts/micro_python_helpers.py shannon)
+// Mathematical Rationale:
+//   - Honest D6 G5 In-Query Screen: YARA-L 2.0 has no per-character iteration primitive (PF-5).
+//     This pipeline screens candidate strings on {{token_field}} using log-length plus within-entity
+//     token rarity: score = ln(length) + ln(1 + total_events / token_count).
+//   - Parameterized Token Field: Inspects {{token_field}} (default principal.process.command_line;
+//     overridable to network.dns.questions.name, target.url, etc.) with minimum length >= {{min_length}}.
+// Sensitivity Boundary: {{tier}} (Long-String Screen Score >= {{entropy_threshold}}, Min String Length >= {{min_length}}, Token Field = {{token_field}})
+// ============================================================================
+
+// Stage 1: Entity Bucket Event Volume
+stage entity_baseline {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    {{event_filter}}
+
+  match:
+    $entity by {{bucket_size}}
+
+  outcome:
+    $total_events = count(metadata.id)
+}
+
+// Stage 2: Target Token Extraction & String Length Observation
+stage token_observation {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    $token = {{token_field}}
+    $token != ""
+    {{event_filter}}
+
+  match:
+    $entity, $token by {{bucket_size}}
+
+  outcome:
+    $token_count = count(metadata.id)
+    $token_length = max(strings.length($token))
+}
+
+// Root Stage: Long-String & Rare-Token Candidate Scoring
+$entity = $entity_baseline.entity
+$entity = $token_observation.entity
+$token = $token_observation.token
+$ws = $entity_baseline.window_start
+$ws = $token_observation.window_start
+
+match:
+  $entity, $token, $ws by {{bucket_size}}
+
+outcome:
+  $total_activity = max($entity_baseline.total_events)
+  $token_executions = max($token_observation.token_count)
+  $raw_length = max($token_observation.token_length)
+  $safe_length = if($raw_length > 0, $raw_length, 1)
+  $safe_total = if($total_activity > 0, $total_activity, 1)
+  $safe_tok = if($token_executions > 0, $token_executions, 1)
+
+  $log_len = math.log($safe_length)
+  $rarity_lift = math.log(1.0 + (1.0 * $safe_total / $safe_tok))
+  $shannon_entropy_score = $log_len + $rarity_lift
+
+  // 6 Core Evidence Pillars
+  $observation_count = $token_executions
+  $baseline_active_samples = $total_activity
+  $baseline_mean = $raw_length
+  $baseline_dispersion = $log_len
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = 1
+
+condition:
+  $raw_length >= {{min_length}}
+  and $shannon_entropy_score >= {{entropy_threshold}}
+
+order:
+  $shannon_entropy_score desc

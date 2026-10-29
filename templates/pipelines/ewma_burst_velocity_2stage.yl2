@@ -1,19 +1,19 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect acute intraday rate bursts using Leave-One-Out Burst Z (burst Z in-query screen).
+// Goal: Extract ungated bucketed event series per qualifying entity for true recursive EWMA control-chart scoring (WS6-02).
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Leave-One-Out Intraday Burst Z (burst Z — stateless in-query screen; true recursive lag EWMA requires vetted Python helper WS6-02)
+// Statistical Model: Exponentially Weighted Moving Average Control Chart (EWMA_BURST_VELOCITY — paired with scripts/micro_python_helpers.py ewma; stateless fallback: BURST_Z_SCREEN)
 // Mathematical Rationale:
-//   - Honest D6 G5 In-Query Screen: Stateless YARA-L buckets have no lag recursion across rows (PF-5).
-//     This pipeline scores each bucket out-of-sample via Leave-One-Out Burst Z:
-//     burst_z = (x_t - μ_{-t}) / max(s_{-t}, sqrt(max(μ_{-t}, 1.0))).
-//   - Small-Sample & Steady-Host Protection: Enforces prior active sample floor (>= {{min_active_samples}}),
-//     observation floor (>= {{min_count}}), and a continuous Poisson SD floor sqrt(max(μ_{-t}, 1.0)).
-// Sensitivity Boundary: {{tier}} (Burst Z >= {{velocity_threshold}}, Min Count >= {{min_count}}, Min Prior Active Samples >= {{min_active_samples}})
+//   - Two-Stage Extractor (D6 / WS6-02): YARA-L emits compact ungated (entity, ws, window_events) rows
+//     for entities meeting baseline maturity (>= {{min_active_samples}} active buckets and >= {{min_count}} total events)
+//     without per-bucket Z gating, so sustained moderate +1.5σ..+2.0σ rate shifts are preserved.
+//   - Vetted Python Helper (scripts/micro_python_helpers.py ewma): Zero-fills missing buckets onto the
+//     dense T-bucket grid and evaluates S_t = λ·x_t + (1-λ)·S_{t-1} against UCL = μ_0 + L·σ_0·sqrt(λ/(2-λ)).
+// Sensitivity Boundary: {{tier}} (Min Active Buckets >= {{min_active_samples}}, Min Total Events >= {{min_count}})
 // ============================================================================
 
-// Stage 1: Bucketed Entity Activity, Squared Volume & Process Diversity
-stage entity_baseline {
+// Stage 1: Bucketed Entity Volume & Distinct Binary Diversity
+stage entity_hourly {
     metadata.event_type = "{{event_type}}"
     {{entity_field}} = $entity
     $entity != ""
@@ -24,54 +24,65 @@ stage entity_baseline {
 
   outcome:
     $window_events = count(metadata.id)
-    $window_events_sq = 1.0 * count(metadata.id) * count(metadata.id)
     $distinct_procs = count_distinct(target.process.file.full_path)
 }
 
-// Stage 2: Whole-Window Sufficient Statistics per Entity
-stage entity_historical_stats {
-    $entity = $entity_baseline.entity
+// Stage 2: Ungated Entity Maturity & Volume Prefilter
+stage entity_prefilter {
+    $entity = $entity_hourly.entity
 
   match:
     $entity
 
   outcome:
-    $sum_x = sum($entity_baseline.window_events)
-    $sum_x2 = sum($entity_baseline.window_events_sq)
-    $active_windows = count($entity_baseline.window_start)
+    $active_hours = count($entity_hourly.window_start)
+    $peak_events = max($entity_hourly.window_events)
+    $total_events = sum($entity_hourly.window_events)
+    $hourly_mean = avg($entity_hourly.window_events)
+    $hourly_sd = stddev($entity_hourly.window_events)
 }
 
-// Root Stage: Leave-One-Out Burst Z Scoring
-$entity = $entity_baseline.entity
-$entity = $entity_historical_stats.entity
-$ws = $entity_baseline.window_start
+// Stage 3: Concurrent Active Fleet Breadth per Bucket
+stage fleet_breadth {
+    $entity = $entity_hourly.entity
+    $ws = $entity_hourly.window_start
+
+  match:
+    $ws by {{bucket_size}}
+
+  outcome:
+    $active_peers = count_distinct($entity_hourly.entity)
+}
+
+// Root Stage: Ungated Bucketed Series Emission with 6 Forensic Evidence Pillars
+$entity = $entity_hourly.entity
+$entity = $entity_prefilter.entity
+$ws = $entity_hourly.window_start
+$ws = $fleet_breadth.ws
 
 match:
   $entity, $ws by {{bucket_size}}
 
 outcome:
-  $observation_count = max($entity_baseline.window_events)
-  $baseline_active_samples = max($entity_historical_stats.active_windows) - 1
-  $safe_n_prior = if($baseline_active_samples > 1, $baseline_active_samples, 1)
-  $loo_sum = max($entity_historical_stats.sum_x) - $observation_count
-  $baseline_mean = 1.0 * $loo_sum / $safe_n_prior
-  $df = $baseline_active_samples - 1
-  $safe_df = if($df > 1, $df, 1)
-  $raw_ss = (max($entity_historical_stats.sum_x2) - (1.0 * $observation_count * $observation_count)) - ((1.0 * $loo_sum * $loo_sum) / $safe_n_prior)
-  $pos_ss = if($raw_ss > 0.0, $raw_ss, 0.0)
-  $loo_sd = math.sqrt($pos_ss / $safe_df)
-  $floor_arg = if($baseline_mean > 1.0, $baseline_mean, 1.0)
-  $poisson_floor = math.sqrt($floor_arg)
-  $baseline_dispersion = if($loo_sd > $poisson_floor, $loo_sd, $poisson_floor)
-  $burst_z = ($observation_count - $baseline_mean) / $baseline_dispersion
-  $velocity_score = $burst_z
-  $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($entity_baseline.distinct_procs)
+  $window_events = max($entity_hourly.window_events)
+  $active_hours = max($entity_prefilter.active_hours)
+  $peak_events = max($entity_prefilter.peak_events)
+  $total_events = max($entity_prefilter.total_events)
+
+  // 6 Core Evidence Pillars
+  $observation_count = max($entity_hourly.window_events)
+  $baseline_active_samples = max($entity_prefilter.active_hours)
+  $baseline_mean = max($entity_prefilter.hourly_mean)
+  $baseline_dispersion = max($entity_prefilter.hourly_sd)
+  $fleet_prevalence = max($fleet_breadth.active_peers)
+  $distinct_binaries = max($entity_hourly.distinct_procs)
 
 condition:
-  $baseline_active_samples >= {{min_active_samples}}
-  and $observation_count >= {{min_count}}
-  and $burst_z >= {{velocity_threshold}}
+  $active_hours >= {{min_active_samples}}
+  and $total_events >= {{min_count}}
 
 order:
-  $burst_z desc
+  $total_events desc
+
+limit:
+  1000

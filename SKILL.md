@@ -34,7 +34,7 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
 | :--- | :--- | :--- |
 | *"Password sprays pulsing in intermittent waves."* | **`POISSON_BURST_CLUSTERING`** ($F = \sigma^2 / \mu > 4.0$) | **Rainfall downpour vs. trickle**: Normal errors trickle in; sprays arrive in synchronized bursts. |
 | *"Sensitive admin commands (`vssadmin`, `whoami`) surging on quiet servers."* | **`POISSON_RARE_SURGE`** (Poisson $Z > 3.5$) | **Rarity on quiet baselines**: Improbability of $N$ events today given a near-zero arrival rate ($\lambda$). |
-| *"C2 beaconing with randomized sleep jitter."* | **`C2_BEACONING_JITTER`** (Flow-gap ratio $\text{CV} \le 0.20$) | **Flow-gap ratio screen**: In-query cross-bucket flow-gap ratio pre-screen excluding multicast/link-local (exact inter-arrival jitter via Python helper). |
+| *"C2 beaconing with randomized sleep jitter."* | **`C2_BEACONING_JITTER`** ($\text{CV}_{\Delta t} \le 0.20$) | **Machine Pulse**: `array_distinct($ts)` + `micro_python_helpers.py c2-jitter` (flow-gap ratio screen: `FLOW_GAP_RATIO_SCREEN`). |
 | *"Sudden surges on volatile hosts while ignoring noisy machines."* | **`BAYESIAN_GAMMA_SHRINKAGE`** ($Z_{\text{Bayes}} \ge 3.0\sigma$) | **The Seasoned SOC Detective**: Gamma prior + excess overdispersion shrinks bursty servers while alerting on stable hosts. |
 | *"Password spray failure bursts without chronic-error or 1/1 false alarms."* | **`BETA_BINOMIAL_FAILURE`** ($Z_{\text{fail}} \ge 3.5\sigma$) | **Entity-Adaptive Failure Regularizer**: Leave-one-out Beta-Binomial predictive Z suppresses noisy service accounts and 1/1 errors. |
 | *"Isolate endpoint spikes from company-wide Patch Tuesday rollouts."* | **`DUAL_BASELINE_DELTA_Z`** ($\Delta Z \ge 3.0\sigma$) | **The Patch Tuesday Immunity Shield**: Subtracts mature-cohort fleet shift from LOO personal surge ($\Delta Z = Z_p - \max(0, Z_f)$). |
@@ -48,9 +48,9 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
 | *"Execution bursts of rare or enterprise-unseen binaries."* | **`DERIVED_CONTEXT_FILE_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The Unprecedented Binary**: Uses `DERIVED_CONTEXT` file prevalence (`day_count = 10`, `rolling_max <= 3` and `> 0`) for a 2.5x multiplier. |
 | *"Outbound egress bursts to enterprise-unseen or rare domains."* | **`DERIVED_CONTEXT_DOMAIN_PREVALENCE`** ($Z_{\text{threat}} \ge 2.5$) | **The First-Contact Flow**: Cross-references `DERIVED_CONTEXT` domain prevalence (`day_count = 10`, `rolling_max <= 3` and `> 0`). |
 | *"Anomalous process lineages or rare parent-child executions (Word -> cmd)."* | **`MARKOV_2GRAM_TRANSITION_RARITY`** (Surprisal $I \ge 3.0$) | **The Broken Lineage Chain**: Parent-child transitions follow $P(B \mid A)$; rare adversary chains trigger high information surprisal. |
-| *"Obfuscated command lines, base64 payloads, or algorithmic DGA domains."* | **`SHANNON_ENTROPY_CHARACTER`** (Long-string screen $\ge 5.5$) | **Long-string screen**: Screens long & rare `{{token_field}}` strings in YARA-L (exact per-character Shannon entropy via Python helper). |
+| *"Obfuscated command lines, base64 payloads, or algorithmic DGA domains."* | **`SHANNON_ENTROPY_CHARACTER`** ($Z_H \ge 3.0\sigma$) | **Syntactic Entropy**: `{{token_field}}` + `micro_python_helpers.py shannon` (long-string screen: `LONG_STRING_SCREEN`). |
 | *"Rare admin utilities executing in the asymptotic fleet tail (<= 2 hosts)."* | **`ZIPFIAN_PROCESS_RARITY`** (Zipf Rarity $\ge 2.5$) | **The Long-Tail Tool**: Process execution follows a power law ($f(k) \propto 1/k^s$); stealthy utilities sit in the fleet tail. |
-| *"Acute intraday rate acceleration without lagging trailing baselines."* | **`EWMA_BURST_VELOCITY`** (Burst Z $\ge 3.0\sigma$) | **Leave-one-out burst Z**: Stateless in-query burst Z with $\sqrt{\max(\mu, 1)}$ floor (recursive lag EWMA via Python helper). |
+| *"Acute intraday rate acceleration without lagging trailing baselines."* | **`EWMA_BURST_VELOCITY`** ($\text{EWMA } Z \ge 3.0\sigma$) | **Sustained Shift**: Dense-$T$ EWMA + `micro_python_helpers.py ewma` (burst Z screen: `BURST_Z_SCREEN`). |
 | *"Off-hours or circadian out-of-profile logins/activity by hour of day."* | **`HOUR_OF_DAY_PROFILE`** ($Z_{\text{hod}} \ge 3.0\sigma$) | **The Night-Shift Impostor**: Learned 24-bin empirical circadian profile (`timestamp.get_hour`) scores hours out-of-sample with zero-inclusive variance. |
 | *"Workstations inverting directional byte ratio to become net producers."* | **`PRODUCER_CONSUMER_RATIO_INVERSION`** ($\rho \ge 0.70$, $Z \ge 2.5\sigma$) | **The Role Reversal**: Workstations consume data ($\rho < 0.20$); exfiltration flips $\rho = \text{sent}/(\text{sent}+\text{received}) \ge 0.70$. |
 
@@ -75,12 +75,12 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
    * *Expert Bypass Rule*: If target telemetry and statistical model are specified, emit the Pre-Flight Card directly.
 3. **Plain-English Operational Analogy**: Explain detection mechanics in 1–2 intuitive sentences.
 4. **Structured Pre-Flight Hunting Specification Card & Candidate Query Preview**:
-   * *Template-First Formulation Directive*: Inspect `~/.gemini/config/skills/secops-statistical-hunter/templates/pipelines/<model>.yl2` (or `references/multi-stage-query-guide.md`):
-     - **Parametric/Robust**: `zscore_process_surge_2stage.yl2`, `mad_modified_z_4stage.yl2` (`MAD_EXFILTRATION`), `iqr_tukey_skew_fences_3stage.yl2` (`IQR_TUKEY_SKEW_FENCES`), `log_normal_volume_surge_2stage.yl2`, `ewma_burst_velocity_2stage.yl2`
-     - **Poisson/Timing**: `poisson_burst_clustering_2stage.yl2`, `poisson_rare_surge_2stage.yl2` (`POISSON_ORIGIN_RARITY`), `c2_beaconing_jitter_2stage.yl2`
+   * *Template-First Formulation Directive*: Inspect `templates/pipelines/<model>.yl2` (or `references/multi-stage-query-guide.md`):
+     - **Parametric/Robust**: `zscore_process_surge_2stage.yl2`, `mad_modified_z_4stage.yl2` (`MAD_EXFILTRATION`), `iqr_tukey_skew_fences_3stage.yl2`, `log_normal_volume_surge_2stage.yl2`, `ewma_burst_velocity_2stage.yl2`, `burst_z_screen_2stage.yl2`
+     - **Poisson/Timing**: `poisson_burst_clustering_2stage.yl2`, `poisson_rare_surge_2stage.yl2` (`POISSON_ORIGIN_RARITY`), `c2_beaconing_jitter_2stage.yl2`, `flow_gap_ratio_screen_2stage.yl2`
      - **Bayesian/Fleet**: `bayesian_gamma_shrinkage_4stage.yl2`, `beta_binomial_failure_4stage.yl2`, `dual_baseline_delta_z_3stage.yl2`
      - **Multi-Sector/Hybrid**: `multi_sector_threat_fusion_4stage.yl2`, `privileged_lateral_expansion_2stage.yl2`, `two_part_hurdle_2stage.yl2`, `hybrid_entropy_concentration_2stage.yl2`, `hour_of_day_profile_3stage.yl2`, `producer_consumer_ratio_inversion_2stage.yl2`
-     - **Info-Theoretic & ECG**: `zipfian_process_rarity_2stage.yl2`, `markov_2gram_transition_rarity_2stage.yl2`, `shannon_entropy_character_2stage.yl2`, `global_threat_intel_enrichment_3stage.yl2`, `derived_context_prevalence_3stage.yl2`, `derived_context_file_prevalence_3stage.yl2`, `derived_context_domain_prevalence_3stage.yl2`
+     - **Info-Theoretic & ECG**: `zipfian_process_rarity_2stage.yl2`, `markov_2gram_transition_rarity_2stage.yl2`, `shannon_entropy_character_2stage.yl2`, `long_string_screen_2stage.yl2`, `global_threat_intel_enrichment_3stage.yl2`, `derived_context_prevalence_3stage.yl2`, `derived_context_file_prevalence_3stage.yl2`, `derived_context_domain_prevalence_3stage.yl2`
    * *Canonical Pre-Flight Specification Card Structure*:
      ```markdown
      PRE-FLIGHT HUNTING SPECIFICATION:
@@ -113,7 +113,7 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
 ### 📊 State 2: Deterministic Multi-Stage Execution & 5-Section Triage Report (After Clearance)
 
 1. **Immediate Execution Turn (Single Multi-Stage Dispatch & Zero Follow-Up Raw Dumps)**:
-   Dispatch the approved multi-stage query via `udm_search` once (Mode B 14d default for `by 1d`; Mode A 24h for `by 1h`/`by 5m`). If `{}` or `{"stats": []}` returns, stop calling tools and render the 5-Section Triage Report as a nominal baseline (`0 Outliers Detected`). Never run follow-up raw dumps or Python scripts.
+   Dispatch the approved multi-stage query via `udm_search` once (Mode B 14d default for `by 1d`; Mode A 24h for `by 1h`/`by 5m`). If `{}` or `{"stats": []}` returns, stop calling tools and render the 5-Section Triage Report as a nominal baseline (`0 Outliers Detected`). Never run follow-up raw dumps or ad-hoc scripts.
 2. **Mandatory 5-Section Triage Report Delivery (All Models & Zero-Outlier Runs)**:
    Even when a hunt returns 0 outlier rows (`{}` / `{"stats": []}`) or runs an info-theoretic model (`SHANNON_ENTROPY_CHARACTER`, `MARKOV_2GRAM_TRANSITION_RARITY`, `ZIPFIAN_PROCESS_RARITY`), Turn 2 MUST ALWAYS emit all 5 canonical sections in exact order:
 
@@ -200,8 +200,8 @@ stage host_hourly { ... }
 ### 1. Native Execution & Truth in Reporting
 * **Empirical Metric Derivation Contract**: Derive all summary numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) directly from `udm_search` outputs.
 * **Transparent Error Surfacing**: When an API query returns an error, surface the exact error response and diagnostics directly to the analyst.
-* **Tool Orchestration Protocol**: Use chat Markdown and SecOps MCP tools (`udm_search`, `import_logs`, `create_case_comment`) and `read_file` on `~/.gemini/config/skills/secops-statistical-hunter/templates/pipelines/*.yl2`. There is no blanket approval for `run_command`, only explicit exemptions.
-* **Native SIEM Engine Execution Guarantee**: Execute all multi-stage baseline aggregations, standard deviations, and thresholds natively within Google SecOps Chronicle SIEM via `udm_search`.
+* **Tool Orchestration Protocol**: Use chat Markdown, SecOps MCP tools (`udm_search`, `import_logs`, `create_case_comment`), and `read_file` on `templates/pipelines/*.yl2`. There is no blanket approval for `run_command`, only explicit exemptions. D6 exemption: `scripts/micro_python_helpers.py` (`ewma`, `shannon`, `c2-jitter`) over raw `udm_search` JSON (`G1`–`G5`: exit `2` fail-closed, SHA-256 `Provenance Appendix`; without `run_command`, state *"this model needs a client that can run local scripts"* or route to `BURST_Z_SCREEN` / `LONG_STRING_SCREEN` / `FLOW_GAP_RATIO_SCREEN`).
+* **Native SIEM Engine Execution Guarantee**: Execute multi-stage aggregations, standard deviations, and thresholds natively within Google SecOps Chronicle SIEM via `udm_search` (plus `micro_python_helpers.py` for EWMA/Shannon/C2 jitter).
 * **Pre/Post Execution Query Integrity Gate (`QueryIntegrityGate`)**: Verify zero unresolved `{{placeholders}}`, AST compliance, and aggregated `stats` buckets. Section 5 (`Statistical & Mathematical Appendix`) carries the verbatim executed multi-stage query as the ONLY ```` ```yara ```` block in Turn 2.
 * **Search Query Nomenclature**: Structure all threat hunting artifacts as ad-hoc Multi-Stage Queries (`stage ... { ... }` + Root stage); `rule ... { ... }` is reserved for detection engineering.
 
