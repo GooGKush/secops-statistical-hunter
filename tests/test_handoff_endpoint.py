@@ -47,7 +47,8 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
     self.assertEqual(res["model_routed"], "C2_BEACONING_JITTER")
     self.assertIn("stage host_intervals", res["compiled_query"])
-    self.assertIn("order:\n  $cv asc", res["compiled_query"])
+    self.assertIn("array_distinct($ts)", res["compiled_query"])
+    self.assertIn("order:\n  $total_conns desc", res["compiled_query"])
     self.assertIn("CV = sigma / mu <= 0.20", res["preflight_spec"]["formula"])
 
   def test_ingest_valid_handoff_privileged_lateral_expansion(self):

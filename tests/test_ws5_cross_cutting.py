@@ -26,7 +26,7 @@ class TestWS5RootWsBucketKey(unittest.TestCase):
     router = MultiStageTemplateRouter()
     tpl_dir = REPO_ROOT / "templates" / "pipelines"
     yl2_files = sorted(tpl_dir.glob("*.yl2"))
-    self.assertEqual(len(yl2_files), 24)
+    self.assertEqual(len(yl2_files), 27)
 
     for tpl_path in yl2_files:
       with self.subTest(template=tpl_path.name):

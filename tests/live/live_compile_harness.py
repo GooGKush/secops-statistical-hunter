@@ -508,7 +508,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
       "--mode",
       choices=("smoke", "full"),
       default="smoke",
-      help="Matrix mode: 'smoke' (24 pipelines + 13 examples) or 'full' (24x3x3 + 13).",
+      help="Matrix mode: 'smoke' (27 pipelines + 13 examples) or 'full' (27x3x3 + 13).",
   )
   parser.add_argument("--window-hours", type=float, default=1.0)
   parser.add_argument("--start-time", default=DEFAULT_START_TIME)

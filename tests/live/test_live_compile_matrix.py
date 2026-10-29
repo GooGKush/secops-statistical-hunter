@@ -41,10 +41,10 @@ class TestLiveCompileHarnessOffline(unittest.TestCase):
     pipelines = self.harness.discover_pipeline_templates()
     examples = self.harness.discover_example_files()
 
-    self.assertEqual(len(pipelines), 24)
+    self.assertEqual(len(pipelines), 27)
     self.assertEqual(len(examples), 13)
-    self.assertEqual(len({arch for arch, _ in pipelines}), 24)
-    self.assertEqual(len({fname for _, fname in pipelines}), 24)
+    self.assertEqual(len({arch for arch, _ in pipelines}), 27)
+    self.assertEqual(len({fname for _, fname in pipelines}), 27)
     self.assertTrue(all(fname.endswith(".yl2") for _, fname in pipelines))
     self.assertTrue(all(ex.name.endswith(".yara") for ex in examples))
 
@@ -55,7 +55,7 @@ class TestLiveCompileHarnessOffline(unittest.TestCase):
         window_hours=1.0,
         include_examples=True,
     )
-    expected_total = 24 * len(ENTITY_TYPES) * len(TIERS) + 13
+    expected_total = 27 * len(ENTITY_TYPES) * len(TIERS) + 13
     self.assertEqual(len(cases), expected_total)
 
     unresolved_re = re.compile(r"\{\{[a-zA-Z0-9_]+\}\}")
@@ -78,10 +78,10 @@ class TestLiveCompileHarnessOffline(unittest.TestCase):
 
   def test_smoke_matrix_covers_every_template_and_example(self) -> None:
     smoke = self.harness.build_smoke_matrix(tier="BALANCED", window_hours=1.0)
-    self.assertEqual(len(smoke), 37)
+    self.assertEqual(len(smoke), 40)
     pipeline_cases = [c for c in smoke if c.source_kind == "pipeline"]
     example_cases = [c for c in smoke if c.source_kind == "example"]
-    self.assertEqual(len(pipeline_cases), 24)
+    self.assertEqual(len(pipeline_cases), 27)
     self.assertEqual(len(example_cases), 13)
 
   def test_parse_udm_search_response_columnar_stats_and_errors(self) -> None:
@@ -174,8 +174,8 @@ class TestLiveCompileHarnessOffline(unittest.TestCase):
     self.assertTrue(all(st == DEFAULT_START_TIME and et == DEFAULT_END_TIME for st, et in calls))
 
     summary = self.harness.summarize_results(results)
-    self.assertEqual(summary["total_cases"], 37)
-    self.assertEqual(summary["compile_ok_count"], 37)
+    self.assertEqual(summary["total_cases"], 40)
+    self.assertEqual(summary["compile_ok_count"], 40)
     self.assertEqual(summary["compile_failed_count"], 0)
     self.assertEqual(summary["failed_case_ids"], [])
 
@@ -189,7 +189,7 @@ class TestLiveCompileHarnessOffline(unittest.TestCase):
       rc_export = harness_cli_main(["--mode", "smoke", "--export-manifest", str(manifest_path)])
       self.assertEqual(rc_export, 0)
       manifest_items = json.loads(manifest_path.read_text(encoding="utf-8"))
-      self.assertEqual(len(manifest_items), 37)
+      self.assertEqual(len(manifest_items), 40)
 
       synthetic_raw = [
           {
@@ -211,8 +211,8 @@ class TestLiveCompileHarnessOffline(unittest.TestCase):
       ])
       self.assertEqual(rc_import, 0)
       saved_report = json.loads(out_report_path.read_text(encoding="utf-8"))
-      self.assertEqual(saved_report["summary"]["total_cases"], 37)
-      self.assertEqual(saved_report["summary"]["compile_ok_count"], 37)
+      self.assertEqual(saved_report["summary"]["total_cases"], 40)
+      self.assertEqual(saved_report["summary"]["compile_ok_count"], 40)
 
   def test_recorded_baseline_gus_sdl_integrity(self) -> None:
     baseline_path = Path(__file__).resolve().parent / "baseline_gus_sdl.json"
