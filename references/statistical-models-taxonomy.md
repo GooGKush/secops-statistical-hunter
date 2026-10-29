@@ -303,9 +303,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `MULTI_SECTOR_THREAT_FUSION` | **CONSERVATIVE** | `threat_distance=4.0`, `min_active_samples=14`, `min_events=10` |
 | `MULTI_SECTOR_THREAT_FUSION` | **BALANCED** | `threat_distance=3.0`, `min_active_samples=7`, `min_events=5` |
 | `MULTI_SECTOR_THREAT_FUSION` | **AGGRESSIVE** | `threat_distance=2.0`, `min_active_samples=3`, `min_events=2` |
-| `POISSON_BURST_CLUSTERING` | **CONSERVATIVE** | `fano_factor=8.0`, `min_fails=30`, `min_mu=2.0`, `min_active_samples=60` |
-| `POISSON_BURST_CLUSTERING` | **BALANCED** | `fano_factor=4.0`, `min_fails=15`, `min_mu=1.0`, `min_active_samples=30` |
-| `POISSON_BURST_CLUSTERING` | **AGGRESSIVE** | `fano_factor=2.5`, `min_fails=10`, `min_mu=0.5`, `min_active_samples=15` |
+| `POISSON_BURST_CLUSTERING` | **CONSERVATIVE** | `fano_factor=8.0`, `min_fails=30`, `min_mu=0.2`, `min_active_samples=60` |
+| `POISSON_BURST_CLUSTERING` | **BALANCED** | `fano_factor=4.0`, `min_fails=15`, `min_mu=0.1`, `min_active_samples=30` |
+| `POISSON_BURST_CLUSTERING` | **AGGRESSIVE** | `fano_factor=2.5`, `min_fails=10`, `min_mu=0.05`, `min_active_samples=15` |
 | `POISSON_RARE_SURGE` | **CONSERVATIVE** | `poisson_z=5.0`, `min_observed=5`, `max_lambda=1.0`, `min_baseline_days=14` |
 | `POISSON_RARE_SURGE` | **BALANCED** | `poisson_z=3.5`, `min_observed=3`, `max_lambda=2.0`, `min_baseline_days=7` |
 | `POISSON_RARE_SURGE` | **AGGRESSIVE** | `poisson_z=2.5`, `min_observed=2`, `max_lambda=3.0`, `min_baseline_days=3` |

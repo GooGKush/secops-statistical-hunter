@@ -1,41 +1,42 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
 // Goal: Detect automated authentication spray campaigns and burst reconnaissance waves that evade volume rate limits.
-// Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
-// Statistical Model: Poisson Dispersion via Fano Factor (F = σ² / μ > 4.0) & Fleet Prevalence Filter
+// Target Telemetry: UDM_EVENTS (USER_LOGIN)
+// Statistical Model: Zero-Inclusive Poisson Dispersion via Fano Factor (F = σ² / μ >= 4.0 over T = 168 buckets) & Fleet Prevalence Filter
 // Mathematical Rationale:
 //   - Why this model: Random human login mistakes occur independently over time following a memoryless Poisson process
-//     where variance equals the mean (Fano Factor F = σ² / μ ≈ 1.0). Coordinated attack waves (e.g. password spraying,
-//     credential stuffing) arrive in synchronized, intermittent bursts across users, creating extreme over-dispersion (F >> 4.0).
-//   - Noise protection: Enforces an activity floor of >= 15 failed logins over the baseline window, a sample density floor (>= 30 active hours),
-//     and a mean rate floor (μ >= 1.0) to prevent small-sample division noise on dormant accounts.
-// Sensitivity Boundary: BALANCED (Fano Factor F >= 4.0x, Min Total Failures >= 15, Historical Mean μ >= 1.0, Active Hours >= 30)
+//     where variance equals the mean (Fano Factor F = σ² / μ ≈ 1.0). Coordinated attack waves (password spraying from a
+//     source IP via principal.ip or concentrated waves against target.user.userid) arrive in intermittent bursts separated
+//     by silent intervals, creating extreme zero-inclusive over-dispersion (μ = Σx / T, σ² = Σx² / T - μ², F >> 4.0).
+//   - Noise protection: Enforces an activity floor of >= 15 failed logins, a zero-inclusive window capacity floor
+//     (T >= 30 buckets), and a zero-inclusive rate floor (μ >= 0.1) while keeping Stage 2 purely numeric.
+// Sensitivity Boundary: BALANCED (Fano Factor F >= 4.0x, Min Total Failures >= 15, Zero-Inclusive Mean μ >= 0.1, Window Buckets T >= 30)
 // ============================================================================
 
-// Stage 1: Hourly authentication failure counts and source IP diversity per target user
+// Stage 1: Hourly authentication failure counts, squared counts, and source IP diversity per target user
 stage hourly_failures {
-    metadata.event_type = "PROCESS_LAUNCH"
+    metadata.event_type = "USER_LOGIN"
     (security_result.action = "BLOCK" or security_result.action = "FAIL")
-    principal.hostname = $entity
+    target.user.userid = $entity
     $entity != ""
 
   match:
     $entity by 1h
   outcome:
     $hourly_fails = count(metadata.id)
-    $sample_ip = array_distinct(principal.ip)
+    $hourly_fails_sq = 1.0 * count(metadata.id) * count(metadata.id)
+    $sample_peers = array_distinct(principal.ip)
 }
 
-// Stage 2: Calculate historical arrival mean (μ), standard deviation (σ), and active sample density
+// Stage 2: Purely numeric accumulation of Σx, Σx², and active non-zero bucket count (never mix array_distinct here)
 stage dispersion_baseline {
     $entity = $hourly_failures.entity
 
   match:
     $entity
   outcome:
-    $mean_rate = avg($hourly_failures.hourly_fails)
-    $stddev_rate = stddev($hourly_failures.hourly_fails)
-    $total_failures = sum($hourly_failures.hourly_fails)
+    $sum_x = sum($hourly_failures.hourly_fails)
+    $sum_x2 = sum($hourly_failures.hourly_fails_sq)
     $active_hours = count($hourly_failures.window_start)
 }
 
@@ -51,8 +52,7 @@ stage fleet_breadth {
     $fleet_users = count_distinct($hourly_failures.entity)
 }
 
-// Root Stage: Join stages, calculate Fano Factor in outcome section, and emit 6 Evidence Pillars
-// Root collapses each entity across all windows; fleet prevalence reports the peak per-window breadth.
+// Root Stage: Join stages, rebuild zero-inclusive Fano Factor over T = 168 hourly buckets, and emit 6 Evidence Pillars
 $entity = $hourly_failures.entity
 $entity = $dispersion_baseline.entity
 $ws = $hourly_failures.window_start
@@ -61,26 +61,33 @@ $ws = $fleet_breadth.ws
 match:
   $entity
 outcome:
+  $total_buckets = 168
+  $safe_buckets = if($total_buckets > 0, $total_buckets, 1.0)
+  $sum_x = max($dispersion_baseline.sum_x)
+  $sum_x2 = max($dispersion_baseline.sum_x2)
+  $zero_incl_mean = $sum_x / $safe_buckets
+  $mean_sq = $sum_x2 / $safe_buckets
+  $raw_var = $mean_sq - ($zero_incl_mean * $zero_incl_mean)
+  $zero_incl_var = if($raw_var > 0.0, $raw_var, 0.0)
+  $zero_incl_sd = math.sqrt($zero_incl_var)
+  $safe_mean = if($zero_incl_mean > 0.0, $zero_incl_mean, 1.0)
+  $raw_fano = $zero_incl_var / $safe_mean
+  $fano_factor = if($zero_incl_mean > 0.0, $raw_fano, 0.0)
+
   // 6 Core Evidence Pillars
-  $observation_count = max($dispersion_baseline.total_failures)
+  $observation_count = $sum_x
   $baseline_active_samples = max($dispersion_baseline.active_hours)
-  $baseline_mean = max($dispersion_baseline.mean_rate)
-  $baseline_dispersion = max($dispersion_baseline.stddev_rate)
+  $baseline_mean = $zero_incl_mean
+  $baseline_dispersion = $zero_incl_sd
   $fleet_prevalence = max($fleet_breadth.fleet_users)
-  $distinct_binaries = max($dispersion_baseline.total_failures)
-  $sample_commands = array_distinct($hourly_failures.sample_ip)
-  
-  // Aggregate Fano Factor (F = σ² / μ)
-  $raw_mean = max($dispersion_baseline.mean_rate)
-  $safe_mean = if($raw_mean > 0, $raw_mean, 1.0)
-  $raw_stddev = max($dispersion_baseline.stddev_rate)
-  $variance = $raw_stddev * $raw_stddev
-  $fano_factor = $variance / ($safe_mean + 1.0)
+  $distinct_binaries = $sum_x
+  $sample_commands = array_distinct($hourly_failures.sample_peers)
 
 condition:
-  $baseline_active_samples >= 30
+  $baseline_active_samples >= 1
+  and $total_buckets >= 30
   and $observation_count >= 15
-  and $baseline_mean >= 1.0
+  and $baseline_mean >= 0.1
   and $fano_factor >= 4.0
 
 order:

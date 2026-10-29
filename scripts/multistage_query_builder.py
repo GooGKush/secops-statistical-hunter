@@ -25,7 +25,7 @@ import re
 import sys
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 try:
   from scripts.ueba_constants import (
@@ -154,9 +154,9 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"z_score": 1.5, "min_count": 10, "min_sd": 2.0, "min_active_samples": 30},
     },
     "POISSON_BURST_CLUSTERING": {
-        "CONSERVATIVE": {"fano_factor": 8.0, "min_fails": 30, "min_mu": 2.0, "min_active_samples": 60},
-        "BALANCED": {"fano_factor": 4.0, "min_fails": 15, "min_mu": 1.0, "min_active_samples": 30},
-        "AGGRESSIVE": {"fano_factor": 2.5, "min_fails": 10, "min_mu": 0.5, "min_active_samples": 15},
+        "CONSERVATIVE": {"fano_factor": 8.0, "min_fails": 30, "min_mu": 0.2, "min_active_samples": 60},
+        "BALANCED": {"fano_factor": 4.0, "min_fails": 15, "min_mu": 0.1, "min_active_samples": 30},
+        "AGGRESSIVE": {"fano_factor": 2.5, "min_fails": 10, "min_mu": 0.05, "min_active_samples": 15},
     },
     "POISSON_RARE_SURGE": {
         "CONSERVATIVE": {"poisson_z": 5.0, "min_observed": 5, "max_lambda": 1.0, "min_baseline_days": 14},
@@ -402,6 +402,70 @@ def get_adaptive_window_parameters(
       "proportional_sample_floor": proportional_sample_floor,
       "base_thresholds": base_thresh,
       "model_warnings": model_warnings,
+  }
+
+
+def compute_total_window_buckets(
+    window_hours: Optional[float],
+    bucket_size: str = "1h",
+) -> int:
+  """Computes total zero-inclusive bucket count T for a window duration and YARA-L bucket token (WS1-06)."""
+  eff_hours = 168.0 if window_hours is None else float(window_hours)
+  if eff_hours <= 0.0:
+    raise ValueError(f"window_hours must be positive, got {window_hours!r}")
+  m = re.match(r"^\s*(\d+)\s*([mhd])\s*$", str(bucket_size))
+  if not m:
+    raise ValueError(f"Unsupported YARA-L bucket_size token: {bucket_size!r}")
+  qty = int(m.group(1))
+  unit = m.group(2)
+  if qty <= 0:
+    raise ValueError(f"bucket_size quantity must be positive, got {bucket_size!r}")
+  unit_seconds = {"m": 60.0, "h": 3600.0, "d": 86400.0}[unit]
+  bucket_seconds = qty * unit_seconds
+  return max(1, int(round((eff_hours * 3600.0) / bucket_seconds)))
+
+
+def compute_zero_inclusive_dispersion(
+    bucket_counts: Sequence[float],
+    total_buckets: int,
+) -> Dict[str, float]:
+  """Computes zero-inclusive Poisson dispersion (mean, population variance over T, SD, Fano) (PF-4 / WS1-06).
+
+  Args:
+    bucket_counts: Observed counts for active (or partial) buckets within the window.
+    total_buckets: Total number of calendar buckets T in the search window (including zero-count buckets).
+  """
+  if int(total_buckets) <= 0:
+    raise ValueError(f"total_buckets must be > 0, got {total_buckets!r}")
+  t_int = int(total_buckets)
+  if len(bucket_counts) > t_int:
+    raise ValueError(
+        f"bucket_counts length ({len(bucket_counts)}) exceeds total_buckets ({t_int})"
+    )
+  vals = [float(x) for x in bucket_counts]
+  if any(v < 0.0 for v in vals):
+    raise ValueError("bucket_counts cannot contain negative counts")
+
+  active_buckets = sum(1 for v in vals if v > 0.0)
+  sum_x = sum(vals)
+  sum_x2 = sum(v * v for v in vals)
+  t_float = float(t_int)
+  mean = sum_x / t_float
+  mean_sq = sum_x2 / t_float
+  raw_var = mean_sq - (mean * mean)
+  variance = raw_var if raw_var > 0.0 else 0.0
+  stddev = math.sqrt(variance)
+  fano_factor = (variance / mean) if mean > 0.0 else 0.0
+
+  return {
+      "total_buckets": t_int,
+      "active_buckets": active_buckets,
+      "sum_x": sum_x,
+      "sum_x2": sum_x2,
+      "mean": mean,
+      "variance": variance,
+      "stddev": stddev,
+      "fano_factor": fano_factor,
   }
 
 THREAT_EXPLANATIONS = {
@@ -2544,6 +2608,10 @@ class MultiStageTemplateRouter:
       apply_threshold_condition: bool = True,
       daily_aggregation: Optional[str] = None,
       sample_field: Optional[str] = None,
+      total_window_buckets: Optional[int] = None,
+      bucket_size: Optional[str] = None,
+      entity_field: Optional[str] = None,
+      peer_sample_field: Optional[str] = None,
   ) -> str:
     tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
     template_file = self.get_template_filename(archetype)
@@ -2566,11 +2634,26 @@ class MultiStageTemplateRouter:
     thresh = dict(SENSITIVITY_MAP.get(canonical_key, {}).get(tier_up, {}))
 
     # Adaptive window calculation
-    bucket_size = "1d" if "iqr_tukey_skew" in template_file else "1h"
+    resolved_bucket_size = bucket_size or ("1d" if "iqr_tukey_skew" in template_file else "1h")
     if window_hours:
       adapt = get_adaptive_window_parameters(window_hours, canonical_key, tier_up)
-      bucket_size = adapt["recommended_bucket"]
-      min_samples = adapt["proportional_sample_floor"]
+      if not bucket_size:
+        resolved_bucket_size = adapt["recommended_bucket"]
+      if bucket_size:
+        eff_total = compute_total_window_buckets(window_hours, resolved_bucket_size)
+        default_floor = (
+            thresh.get("min_active_samples")
+            or thresh.get("min_baseline_days")
+            or thresh.get("min_active_hours")
+            or thresh.get("min_active_days")
+            or 30
+        )
+        if resolved_bucket_size.endswith("d"):
+          min_samples = max(3, min(default_floor, int(eff_total * 0.4)))
+        else:
+          min_samples = max(3, min(default_floor, max(4, int(eff_total * 0.25))))
+      else:
+        min_samples = adapt["proportional_sample_floor"]
       for sample_key in ("min_active_samples", "min_baseline_days", "min_active_hours", "min_active_days"):
         if sample_key in thresh:
           thresh[sample_key] = min_samples
@@ -2583,17 +2666,36 @@ class MultiStageTemplateRouter:
           or 30
       )
 
+    if total_window_buckets is not None:
+      resolved_total_buckets = int(total_window_buckets)
+      if resolved_total_buckets <= 0:
+        raise ValueError(f"total_window_buckets must be > 0, got {total_window_buckets!r}")
+    else:
+      resolved_total_buckets = compute_total_window_buckets(window_hours, resolved_bucket_size)
+
     # Entity field resolution
     entity_field_map = {
         "host": "principal.hostname",
         "user": "target.user.userid",
         "ip": "principal.asset.ip",
     }
-    entity_field = entity_field_map.get(entity_type.lower(), "principal.hostname")
-    if ("impossible_travel" in template_file or "privileged_lateral" in template_file) and entity_type.lower() == "host":
-      entity_field = "target.user.userid"
-    elif "producer_consumer" in template_file and entity_type.lower() == "host":
-      entity_field = "principal.asset.hostname"
+    if entity_field:
+      resolved_entity_field = entity_field
+    else:
+      resolved_entity_field = entity_field_map.get(entity_type.lower(), "principal.hostname")
+      if ("impossible_travel" in template_file or "privileged_lateral" in template_file) and entity_type.lower() == "host":
+        resolved_entity_field = "target.user.userid"
+      elif "producer_consumer" in template_file and entity_type.lower() == "host":
+        resolved_entity_field = "principal.asset.hostname"
+      elif "poisson_burst" in template_file and entity_type.lower() == "ip":
+        resolved_entity_field = "principal.ip"
+
+    if peer_sample_field:
+      resolved_peer_sample_field = peer_sample_field
+    elif resolved_entity_field in ("principal.ip", "principal.asset.ip", "src.ip"):
+      resolved_peer_sample_field = "target.user.userid"
+    else:
+      resolved_peer_sample_field = "principal.ip"
 
     # Default event type resolution
     if not event_type:
@@ -2626,8 +2728,10 @@ class MultiStageTemplateRouter:
     rendered = raw_template
     rendered = rendered.replace("{{tier}}", tier_up)
     rendered = rendered.replace("{{event_type}}", event_type)
-    rendered = rendered.replace("{{entity_field}}", entity_field)
-    rendered = rendered.replace("{{bucket_size}}", bucket_size)
+    rendered = rendered.replace("{{entity_field}}", resolved_entity_field)
+    rendered = rendered.replace("{{peer_sample_field}}", resolved_peer_sample_field)
+    rendered = rendered.replace("{{bucket_size}}", resolved_bucket_size)
+    rendered = rendered.replace("{{total_window_buckets}}", str(resolved_total_buckets))
     rendered = rendered.replace("{{daily_aggregation}}", daily_aggregation)
     rendered = rendered.replace("{{sample_field}}", sample_field)
 
@@ -2665,7 +2769,7 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_bytes}}", str(thresh.get("min_bytes", 10000000.0)))
     rendered = rendered.replace("{{fano_factor}}", str(thresh.get("fano_factor", 4.0)))
     rendered = rendered.replace("{{min_fails}}", str(thresh.get("min_fails", 15)))
-    rendered = rendered.replace("{{min_mu}}", str(thresh.get("min_mu", 1.0)))
+    rendered = rendered.replace("{{min_mu}}", str(thresh.get("min_mu", 0.1)))
     poisson_z_val = thresh.get("poisson_z", 3.5)
     rendered = rendered.replace("{{poisson_z}}", str(poisson_z_val))
     rendered = rendered.replace("{{poisson_z_sq}}", str(round(poisson_z_val * poisson_z_val, 2)))
