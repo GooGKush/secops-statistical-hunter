@@ -78,19 +78,26 @@ class TestWS106ZeroInclusiveDispersion(unittest.TestCase):
 
     router = MultiStageTemplateRouter()
     q_7d = router.build_query("POISSON_BURST_CLUSTERING", tier="BALANCED", entity_type="user", window_hours=168)
-    self.assertIn("$total_buckets = 168", q_7d)
+    self.assertIn("$zero_incl_mean = 1.0 * $sum_x / 168", q_7d)
+    self.assertIn("$mean_sq = 1.0 * $sum_x2 / 168", q_7d)
+    self.assertNotIn("$total_buckets", q_7d)
+    self.assertNotIn("$safe_buckets", q_7d)
     self.assertTrue(QueryIntegrityGate.verify_pre_dispatch(q_7d)["valid"])
 
     q_14d_daily = router.build_query(
         "POISSON_BURST_CLUSTERING", tier="BALANCED", entity_type="user", window_hours=336, bucket_size="1d"
     )
-    self.assertIn("$total_buckets = 14", q_14d_daily)
+    self.assertIn("$zero_incl_mean = 1.0 * $sum_x / 14", q_14d_daily)
+    self.assertIn("$mean_sq = 1.0 * $sum_x2 / 14", q_14d_daily)
     self.assertTrue(QueryIntegrityGate.verify_pre_dispatch(q_14d_daily)["valid"])
 
     q_override = router.build_query(
         "POISSON_BURST_CLUSTERING", tier="BALANCED", entity_type="user", window_hours=168, total_window_buckets=200
     )
-    self.assertIn("$total_buckets = 200", q_override)
+    self.assertIn("$zero_incl_mean = 1.0 * $sum_x / 200", q_override)
+    self.assertIn("$mean_sq = 1.0 * $sum_x2 / 200", q_override)
+    with self.assertRaises(ValueError):
+      router.build_query("POISSON_BURST_CLUSTERING", tier="BALANCED", total_window_buckets=0)
 
   def test_stage2_unnesting_invariant_and_zero_inclusive_ast(self):
     """Stage 2 (dispersion_baseline) must be 100% numeric with zero array_distinct alongside sum()."""
@@ -108,10 +115,10 @@ class TestWS106ZeroInclusiveDispersion(unittest.TestCase):
     self.assertIn("$sum_x2 = sum($hourly_failures.hourly_fails_sq)", stage2_body)
     self.assertIn("$active_hours = count($hourly_failures.window_start)", stage2_body)
 
-    # Root stage computes zero-inclusive mean, variance, sd, and Fano factor cleanly
+    # Root stage computes zero-inclusive mean, variance, sd, and Fano factor cleanly via direct division
     for expected_snippet in (
-        "$zero_incl_mean = $sum_x / $safe_buckets",
-        "$mean_sq = $sum_x2 / $safe_buckets",
+        "$zero_incl_mean = 1.0 * $sum_x / 168",
+        "$mean_sq = 1.0 * $sum_x2 / 168",
         "$raw_var = $mean_sq - ($zero_incl_mean * $zero_incl_mean)",
         "$zero_incl_var = if($raw_var > 0.0, $raw_var, 0.0)",
         "$zero_incl_sd = math.sqrt($zero_incl_var)",
@@ -122,6 +129,52 @@ class TestWS106ZeroInclusiveDispersion(unittest.TestCase):
 
     errs = [e for e in validate_multistage_syntax(query) if not e.startswith("MISSING METHODOLOGY HEADER")]
     self.assertEqual(errs, [])
+
+  def test_no_pure_literal_outcome_fed_into_if_or_condition(self):
+    """Malachite rejects pure-literal outcome variables ($total_buckets = 168) inside if() or condition:."""
+    router = MultiStageTemplateRouter()
+    q_rendered = router.build_query("POISSON_BURST_CLUSTERING", tier="BALANCED", entity_type="user", window_hours=168)
+    ex_text = (REPO_ROOT / "examples" / "poisson_burst_clustering.yara").read_text()
+
+    for label, text in (("template", q_rendered), ("example", ex_text)):
+      code = re.sub(r"//.*", "", text)
+      literal_vars = re.findall(r"^\s*(\$[a-zA-Z0-9_]+)\s*=\s*(?:0\s*-\s*)?\d+(?:\.\d+)?\s*$", code, re.M)
+      cond_block_m = re.search(r"\bcondition\s*:(.*?)(?=\border\s*:|\Z)", code, re.S)
+      cond_block = cond_block_m.group(1) if cond_block_m else ""
+      for var in literal_vars:
+        self.assertIsNone(
+            re.search(r"\bif\s*\([^)]*" + re.escape(var) + r"\b", code),
+            f"{label} feeds pure-literal outcome {var} into if()",
+        )
+        self.assertIsNone(
+            re.search(re.escape(var) + r"\b", cond_block),
+            f"{label} feeds pure-literal outcome {var} into condition:",
+        )
+
+    # Syntax validator must explicitly catch the Malachite constant-outcome trap
+    bad_constant_query = (
+        "// Goal: test\n// Statistical Model: Fano\n"
+        "stage s1 {\n"
+        '  metadata.event_type = "USER_LOGIN"\n'
+        "  target.user.userid = $u\n"
+        '  $u != ""\n'
+        "  match: $u by 1h\n"
+        "  outcome: $c = count(metadata.id)\n"
+        "}\n"
+        "$u = $s1.u\n"
+        "match: $u\n"
+        "outcome:\n"
+        "  $total_buckets = 168\n"
+        "  $safe_buckets = if($total_buckets > 0, $total_buckets, 1.0)\n"
+        "  $obs = sum($s1.c)\n"
+        "condition:\n"
+        "  $total_buckets >= 30 and $obs >= 5\n"
+    )
+    bad_errs = validate_multistage_syntax(bad_constant_query)
+    self.assertTrue(
+        any("CONSTANT_OUTCOME_IN_IF_OR_CONDITION" in e for e in bad_errs),
+        f"Expected CONSTANT_OUTCOME_IN_IF_OR_CONDITION in {bad_errs}",
+    )
 
   def test_target_keyed_and_source_keyed_spray_variants(self):
     """POISSON_BURST_CLUSTERING supports both target-keyed (USER) and source-keyed (IP) spray hunts."""
