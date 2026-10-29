@@ -212,6 +212,15 @@ class TestWS9DocsAndConcordance(unittest.TestCase):
     ):
       self.assertIn(required_token, v300_section, f"RELEASE_NOTES v3.0.0 entry missing {required_token}")
 
+  def test_rule10_readme_cri_bands_and_final_test_counts(self) -> None:
+    """Rule 10 / D5: README CRI bands match 26/46/70/90 and RELEASE_NOTES reflects final test count."""
+    readme_md = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    self.assertNotIn("0–29", readme_md, "README.md still lists legacy CRI bands instead of D5 26/46/70/90")
+    self.assertIn("26", readme_md)
+    release_notes = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+    v300_section = release_notes.split("## 📦 Version 3.0.0", 1)[1].split("## 📦 Version 2.9.0", 1)[0]
+    self.assertIn("326 passed", v300_section)
+
 
 if __name__ == "__main__":
   unittest.main()
