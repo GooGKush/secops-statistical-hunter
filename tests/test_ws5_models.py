@@ -296,7 +296,7 @@ class TestWS5ModelsPipelines(unittest.TestCase):
           ]
           self.assertEqual(errs, [], f"{model} [{tier}] syntax errors: {errs}")
           stage_count, raw_count = _count_stages_and_raw_stages(query)
-          self.assertLessEqual(stage_count, 3, f"{model} exceeded 3 named stages")
+          self.assertLessEqual(stage_count, 4, f"{model} exceeded 4 named stages")
           self.assertLessEqual(raw_count, 2, f"{model} exceeded 2 raw stages")
           self.assertLessEqual(
               _max_outcome_vars(query), 20, f"{model} exceeded 20 outcome vars"

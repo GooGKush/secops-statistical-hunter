@@ -115,9 +115,12 @@ class TestWS5OutOfSampleBaselines(unittest.TestCase):
         # Must count both BLOCK and FAIL on USER_LOGIN
         self.assertIn('"BLOCK"', q)
         self.assertIn('"FAIL"', q)
-        # Must use leave-one-out sums (never contaminated in-sample avg/stddev)
-        self.assertNotIn("avg($sector_counts.", q)
-        self.assertNotIn("stddev($sector_counts.", q)
+        # Must compute leave-one-out means and variances in sector_loo via $n_prior and $df_prior
+        # (Root never reads contaminated $host_sector_baseline moments directly)
+        self.assertIn("$n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)", q)
+        self.assertIn("$df_prior = if($raw_df > 1, $raw_df, 1)", q)
+        root_tail = q.split("stage sector_loo")[-1].split("}", 1)[-1]
+        self.assertNotIn("$host_sector_baseline.", root_tail)
         self.assertIn("strings.coalesce(", q)
         # Positive-rectified sector Zs before squaring
         self.assertRegex(q, r"\$pos_z1\s*=\s*if\(\$z1\s*>\s*0(?:\.0)?,\s*\$z1,\s*0\.0\)")
@@ -127,10 +130,10 @@ class TestWS5OutOfSampleBaselines(unittest.TestCase):
         named_stages = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", q)
         self.assertEqual(len(named_stages), 3, f"Expected 3 named stages (+ root = 4 stages), got {named_stages}")
 
-    # Host & IP modes coalesce principal.hostname and principal.ip
+    # Host & IP modes coalesce principal.hostname and indexed principal.ip[0]
     self.assertIn("$e.principal.hostname", q_host)
-    self.assertIn("$e.principal.ip", q_host)
-    self.assertIn("$e.principal.ip", q_ip)
+    self.assertIn("$e.principal.ip[0]", q_host)
+    self.assertIn("$e.principal.ip[0]", q_ip)
     self.assertIn("$e.principal.hostname", q_ip)
 
     # User mode coalesces target.user.userid and principal.user.userid
