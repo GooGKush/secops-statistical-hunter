@@ -4366,36 +4366,309 @@ class HandoffEndpoint:
     }
 
 
-def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
-  """Inspects an analyst prompt to detect when the request is better routed to secops-risk-metrics-multistage.
+CANONICAL_ROUTING_TABLE_START = "<!-- CANONICAL_SKILL_ROUTING_TABLE_START -->"
+CANONICAL_ROUTING_TABLE_END = "<!-- CANONICAL_SKILL_ROUTING_TABLE_END -->"
 
-  Returns a recommendation dictionary if the prompt matches pre-computed risk metrics or UEBA baselines,
-  or None if secops-statistical-hunter is the authoritative skill.
+CANONICAL_ROUTING_TABLE_MD = """<!-- CANONICAL_SKILL_ROUTING_TABLE_START -->
+| Precedence & Target Skill | Authoritative Signals, Models & Telemetry Scope |
+| :--- | :--- |
+| **1. `secops-statistical-hunter`** *(Micro / Raw `UDM_EVENTS` — wins even with `"UEBA"`)* | C2 jitter (`C2_BEACONING_JITTER` / `FLOW_GAP_RATIO_SCREEN`), sub-second/cron timing; 24-bin circadian / hour-of-day (`HOUR_OF_DAY_PROFILE`); Shannon entropy / DGA / CLI (`SHANNON_ENTROPY_CHARACTER` / `LONG_STRING_SCREEN`); intraday EWMA (`EWMA_BURST_VELOCITY` / `BURST_Z_SCREEN`); Markov 2-gram (`MARKOV_2GRAM_TRANSITION_RARITY`), Zipfian (`ZIPFIAN_PROCESS_RARITY`), Fano spray (`POISSON_BURST_CLUSTERING`), producer-consumer (`PRODUCER_CONSUMER_RATIO_INVERSION`); raw-field or `1h–14d` MAD / Tukey (DNS query length MAD, Git/raw logs). |
+| **2. `secops-risk-metrics-multistage`** *(Macro 30d `metrics.*`)* | 30d baselines (`metrics.auth_attempts_*`, `network_*`, `dns_*`, `http_queries_*`, `file_executions_*`, `resource_*`, `workspace_*`, `alert_event_name_count`) — flow/regular surge, above-max Z, fail/total beta-binomial, business-hours Z, `first_seen` (`first_seen_novelty_2stage.yl2`); peer cohorts (`dual_baseline_delta_z_3stage.yl2`, `part_of_the_whole_*`); 360° health & `graph.risk_score` (`radar_360_decoupled_sector.yl2`); Page CUSUM (`2–30d`, `longitudinal_cusum_series_3stage.yl2` + `cusum_helper.py`); 30d metric MAD (`mad_robust_z_4stage.yl2`), Tukey (`quantile_iqr_skew_3stage.yl2`), HTTP UA (`hybrid_metric_fleet_prevalence_2stage.yl2`), `metrics.*` fusion. |
+| **3. Bilateral Co-Execution** *(`secops-risk-metrics-multistage` + `secops-statistical-hunter`)* | Exploit/CTI UEBA pairing 30d `metrics.*` + bounded (`<=24h`/`<=14d`) raw pipelines + `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` loopback (no single `Active Skill:` lock). |
+| **4. `secops-detection-engineering`** *(Persistent Rules)* | Authoring/deploying persistent `rule ... { ... }` detections (`create_rule`, `validate_rule`). |
+<!-- CANONICAL_SKILL_ROUTING_TABLE_END -->"""
+
+CANONICAL_ROUTING_MATRIX: Tuple[Dict[str, Any], ...] = (
+    {
+        "precedence": 1,
+        "target_skill": "secops-statistical-hunter",
+        "scope": "Micro / Windowed Raw UDM_EVENTS (authoritative even when prompt mentions UEBA)",
+        "signals": (
+            "jitter", "beaconing", "inter-arrival", "flow-gap", "sub-second", "cron",
+            "hour-of-day", "hour of day", "circadian", "shannon", "character entropy", "dga",
+            "ewma", "markov", "2-gram", "zipfian", "fano", "producer-consumer",
+            "raw-field mad", "dns query length mad",
+        ),
+        "canonical_templates": (
+            "c2_beaconing_jitter_2stage.yl2",
+            "flow_gap_ratio_screen_2stage.yl2",
+            "hour_of_day_profile_3stage.yl2",
+            "shannon_entropy_character_2stage.yl2",
+            "long_string_screen_2stage.yl2",
+            "ewma_burst_velocity_2stage.yl2",
+            "burst_z_screen_2stage.yl2",
+            "markov_2gram_transition_rarity_2stage.yl2",
+            "zipfian_process_rarity_2stage.yl2",
+            "poisson_burst_clustering_2stage.yl2",
+            "producer_consumer_ratio_inversion_2stage.yl2",
+            "mad_modified_z_4stage.yl2",
+            "iqr_tukey_skew_fences_3stage.yl2",
+        ),
+    },
+    {
+        "precedence": 2,
+        "target_skill": "secops-risk-metrics-multistage",
+        "scope": "Macro 30-day pre-computed metrics.* baselines, peer cohorts, 360 radar, and CUSUM drift",
+        "signals": (
+            "30-day baseline", "metrics.*", "peer cohort", "department",
+            "graph.risk_score", "360 health check", "cusum", "30d metric mad", "first_seen",
+        ),
+        "canonical_templates": (
+            "standard_z_score_2stage.yl2",
+            "first_seen_novelty_2stage.yl2",
+            "dual_baseline_delta_z_3stage.yl2",
+            "part_of_the_whole_multilevel.yl2",
+            "part_of_the_whole_triad_multilevel.yl2",
+            "radar_360_decoupled_sector.yl2",
+            "longitudinal_cusum_series_3stage.yl2",
+            "mad_robust_z_4stage.yl2",
+            "quantile_iqr_skew_3stage.yl2",
+            "hybrid_metric_fleet_prevalence_2stage.yl2",
+            "cloud_repository_scope_dual_branch.yl2",
+            "multi_sector_fusion_4stage.yl2",
+            "rollup_sector_fusion_4stage.yl2",
+        ),
+    },
+    {
+        "precedence": 3,
+        "target_skill": "secops-risk-metrics-multistage + secops-statistical-hunter",
+        "scope": "Bilateral exploit/CTI UEBA co-execution with PLAYBOOK_BEHAVIORAL_HUNT_MATCH loopback",
+        "signals": ("exploit ueba", "cti ueba", "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"),
+        "canonical_templates": (),
+    },
+    {
+        "precedence": 4,
+        "target_skill": "secops-detection-engineering",
+        "scope": "Persistent streaming YARA-L rule authoring, validation, and deployment",
+        "signals": ("create_rule", "validate_rule", "deploy a detection rule"),
+        "canonical_templates": (),
+    },
+)
+
+
+def _infer_macro_metric_from_prompt(prompt_clean: str, default: str = "metrics.*") -> str:
+  """Infers the canonical metrics.* vector from prompt keywords or explicit metrics.<name> token."""
+  explicit_match = re.search(r"\b(metrics\.[a-z][a-z0-9_]+)\b", prompt_clean)
+  if explicit_match:
+    return explicit_match.group(1)
+  if any(kw in prompt_clean for kw in ["fail", "failed", "failure", "password spray", "brute", "stuffing"]):
+    return "metrics.auth_attempts_fail"
+  if any(kw in prompt_clean for kw in ["auth", "login", "logon", "credential"]):
+    return "metrics.auth_attempts_total"
+  if any(kw in prompt_clean for kw in ["network", "outbound", "inbound", "bandwidth", "exfil", "exfiltration", "byte"]):
+    return "metrics.network_bytes_outbound"
+  if "dns" in prompt_clean:
+    return "metrics.dns_queries_total"
+  if any(kw in prompt_clean for kw in ["http", "user-agent", "user_agent", "user agent", "web"]):
+    return "metrics.http_queries_total"
+  if any(kw in prompt_clean for kw in ["process", "file_executions", "binary execution", "endpoint execution"]):
+    return "metrics.file_executions_total"
+  if any(kw in prompt_clean for kw in ["workspace", "drive", "gmail"]):
+    return "metrics.workspace_activity_total"
+  if any(kw in prompt_clean for kw in ["cloud", "repository", "resource_read", "crud"]):
+    return "metrics.resource_read_success"
+  if "alert" in prompt_clean:
+    return "metrics.alert_event_name_count"
+  return default
+
+
+def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
+  """Inspects an analyst prompt against CANONICAL_ROUTING_MATRIX with zero cross-skill ping-pong.
+
+  Precedence 1 (Micro-Only structural & sub-day raw UDM signals) wins even when the prompt
+  mentions "UEBA" or "30d", returning None so secops-statistical-hunter handles it locally.
+  Precedence 2 routes 30-day metrics.* baselines, peer cohorts, 360 health checks, and CUSUM
+  drift to secops-risk-metrics-multistage. Precedence 4 routes persistent rule deployment to
+  secops-detection-engineering.
   """
   prompt_clean = user_prompt.lower()
 
-  has_explicit_30d_or_ueba = any(
-      kw in prompt_clean
-      for kw in ["30-day", "30 day", "30d", "ueba", "metrics.", "pre-computed", "precomputed"]
-  )
-  has_raw_stat_or_short_window = any(
+  # Precedence 4: Out-of-scope persistent streaming detection rule authoring / deployment
+  if any(
       kw in prompt_clean
       for kw in [
-          "single-stage", "single stage", "ad-hoc", "ad hoc",
-          "fano", "poisson", "jitter", "coefficient of variation",
-          "inline mad", "modified z", "modified-z", "tukey", "iqr",
-          "markov", "2-gram", "shannon", "entropy", "zipf", "ewma",
-          "impossible travel", "haversine", "producer-consumer",
-          "24h", "24-hour", "24 hour", "48h", "72h", "weekend",
-          "7d", "7-day", "7 day", "14d", "14-day", "14 day",
+          "create_rule",
+          "validate_rule",
+          "deploy a detection rule",
+          "deploy detection rule",
+          "author a detection rule",
+          "write a detection rule",
+          "create a detection rule",
       ]
+  ):
+    return {
+        "should_route": True,
+        "target_skill": "secops-detection-engineering",
+        "recommended_metric": "rule ... { ... }",
+        "recommended_pipeline": "rule ... { ... }",
+        "justification": (
+            "Persistent streaming YARA-L detection rule authoring and deployment ('create_rule', "
+            "'validate_rule') belong to secops-detection-engineering."
+        ),
+    }
+
+  has_explicit_catalog_metric = bool(re.search(r"\bmetrics\.[a-z][a-z0-9_]+\b", prompt_clean))
+  is_cusum = "cusum" in prompt_clean
+  is_360_or_risk_score = (
+      (
+          any(kw in prompt_clean for kw in ["risk score", "risk_score", "graph.risk_score", "360 health", "360°", "omnibus risk"])
+          or ("360" in prompt_clean and "health" in prompt_clean)
+      )
+      and "calibrated risk index" not in prompt_clean
+      and "cri" not in re.findall(r"\b[a-z0-9_]+\b", prompt_clean)
   )
 
-  # 1. HTTP / Web User-Agent queries & baselines
+  # Precedence 1: Micro-Only structural & raw-field models ALWAYS stay in secops-statistical-hunter,
+  # even if the prompt includes "UEBA" or "30-day" (preventing B-E6 cross-skill ping-pong).
+  unconditional_micro_signals = [
+      "jitter", "beaconing", "inter-arrival", "interarrival", "flow-gap", "flow gap",
+      "flow_gap_ratio", "sub-second", "subsecond", "cron",
+      "hour-of-day", "hour of day", "hour_of_day", "time-of-day", "time of day",
+      "circadian", "von mises", "24-bin", "timestamp.get_hour",
+      "shannon", "character entropy", "char entropy", "string entropy", "dga",
+      "obfuscated", "base64", "long-string", "long_string_screen",
+      "ewma", "burst_z_screen", "burst z screen", "intraday",
+      "markov", "2-gram", "parent-child", "parent to child",
+      "zipf", "zipfian", "fano", "poisson burst", "poisson deviance", "poisson_rare_surge",
+      "producer-consumer", "producer_consumer", "impossible travel", "haversine",
+      "raw-field", "raw field", "query string length", "query length", "command line length",
+      "inline mad", "standalone mad", "mad_modified_z", "iqr_tukey_skew_fences",
+      "single-stage", "single stage",
+  ]
+  if not has_explicit_catalog_metric and not is_cusum and not is_360_or_risk_score:
+    if any(sig in prompt_clean for sig in unconditional_micro_signals):
+      return None
+
+    has_30d_or_catalog = any(
+        kw in prompt_clean
+        for kw in ["30-day", "30 day", "30d", "metric-catalog", "metric catalog"]
+    )
+    has_raw_or_custom_window = (
+        any(
+            kw in prompt_clean
+            for kw in [
+                "ad-hoc", "ad hoc", "udm_events", "by 5m", "by 1h", "by 2h",
+                "24h", "24-hour", "24 hour", "48h", "72h", "weekend",
+                "7d", "7-day", "7 day", "14d", "14-day", "14 day",
+            ]
+        )
+        or bool(re.search(r"\braw\b|\bgit\b|\b5m\b|\b1h\b|\b2h\b", prompt_clean))
+    )
+    if has_raw_or_custom_window:
+      return None
+
+    has_mad_or_tukey = (
+        any(
+            kw in prompt_clean
+            for kw in ["modified z", "modified-z", "median absolute deviation", "tukey"]
+        )
+        or bool(re.search(r"\bmad\b|\biqr\b", prompt_clean))
+    )
+    if has_mad_or_tukey and not has_30d_or_catalog:
+      return None
+
+  # Precedence 2A: Multi-day Page CUSUM drift (2-30d)
+  if is_cusum:
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": _infer_macro_metric_from_prompt(prompt_clean),
+        "recommended_pipeline": "longitudinal_cusum_series_3stage.yl2",
+        "target_dimension": "principal.asset.hostname",
+        "entity_dimension": "principal.user.userid",
+        "justification": (
+            "Multi-day longitudinal Page CUSUM drift (2-30d) operates over daily pre-computed "
+            "'metrics.*' series via 'longitudinal_cusum_series_3stage.yl2' and 'cusum_helper.py' "
+            "in secops-risk-metrics-multistage."
+        ),
+    }
+
+  # Precedence 2B: 360 Entity Health Check & graph.risk_score
+  if is_360_or_risk_score:
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": "graph.risk_score",
+        "recommended_pipeline": "radar_360_decoupled_sector.yl2",
+        "target_dimension": "graph.entity",
+        "entity_dimension": "principal.user.userid",
+        "justification": (
+            "Entity risk score evaluations and 360° health checks query Google SecOps UEBA Risk Scoring tables "
+            "('graph.risk_score'), which are exclusively managed by secops-risk-metrics-multistage."
+        ),
+    }
+
+  # Precedence 2C: Peer group / department cohort comparison
+  if any(kw in prompt_clean for kw in ["peer group", "cohort", "department", "colleagues", "peers", "peer baseline"]):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": _infer_macro_metric_from_prompt(prompt_clean, default="metrics.auth_attempts_total"),
+        "recommended_pipeline": "dual_baseline_delta_z_3stage.yl2",
+        "target_dimension": "target.user.userid",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "Comparing an entity's behavior against an organizational peer cohort or department baseline "
+            "requires pre-computed cohort metrics in secops-risk-metrics-multistage."
+        ),
+    }
+
+  # Precedence 2D: 30d Metric-Catalog MAD & Tukey Quantile Fences
+  has_30d_macro_marker = has_explicit_catalog_metric or any(
+      kw in prompt_clean
+      for kw in ["30-day", "30 day", "30d", "metric-catalog", "metric catalog"]
+  )
+  if has_30d_macro_marker and ("tukey" in prompt_clean or bool(re.search(r"\biqr\b|\bquantile\b", prompt_clean))):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": _infer_macro_metric_from_prompt(prompt_clean),
+        "recommended_pipeline": "quantile_iqr_skew_3stage.yl2",
+        "target_dimension": "principal.asset.hostname",
+        "entity_dimension": "principal.user.userid",
+        "justification": (
+            "30-day metric-catalog quantile/Tukey outlier baselining belongs in "
+            "secops-risk-metrics-multistage ('quantile_iqr_skew_3stage.yl2')."
+        ),
+    }
+  if has_30d_macro_marker and (
+      any(kw in prompt_clean for kw in ["modified z", "modified-z", "median absolute deviation"])
+      or bool(re.search(r"\bmad\b", prompt_clean))
+  ):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": _infer_macro_metric_from_prompt(prompt_clean),
+        "recommended_pipeline": "mad_robust_z_4stage.yl2",
+        "target_dimension": "principal.asset.hostname",
+        "entity_dimension": "principal.user.userid",
+        "justification": (
+            "30-day MAD baselining on metric-catalog vectors belongs in "
+            "secops-risk-metrics-multistage ('mad_robust_z_4stage.yl2')."
+        ),
+    }
+
+  # Precedence 2E: metrics.* first_seen novelty
+  if ("first_seen" in prompt_clean or "first-seen" in prompt_clean or "first seen" in prompt_clean) and (
+      has_30d_macro_marker or "metrics." in prompt_clean or "ueba" in prompt_clean
+  ):
+    return {
+        "should_route": True,
+        "target_skill": "secops-risk-metrics-multistage",
+        "recommended_metric": _infer_macro_metric_from_prompt(prompt_clean, default="metrics.auth_attempts_total"),
+        "recommended_pipeline": "first_seen_novelty_2stage.yl2",
+        "target_dimension": "target.user.userid",
+        "entity_dimension": "principal.asset.hostname",
+        "justification": (
+            "30-day pre-computed 'first_seen' novelty baselining over 'metrics.*' belongs in "
+            "secops-risk-metrics-multistage ('first_seen_novelty_2stage.yl2')."
+        ),
+    }
+
+  # Precedence 2F: HTTP / Web User-Agent queries & baselines
   if (
       ("user-agent" in prompt_clean or "user_agent" in prompt_clean or "user agent" in prompt_clean)
       and any(kw in prompt_clean for kw in ["network", "http", "web", "traffic", "query", "queries", "compare", "comparison", "volume", "baseline"])
-      and (not has_raw_stat_or_short_window or has_explicit_30d_or_ueba)
   ):
     return {
         "should_route": True,
@@ -4412,90 +4685,61 @@ def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
         ),
     }
 
-  # 2. Authentication baselines (30d normal / typical login behavior)
-  if (
-      any(kw in prompt_clean for kw in ["auth", "login", "logon", "password spray", "credential"])
-      and any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "historical baseline", "typical behavior", "normal behavior", "normal baseline", "typical baseline", "ueba", "metrics."])
-      and (not has_raw_stat_or_short_window or has_explicit_30d_or_ueba)
-  ):
-    is_fail_focused = any(
-        kw in prompt_clean
-        for kw in ["fail", "failed", "failure", "password spray", "spray", "brute", "stuffing"]
+  has_macro_baseline_intent = has_explicit_catalog_metric or any(
+      kw in prompt_clean
+      for kw in [
+          "30-day", "30 day", "30d", "historical baseline", "typical behavior",
+          "normal behavior", "normal baseline", "typical baseline", "ueba",
+          "metrics.", "pre-computed", "precomputed", "risk metric",
+      ]
+  )
+
+  # Precedence 2G: Domain-specific 30-day / UEBA metric baselines
+  if has_macro_baseline_intent:
+    if any(kw in prompt_clean for kw in ["auth", "login", "logon", "password spray", "credential"]):
+      is_fail_focused = any(
+          kw in prompt_clean
+          for kw in ["fail", "failed", "failure", "password spray", "spray", "brute", "stuffing"]
+      )
+      auth_metric = "metrics.auth_attempts_fail" if is_fail_focused else "metrics.auth_attempts_total"
+      return {
+          "should_route": True,
+          "target_skill": "secops-risk-metrics-multistage",
+          "recommended_metric": auth_metric,
+          "recommended_pipeline": "standard_z_score_2stage.yl2",
+          "target_dimension": "target.user.userid",
+          "entity_dimension": "principal.asset.hostname",
+          "justification": (
+              "Entity authentication baselining against 30-day normal/typical behavior is pre-computed in Google SecOps via "
+              "'metrics.auth_attempts_*'. Risk Metrics provides O(1) 30-day mean and stddev lookups."
+          ),
+      }
+
+    if any(kw in prompt_clean for kw in ["network byte", "network flow", "outbound byte", "inbound byte", "bandwidth", "network", "outbound", "exfil"]):
+      return {
+          "should_route": True,
+          "target_skill": "secops-risk-metrics-multistage",
+          "recommended_metric": _infer_macro_metric_from_prompt(prompt_clean, default="metrics.network_bytes_outbound"),
+          "recommended_pipeline": "standard_z_score_2stage.yl2",
+          "target_dimension": "principal.asset.hostname",
+          "entity_dimension": "principal.user.userid",
+          "justification": (
+              "Network byte volume and connection flow baselining is pre-computed via "
+              "'metrics.network_bytes_*' and 'metrics.network_flows_*' in secops-risk-metrics-multistage."
+          ),
+      }
+
+    inferred_metric = _infer_macro_metric_from_prompt(prompt_clean, default="metrics.*")
+    pipeline = (
+        "cloud_repository_scope_dual_branch.yl2"
+        if ("service account" in prompt_clean and "repository" in prompt_clean)
+        else "standard_z_score_2stage.yl2"
     )
-    auth_metric = "metrics.auth_attempts_fail" if is_fail_focused else "metrics.auth_attempts_total"
     return {
         "should_route": True,
         "target_skill": "secops-risk-metrics-multistage",
-        "recommended_metric": auth_metric,
-        "recommended_pipeline": "standard_z_score_2stage.yl2",
-        "target_dimension": "target.user.userid",
-        "entity_dimension": "principal.asset.hostname",
-        "justification": (
-            "Entity authentication baselining against 30-day normal/typical behavior is pre-computed in Google SecOps via "
-            "'metrics.auth_attempts_*'. Risk Metrics provides O(1) 30-day mean and stddev lookups."
-        ),
-    }
-
-  # 3. Network byte / flow baselines
-  if (
-      any(kw in prompt_clean for kw in ["network byte", "network flow", "outbound byte", "inbound byte", "bandwidth"])
-      and any(kw in prompt_clean for kw in ["30-day", "30 day", "30d", "historical baseline", "normal baseline", "typical baseline", "typical", "normal", "ueba", "metrics."])
-      and (not has_raw_stat_or_short_window or has_explicit_30d_or_ueba)
-  ):
-    return {
-        "should_route": True,
-        "target_skill": "secops-risk-metrics-multistage",
-        "recommended_metric": "metrics.network_bytes_outbound",
-        "recommended_pipeline": "standard_z_score_2stage.yl2",
-        "target_dimension": "principal.asset.hostname",
-        "entity_dimension": "principal.user.userid",
-        "justification": (
-            "Network byte volume and connection flow baselining is pre-computed via "
-            "'metrics.network_bytes_*' and 'metrics.network_flows_*' in secops-risk-metrics-multistage."
-        ),
-    }
-
-  # 4. Peer group / cohort comparison
-  if any(kw in prompt_clean for kw in ["peer group", "cohort", "department", "colleagues", "peers", "peer baseline"]):
-    return {
-        "should_route": True,
-        "target_skill": "secops-risk-metrics-multistage",
-        "recommended_metric": "metrics.auth_attempts_total",
-        "recommended_pipeline": "dual_baseline_delta_z_3stage.yl2",
-        "target_dimension": "target.user.userid",
-        "entity_dimension": "principal.asset.hostname",
-        "justification": (
-            "Comparing an entity's behavior against an organizational peer cohort or department baseline "
-            "requires pre-computed cohort metrics in secops-risk-metrics-multistage."
-        ),
-    }
-
-  # 5. Entity Risk Score / 360 Health Check
-  if (
-      any(kw in prompt_clean for kw in ["risk score", "risk_score", "graph.risk_score", "360 health", "omnibus risk"])
-      and "calibrated risk index" not in prompt_clean
-      and "cri" not in re.findall(r"\b[a-z0-9_]+\b", prompt_clean)
-  ):
-    return {
-        "should_route": True,
-        "target_skill": "secops-risk-metrics-multistage",
-        "recommended_metric": "graph.risk_score",
-        "recommended_pipeline": "radar_360_decoupled_sector.yl2",
-        "target_dimension": "graph.entity",
-        "entity_dimension": "principal.user.userid",
-        "justification": (
-            "Entity risk score evaluations and 360° health checks query Google SecOps UEBA Risk Scoring tables "
-            "('graph.risk_score'), which are exclusively managed by secops-risk-metrics-multistage."
-        ),
-    }
-
-  # 6. Explicit 30-day UEBA baseline request
-  if "30-day baseline" in prompt_clean or "30 day baseline" in prompt_clean or "30d baseline" in prompt_clean or "ueba" in prompt_clean:
-    return {
-        "should_route": True,
-        "target_skill": "secops-risk-metrics-multistage",
-        "recommended_metric": "metrics.*",
-        "recommended_pipeline": "standard_z_score_2stage.yl2",
+        "recommended_metric": inferred_metric,
+        "recommended_pipeline": pipeline,
         "target_dimension": "target.user.userid",
         "entity_dimension": "principal.asset.hostname",
         "justification": (
@@ -4508,14 +4752,15 @@ def check_routing_recommendation(user_prompt: str) -> Optional[Dict[str, Any]]:
 
 
 def format_routing_handoff_card(routing_info: Dict[str, Any]) -> str:
-  """Renders the user-facing routing delegation card when a query belongs in Risk Metrics."""
+  """Renders the user-facing routing delegation card when a query belongs in a peer skill."""
+  target_skill = routing_info["target_skill"]
   lines = [
-      "### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`",
+      f"### 🔄 Skill Handoff Card — Skill Delegation: Route to `{target_skill}`",
       "",
       "> [!NOTE]",
       "> **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**",
       f"> • **Routing Rationale**: {routing_info['justification']}",
-      f"> • **Target Skill**: `{routing_info['target_skill']}`",
+      f"> • **Target Skill**: `{target_skill}`",
       f"> • **Recommended Metric / Function**: `{routing_info.get('recommended_metric', 'metrics.*')}`",
       f"> • **Recommended Pipeline**: `{routing_info.get('recommended_pipeline', 'standard_z_score_2stage.yl2')}`",
   ]
@@ -4524,8 +4769,8 @@ def format_routing_handoff_card(routing_info: Dict[str, Any]) -> str:
   lines.extend([
       "",
       "> [!IMPORTANT]",
-      "> **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the behavioral baseline query.",
-      "> *Please switch to the `secops-risk-metrics-multistage` skill to execute this behavioral baseline hunt.*",
+      f"> **Delegation Action**: Handing off to `{target_skill}` to construct the query.",
+      f"> *Please switch to the `{target_skill}` skill to execute this request.*",
       "",
   ])
   return "\n".join(lines)

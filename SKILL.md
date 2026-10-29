@@ -9,20 +9,7 @@ compatibility: Requires access to a Google SecOps SIEM instance with the SecOps 
 
 # SecOps Statistical Hunter (`secops-statistical-hunter`)
 
-Executes **ad-hoc multi-stage statistical outlier hunting** in Google SecOps over raw UDM telemetry without pre-computed ML or UEBA batch metrics. *(Both raw UDM multi-stage hunting and `metrics.*` UEBA are native to Google SecOps; never mention BigQuery unprompted, and if asked, state BigQuery contributes nothing to SecOps UEBA.)*
-
-> [!IMPORTANT]
-> ### 🚨 Telemetry Scope & Mandatory Pre-Flight Delegation Gate
-> Executes **ad-hoc multi-stage statistical anomaly detection strictly over raw in-flight event telemetry** (`UDM_EVENTS`).
-> If an analyst prompt references `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, `"risk score"`, `"peer cohort"`, asks for a 30-day behavioral risk review, or asks to baseline/compare HTTP request volume across browser user-agent strings, hosts, or users (`metrics.http_queries_total`), **emit the Skill Delegation Card below and yield the turn (0 tool calls — NEVER run a compiler probe when delegating)**:
->
-> ### 🔄 Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`
-> > [!NOTE]
-> > **Architectural Boundary Demarcation: Ad-Hoc Raw Telemetry ──► Pre-Computed Behavioral Metrics**
-> > • **Routing Rationale**: Rolling 30-day behavioral baselines and UEBA `metrics.*` functions are maintained in `secops-risk-metrics-multistage`.
-> > • **Target Skill**: `secops-risk-metrics-multistage` | **Recommended Metric / Function**: `metrics.*` | **Target Dimension**: `[target user, host, or metric]`
-> >
-> > **Delegation Action**: Handing off to `secops-risk-metrics-multistage` to construct the 30-day behavioral baseline query.
+Executes **ad-hoc multi-stage statistical outlier hunting** over raw `UDM_EVENTS` without pre-computed batch metrics (evaluate State 1 Step 0 before any tool call; both raw multi-stage hunting and `metrics.*` UEBA are native to SecOps — BigQuery contributes nothing to SecOps UEBA).
 
 ---
 
@@ -60,13 +47,17 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
 
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Interactive Verification Gate)
 
-0. **Pre-Flight Routing Interceptor (Risk Metrics Delegation Gate - Strict Precedence)**:
-   Evaluate first; when any pre-computed baseline or UEBA indicator below matches, emit the **Skill Delegation Card** above and yield (**0 tool calls**):
-   - **Explicit UEBA / 30d Baselines / Risk Metrics**: Prompts containing `"UEBA"`, `"30-day baseline"`, `"30d baseline"`, `"risk metric"`, `"risk score"`, or 30-day behavioral reviews.
-   - **30d / `metrics.*` MAD**: MAD/modified-Z on a 30d metric-catalog vector routes to `secops-risk-metrics-multistage`; standalone raw-field or custom-window (1h–14d) MAD stays here.
-   - **Web / HTTP & Domain Catalog Baselines**: HTTP volume across user-agents/hosts/users (`metrics.http_queries_*`), or 30d baselines over logins (`metrics.auth_attempts_*`), network (`metrics.network_*`), DNS (`metrics.dns_*`), process (`metrics.file_executions_*`), or Workspace (`metrics.workspace_*`).
-   - **Peer Cohorts & Risk Scores**: Peer-group comparisons, `graph.risk_score`, or 360° health checks.
-   - **Bilateral UEBA Harness Co-Execution**: When co-loaded with `secops-risk-metrics-multistage` on open-ended exploit/CTI inquiries (`references/statistical-hunting-cooperative-framework.md` §8), supply bounded-window raw pipelines (`by 5m`, `by 1h`, Markov 2-gram, Shannon, Poisson Fano, EWMA, CV jitter, Zipfian) paired with 30d `metrics.*` and `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` loopback; never run 30d raw scans over VPC/DNS/HTTP/Auth.
+0. **Pre-Flight Routing Interceptor (Canonical Cross-Skill Precedence)**:
+   Check `scripts/multistage_query_builder.py --check_routing` first. Precedence 1 stays here even with `"UEBA"`; Precedence 2 emits **Skill Handoff Card — Skill Delegation: Route to `secops-risk-metrics-multistage`** (`Delegation Action` for the 30-day baseline, e.g. `metrics.http_queries_total` / `graph.risk_score`) and yields (**0 tools — never probe**); Precedence 3 follows `references/statistical-hunting-cooperative-framework.md` (no 30d raw VPC/DNS/HTTP/Auth scans):
+
+<!-- CANONICAL_SKILL_ROUTING_TABLE_START -->
+| Precedence & Target Skill | Authoritative Signals, Models & Telemetry Scope |
+| :--- | :--- |
+| **1. `secops-statistical-hunter`** *(Micro / Raw `UDM_EVENTS` — wins even with `"UEBA"`)* | C2 jitter (`C2_BEACONING_JITTER` / `FLOW_GAP_RATIO_SCREEN`), sub-second/cron timing; 24-bin circadian / hour-of-day (`HOUR_OF_DAY_PROFILE`); Shannon entropy / DGA / CLI (`SHANNON_ENTROPY_CHARACTER` / `LONG_STRING_SCREEN`); intraday EWMA (`EWMA_BURST_VELOCITY` / `BURST_Z_SCREEN`); Markov 2-gram (`MARKOV_2GRAM_TRANSITION_RARITY`), Zipfian (`ZIPFIAN_PROCESS_RARITY`), Fano spray (`POISSON_BURST_CLUSTERING`), producer-consumer (`PRODUCER_CONSUMER_RATIO_INVERSION`); raw-field or `1h–14d` MAD / Tukey (DNS query length MAD, Git/raw logs). |
+| **2. `secops-risk-metrics-multistage`** *(Macro 30d `metrics.*`)* | 30d baselines (`metrics.auth_attempts_*`, `network_*`, `dns_*`, `http_queries_*`, `file_executions_*`, `resource_*`, `workspace_*`, `alert_event_name_count`) — flow/regular surge, above-max Z, fail/total beta-binomial, business-hours Z, `first_seen` (`first_seen_novelty_2stage.yl2`); peer cohorts (`dual_baseline_delta_z_3stage.yl2`, `part_of_the_whole_*`); 360° health & `graph.risk_score` (`radar_360_decoupled_sector.yl2`); Page CUSUM (`2–30d`, `longitudinal_cusum_series_3stage.yl2` + `cusum_helper.py`); 30d metric MAD (`mad_robust_z_4stage.yl2`), Tukey (`quantile_iqr_skew_3stage.yl2`), HTTP UA (`hybrid_metric_fleet_prevalence_2stage.yl2`), `metrics.*` fusion. |
+| **3. Bilateral Co-Execution** *(`secops-risk-metrics-multistage` + `secops-statistical-hunter`)* | Exploit/CTI UEBA pairing 30d `metrics.*` + bounded (`<=24h`/`<=14d`) raw pipelines + `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` loopback (no single `Active Skill:` lock). |
+| **4. `secops-detection-engineering`** *(Persistent Rules)* | Authoring/deploying persistent `rule ... { ... }` detections (`create_rule`, `validate_rule`). |
+<!-- CANONICAL_SKILL_ROUTING_TABLE_END -->
 1. **Universal Pre-Flight Gate & Interactive Scoping Protocol**:
    Turn 1 emits approach overview, analogy, pre-flight card, candidate query preview (` ```yara `), and clearance question. Turn 1 never executes multi-stage `stage ... { ... }` pipelines (`ZERO_UNSOLICITED_EXECUTION`); multi-stage execution occurs strictly on Turn 2 after clearance.
 2. **Consultative Support & Expert Bypass Rule**:
@@ -179,8 +170,7 @@ stage host_hourly { ... }
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock)
 
 * **Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT)**: When the analyst asks to *"run same for user X"*, *"what about admin?"*, or shifts entities, RETAIN SESSION AFFINITY and re-enter State 1 for the new entity (operational analogy ──► compiler probe ──► spec card ──► clearance question).
-* **Federated Bridge to Macro Analysis**: When the analyst requests 30-day pre-computed baselines, peer cohort comparisons, longitudinal CUSUM drift, or 360° health checks, emit the Skill Handoff Card steering to `secops-risk-metrics-multistage` (enforcing Zero-Code Handoff Invariant).
-* **Bilateral Cooperative Framework**: Consult `references/statistical-hunting-cooperative-framework.md` for macro vs. micro division of labor.
+* **Federated Bridge**: Follow State 1 Step 0 and `references/statistical-hunting-cooperative-framework.md` (`Zero-Code Handoff Invariant`).
 
 ---
 
@@ -198,7 +188,6 @@ stage host_hourly { ... }
 * **Invariant 2: Verified Compiler Grammar (Zero Schema/Syntax Fantasy)**: Construct queries from validated UDM schemas and compilable YARA-L 2.0 grammar (ISO 8601 timestamps, safe denominators). Validate via a 10-minute 1-shot probe.
 
 ### 1. Native Execution & Truth in Reporting
-* **Empirical Metric Derivation Contract**: Derive all summary numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) directly from `udm_search` outputs.
 * **Transparent Error Surfacing**: When an API query returns an error, surface the exact error response and diagnostics directly to the analyst.
 * **Tool Orchestration Protocol**: Use chat Markdown, SecOps MCP tools (`udm_search`, `import_logs`, `create_case_comment`), and `read_file` on `templates/pipelines/*.yl2`. There is no blanket approval for `run_command`, only explicit exemptions. D6 exemption: `scripts/micro_python_helpers.py` (`ewma`, `shannon`, `c2-jitter`) over raw `udm_search` JSON (`G1`–`G5`: exit `2` fail-closed, SHA-256 `Provenance Appendix`; without `run_command`, state *"this model needs a client that can run local scripts"* or route to `BURST_Z_SCREEN` / `LONG_STRING_SCREEN` / `FLOW_GAP_RATIO_SCREEN`).
 * **Native SIEM Engine Execution Guarantee**: Execute multi-stage aggregations, standard deviations, and thresholds natively within Google SecOps Chronicle SIEM via `udm_search` (plus `micro_python_helpers.py` for EWMA/Shannon/C2 jitter).
