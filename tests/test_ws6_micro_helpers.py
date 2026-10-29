@@ -774,5 +774,143 @@ class TestWS6GuardrailG5HonestFallback(unittest.TestCase):
     self.assertEqual(res_ok["model_routed"], "FLOW_GAP_RATIO_SCREEN")
 
 
+class TestWS6HelperFormattingAndPivotPolish(unittest.TestCase):
+  """Regression tests for WS6-02..03 signed Z formatting, outlier vs nominal narrative, and dynamic pivot filter."""
+
+  def setUp(self) -> None:
+    self.assertIsNotNone(mph, "scripts/micro_python_helpers.py missing")
+
+  def test_ewma_signed_formatting_conditional_narrative_and_dynamic_pivot(self) -> None:
+    start_epoch = 1793059200  # 2026-10-27T00:00:00Z
+    entities: List[str] = []
+    ws_list: List[int] = []
+    counts: List[int] = []
+
+    # 1. Outlier user ("alice.admin"): baseline 20 (alt 14/26), post-baseline 45 -> ewma_z > 3.0
+    for h in range(12):
+      entities.append("alice.admin")
+      ws_list.append(start_epoch + h * 3600)
+      counts.append(14 if h % 2 == 0 else 26)
+    for h in range(12, 24):
+      entities.append("alice.admin")
+      ws_list.append(start_epoch + h * 3600)
+      counts.append(45)
+
+    # 2. Sub-threshold positive user ("bob.blip"): baseline 20 (alt 14/26), 1-hour 25 then 20 -> 0 < ewma_z < 3.0
+    for h in range(12):
+      entities.append("bob.blip")
+      ws_list.append(start_epoch + h * 3600)
+      counts.append(14 if h % 2 == 0 else 26)
+    entities.append("bob.blip")
+    ws_list.append(start_epoch + 12 * 3600)
+    counts.append(25)
+    for h in range(13, 24):
+      entities.append("bob.blip")
+      ws_list.append(start_epoch + h * 3600)
+      counts.append(20)
+
+    # 3. Negative-Z quiet user ("carol.quiet"): baseline active in hours 0 & 6 (12 events each), zero post-baseline -> ewma_z < 0
+    for h in (0, 6):
+      entities.append("carol.quiet")
+      ws_list.append(start_epoch + h * 3600)
+      counts.append(12)
+
+    payload = _make_stats_payload({
+        "entity": entities,
+        "ws": ws_list,
+        "window_events": counts,
+    })
+    login_query = (
+        'stage entity_hourly {\n'
+        '  metadata.event_type = "USER_LOGIN"\n'
+        '  target.user.userid = $entity\n'
+        '  match: $entity by 1h\n'
+        '  outcome: $window_events = count(metadata.id)\n'
+        '}\n'
+    )
+    res = mph.run_ewma_helper(
+        payload,
+        query_text=login_query,
+        start_time="2026-10-27T00:00:00Z",
+        end_time="2026-10-28T00:00:00Z",
+    )
+    by_ent = {r["entity"]: r for r in res["entity_results"]}
+
+    # Outlier row: positive sign and "breaching"
+    self.assertTrue(by_ent["alice.admin"]["score_display"].startswith("+"))
+    self.assertNotIn("+-", by_ent["alice.admin"]["score_display"])
+    self.assertIn("breaching", by_ent["alice.admin"]["narrative"])
+    self.assertNotIn("+-", by_ent["alice.admin"]["narrative"])
+
+    # Positive non-outlier row: positive sign and "within" (never "breaching")
+    self.assertTrue(by_ent["bob.blip"]["score_display"].startswith("+"))
+    self.assertIn("within", by_ent["bob.blip"]["narrative"])
+    self.assertNotIn("breaching", by_ent["bob.blip"]["narrative"])
+
+    # Negative non-outlier row: negative sign (never "+-") and "within" (never "breaching")
+    self.assertLess(by_ent["carol.quiet"]["ewma_z"], 0.0)
+    self.assertTrue(by_ent["carol.quiet"]["score_display"].startswith("-"))
+    self.assertNotIn("+-", by_ent["carol.quiet"]["score_display"])
+    self.assertIn("within", by_ent["carol.quiet"]["narrative"])
+    self.assertNotIn("breaching", by_ent["carol.quiet"]["narrative"])
+    self.assertNotIn("+-", by_ent["carol.quiet"]["narrative"])
+
+    # Section 4 pivot dynamically extracts target.user.userid and USER_LOGIN
+    pivot_section = res["report_markdown"].split("#### 🎯 Chronicle UI Manual Pivot")[1].split("---")[0]
+    self.assertIn('target.user.userid = "alice.admin" AND metadata.event_type = "USER_LOGIN"', pivot_section)
+    self.assertNotIn("PROCESS_LAUNCH", pivot_section)
+
+  def test_shannon_signed_formatting_conditional_narrative_and_dynamic_pivot(self) -> None:
+    benign_domains = [
+        "internal-api-gateway-prod-us-central1.corp.example.com",
+        "metrics-collector-ingest-us-east1.corp.example.com",
+        "artifact-registry-mirror-prod-01.corp.example.com",
+        "identity-sso-token-service-prod.corp.example.com",
+        "kubernetes-ingress-controller-02.corp.example.com",
+    ]
+    dga_cand = "aB3x9Kq7Lm2Pv8Rn4Tz6Yw1Jc5Hf0Gd9Se8Ua7Vi6Bo5Np4Mq3Lr2Ks1Jt"
+    low_h_cand = "aaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbb.com"
+
+    tokens = benign_domains + [dga_cand, low_h_cand]
+    payload = _make_stats_payload({
+        "token": tokens,
+        "sample_entities": [["10.0.0.1", "10.0.0.2", "10.0.0.3"]] * 5 + [["10.9.9.77"], ["10.9.9.88"]],
+        "host_prevalence": [8, 9, 7, 10, 6, 1, 1],
+        "token_events": [20, 20, 20, 20, 20, 3, 3],
+        "raw_length": [len(t) for t in tokens],
+    })
+    dns_query = (
+        'stage token_stats {\n'
+        '  metadata.event_type = "NETWORK_DNS"\n'
+        '  principal.ip = $entity\n'
+        '  $token = network.dns.questions.name\n'
+        '  match: $token\n'
+        '  outcome: $raw_length = max(strings.length($token))\n'
+        '}\n'
+    )
+    res = mph.run_shannon_helper(payload, query_text=dns_query, min_length=25, z_threshold=3.0)
+    by_tok = {c["token"]: c for c in res["candidate_results"]}
+
+    # Outlier DGA token: signed "+" and "exceeding"
+    self.assertGreaterEqual(by_tok[dga_cand]["shannon_z"], 3.0)
+    self.assertTrue(by_tok[dga_cand]["score_display"].startswith("+"))
+    self.assertNotIn("+-", by_tok[dga_cand]["score_display"])
+    self.assertIn("exceeding", by_tok[dga_cand]["narrative"])
+    self.assertNotIn("+-", by_tok[dga_cand]["narrative"])
+
+    # Low-entropy candidate: signed "-" (never "+-") and "within" (never "exceeding")
+    self.assertLess(by_tok[low_h_cand]["shannon_z"], 0.0)
+    self.assertTrue(by_tok[low_h_cand]["score_display"].startswith("-"))
+    self.assertNotIn("+-", by_tok[low_h_cand]["score_display"])
+    self.assertIn("within", by_tok[low_h_cand]["narrative"])
+    self.assertNotIn("exceeding", by_tok[low_h_cand]["narrative"])
+    self.assertNotIn("+-", by_tok[low_h_cand]["narrative"])
+
+    # Section 4 pivot dynamically extracts principal.ip and NETWORK_DNS
+    pivot_section = res["report_markdown"].split("#### 🎯 Chronicle UI Manual Pivot")[1].split("---")[0]
+    self.assertIn('principal.ip = "10.9.9.77" AND metadata.event_type = "NETWORK_DNS"', pivot_section)
+    self.assertNotIn("PROCESS_LAUNCH", pivot_section)
+
+
 if __name__ == "__main__":
   unittest.main()
