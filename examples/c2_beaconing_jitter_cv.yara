@@ -1,25 +1,34 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect persistent Command & Control (C2) beaconing to low-prevalence external infrastructure with random sleep jitter.
+// Goal: Screen persistent low-prevalence external pairs with uniform bucket flow-gap ratios (flow-gap ratio screen).
 // Target Telemetry: UDM_EVENTS (NETWORK_CONNECTION)
-// Statistical Model: Inter-Arrival Jitter via Coefficient of Variation (CV = σ / μ) & Fleet Prevalence Filter
+// Statistical Model: Cross-Bucket Flow-Gap Ratio Dispersion (flow-gap ratio — stateless YARA-L candidate screen)
 // Mathematical Rationale:
-//   - Why this model: Automated implants (Cobalt Strike, Sliver) sleep between callbacks with a configured jitter percentage (typically 15-20%).
-//     This produces a low Coefficient of Variation (CV <= 0.20), whereas human browsing exhibits wide, random time variance (CV > 0.50).
-//   - Noise protection: Enforces a volume floor of >= 25 connections over the window, a sample density floor (>= 6 active hours),
-//     and restricts destination IP prevalence to <= 2 internal hosts to eliminate widespread cloud infrastructure (CDNs, NTP, OS updates).
-// Sensitivity Boundary: BALANCED (CV <= 0.2, Total Conns >= 25, Prevalence <= 2 hosts, Active Hours >= 6)
+//   - Honest D6 G5 In-Query Screen: Stateless bucketed YARA-L measures within-bucket span/count
+//     flow-gap ratios across active buckets (CV = σ_gap / μ_gap <= 0.20), serving as an external
+//     pair regularity pre-screen while excluding RFC 1918, loopback, multicast, broadcast, and link-local noise.
+//   - Noise protection: Enforces >= 25 connections over the window, >= 6 active hours,
+//     and destination IP prevalence <= 2 internal hosts.
+// Sensitivity Boundary: BALANCED (Flow-Gap Ratio CV <= 0.20, Total Conns >= 25, Prevalence <= 2 hosts, Active Hours >= 6)
 // ============================================================================
 
-// Stage 1: Measure hourly timing stamps per (src_ip, dst_ip) pair
+// Stage 1: Measure hourly span-to-count flow-gap ratio per (src_ip, dst_ip) pair
 stage host_intervals {
     metadata.event_type = "NETWORK_CONNECTION"
     target.ip = $dst_ip
+    $dst_ip != ""
     principal.asset.ip = $src_ip
-    // Exclude internal RFC 1918 subnets for destination
+    $src_ip != ""
+    // Exclude internal RFC 1918, loopback, multicast, broadcast, and IPv4/IPv6 link-local destinations
     not net.ip_in_range_cidr($dst_ip, "10.0.0.0/8")
     not net.ip_in_range_cidr($dst_ip, "172.16.0.0/12")
     not net.ip_in_range_cidr($dst_ip, "192.168.0.0/16")
+    not net.ip_in_range_cidr($dst_ip, "127.0.0.0/8")
+    not net.ip_in_range_cidr($dst_ip, "224.0.0.0/4")
+    not net.ip_in_range_cidr($dst_ip, "169.254.0.0/16")
+    not net.ip_in_range_cidr($dst_ip, "255.255.255.255/32")
+    not net.ip_in_range_cidr($dst_ip, "fe80::/10")
+    not net.ip_in_range_cidr($dst_ip, "ff00::/8")
     $ts = metadata.event_timestamp.seconds
 
   match:
@@ -28,10 +37,10 @@ stage host_intervals {
     $first_seen = min($ts)
     $last_seen = max($ts)
     $conn_count = count(metadata.id)
-    $avg_gap = (max($ts) - min($ts)) / (count(metadata.id) + 1.0)
+    $avg_gap = 1.0 * (max($ts) - min($ts)) / count(metadata.id)
 }
 
-// Stage 2: Aggregate historical timing stats across the window
+// Stage 2: Aggregate flow-gap ratio statistics across the window per pair
 stage timing_stats {
     $src_ip = $host_intervals.src_ip
     $dst_ip = $host_intervals.dst_ip
@@ -55,7 +64,7 @@ stage dst_prevalence {
     $src_breadth = count_distinct($host_intervals.src_ip)
 }
 
-// Root Stage: Combine timing stats, compute CV, and emit standardized 6 Evidence Pillars
+// Root Stage: Combine timing stats, compute unbiased flow-gap ratio CV, and emit 6 Evidence Pillars
 $src_ip = $timing_stats.src_ip
 $dst_ip = $timing_stats.dst_ip
 $dst_ip = $dst_prevalence.dst_ip
@@ -70,19 +79,17 @@ outcome:
   $baseline_dispersion = max($timing_stats.stddev_gap)
   $fleet_prevalence = max($dst_prevalence.src_breadth)
   $distinct_binaries = max($timing_stats.total_conns)
-  
-  // Aggregate Coefficient of Variation (CV = σ / μ)
-  $raw_mean = max($timing_stats.mean_gap)
-  $safe_mean = if($raw_mean > 0, $raw_mean, 1.0)
-  $raw_stddev = max($timing_stats.stddev_gap)
-  $cv = $raw_stddev / ($safe_mean + 1.0)
+
+  // Unbiased Flow-Gap Ratio CV = σ_gap / μ_gap
+  $safe_mean = if($baseline_mean > 0.0, $baseline_mean, 1.0)
+  $cv = $baseline_dispersion / $safe_mean
 
 condition:
   $baseline_active_samples >= 6
   and $observation_count >= 25
   and $baseline_mean >= 1.0
   and $fleet_prevalence <= 2
-  and $cv <= 0.2
+  and $cv <= 0.20
 
 order:
   $cv asc

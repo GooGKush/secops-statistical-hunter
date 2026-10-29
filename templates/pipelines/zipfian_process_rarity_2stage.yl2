@@ -1,52 +1,66 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect rare administrative tool executions in the enterprise Zipfian long tail.
+// Goal: Detect rare binary executions in the enterprise Zipfian long tail via pure host-prevalence inverse document frequency.
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Power-Law / Zipfian Inverse Rank Frequency Rarity (f(k) ~ 1/k^s)
+// Statistical Model: Host-Prevalence Inverse Document Frequency Rarity (Zipf Score = ln(N_fleet_hosts / N_adopter_hosts))
 // Mathematical Rationale:
-//   - Why this model: In enterprise fleets, legitimate process executions follow a Zipfian power-law
-//     distribution: a tiny core of standard binaries (svchost, chrome) account for 99% of executions,
-//     while rare admin utilities (whoami, vssadmin, certutil) sit in the extreme asymptotic tail.
-//   - Small-Sample & Multiple-Comparison Protection: Filters to binaries adopted by <= {{max_adopters}} hosts
-//     across the enterprise, ensuring targeted isolation of long-tail outliers.
-// Sensitivity Boundary: {{tier}} (Zipf Rarity Score >= {{zipf_threshold}}, Max Fleet Adopters <= {{max_adopters}})
+//   - Why this model: In enterprise fleets, legitimate binaries are adopted across broad peer cohorts while targeted
+//     tooling and living-off-the-land utilities execute on only 1-2 isolated endpoints. Scoring pure host-prevalence
+//     ln(safe_fleet_hosts / safe_adopter_hosts) avoids mixing total event volume with host count so chatty daemons
+//     cannot outrank genuinely rare single-host binaries.
+//   - Small-Sample & Multiple-Comparison Protection: Requires active fleet size >= {{min_fleet_hosts}} hosts and
+//     restricts alerts to binaries adopted by <= {{max_adopters}} hosts across the search horizon.
+// Sensitivity Boundary: {{tier}} (Zipf Rarity Score >= {{zipf_threshold}}, Max Fleet Adopters <= {{max_adopters}}, Min Fleet Hosts >= {{min_fleet_hosts}})
 // ============================================================================
 
-// Stage 1: Enterprise Fleetwide Binary Popularity & Adopter Breadth
-stage fleet_process_popularity {
-    metadata.event_type = "{{event_type}}"
-    $binary = target.process.file.full_path
-    $binary != ""
-
-  match:
-    $binary by {{bucket_size}}
-
-  outcome:
-    $fleet_hosts = count_distinct({{entity_field}})
-    $fleet_total_executions = count(metadata.id)
-}
-
-// Stage 2: Endpoint Local Binary Execution Activity
+// Stage 1: Endpoint Local Binary Execution Activity
 stage endpoint_process_burst {
     metadata.event_type = "{{event_type}}"
+    $etype = metadata.event_type
     {{entity_field}} = $host
     $binary = target.process.file.full_path
     $host != ""
     $binary != ""
 
   match:
-    $host, $binary by {{bucket_size}}
+    $etype, $host, $binary by {{bucket_size}}
 
   outcome:
     $endpoint_executions = count(metadata.id)
     $sample_commands = array_distinct(target.process.command_line)
 }
 
-// Root Stage: Zipfian Inverse Rank Departure & Asymptotic Tail Scoring
-$binary = $fleet_process_popularity.binary
+// Stage 2: Enterprise Fleetwide Binary Adopter Breadth across the Search Window
+stage fleet_process_popularity {
+    $etype = $endpoint_process_burst.etype
+    $binary = $endpoint_process_burst.binary
+
+  match:
+    $etype, $binary
+
+  outcome:
+    $fleet_hosts = count_distinct($endpoint_process_burst.host)
+    $fleet_total_executions = sum($endpoint_process_burst.endpoint_executions)
+}
+
+// Stage 3: Total Active Fleet Host Population across the Search Window
+stage fleet_host_total {
+    $etype = $endpoint_process_burst.etype
+
+  match:
+    $etype
+
+  outcome:
+    $total_fleet_hosts = count_distinct($endpoint_process_burst.host)
+}
+
+// Root Stage: Host-Prevalence Zipfian Rarity Scoring
+$etype = $endpoint_process_burst.etype
+$etype = $fleet_process_popularity.etype
+$etype = $fleet_host_total.etype
 $binary = $endpoint_process_burst.binary
+$binary = $fleet_process_popularity.binary
 $host = $endpoint_process_burst.host
-$ws = $fleet_process_popularity.window_start
 $ws = $endpoint_process_burst.window_start
 
 match:
@@ -54,34 +68,26 @@ match:
 
 outcome:
   $adopter_hosts = max($fleet_process_popularity.fleet_hosts)
-  $fleet_volume = max($fleet_process_popularity.fleet_total_executions)
+  $fleet_total_hosts = max($fleet_host_total.total_fleet_hosts)
   $local_volume = max($endpoint_process_burst.endpoint_executions)
   $commands = array_distinct($endpoint_process_burst.sample_commands)
 
-  // 1. Safe Cardinalities
   $safe_hosts = if($adopter_hosts > 0, $adopter_hosts, 1)
-  $safe_volume = if($fleet_volume > 0, $fleet_volume, 1)
-
-  // 2. Zipfian Power-Law Log-Rank Departure
-  $log_fleet = math.log($safe_volume)
-  $log_adopters = math.log($safe_hosts)
-  $zipf_log_rank = $log_fleet - $log_adopters
-
-  // 3. Inverse Asymptotic Tail Multiplier
-  $tail_rarity = 1.0 / $safe_hosts
-  $zipf_rarity_score = $zipf_log_rank * (1.0 + $tail_rarity)
+  $safe_fleet_hosts = if($fleet_total_hosts > $safe_hosts, $fleet_total_hosts, $safe_hosts)
+  $zipf_rarity_score = math.log(1.0 * $safe_fleet_hosts / $safe_hosts)
 
   // 6 Core Evidence Pillars
   $observation_count = $local_volume
-  $baseline_active_samples = $fleet_volume
-  $baseline_mean = $log_fleet
-  $baseline_dispersion = $zipf_log_rank
+  $baseline_active_samples = $safe_fleet_hosts
+  $baseline_mean = 1.0 * $adopter_hosts / $safe_fleet_hosts
+  $baseline_dispersion = $zipf_rarity_score
   $fleet_prevalence = $adopter_hosts
   $distinct_binaries = 1
 
 condition:
-  $adopter_hosts <= {{max_adopters}}
-  and $local_volume >= {{min_count}}
+  $safe_fleet_hosts >= {{min_fleet_hosts}}
+  and $adopter_hosts <= {{max_adopters}}
+  and $observation_count >= {{min_count}}
   and $zipf_rarity_score >= {{zipf_threshold}}
 
 order:

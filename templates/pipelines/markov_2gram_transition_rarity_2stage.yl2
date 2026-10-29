@@ -1,36 +1,20 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect rare, unobserved process parent-child execution transitions via Markov 2-Gram Transition Rarity.
+// Goal: Detect rare parent-child process execution transitions via Whole-Window Laplace-Smoothed Markov 2-Gram Surprisal.
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (-ln(P(Child | Parent)))
+// Statistical Model: Laplace-Smoothed Markov 2-Gram Information Surprisal (Score = ln((N_parent + V) / (N_pair + 1)))
 // Mathematical Rationale:
-//   - Why this model: Evaluates the conditional transition probability P(B | A) of parent process A spawning
-//     child process B. Common administrative workflows (services.exe -> svchost.exe) exhibit high probability,
-//     while adversary execution chains (word.exe -> cmd.exe or sqlservr.exe -> powershell.exe) produce extreme
-//     information surprisal (-ln(P) >= {{surprisal_threshold}}), exposing living-off-the-land chains.
-//   - Small-Sample & Multiple-Comparison Protection: Enforces minimum parent launch count floor (>= {{min_parent_count}})
-//     and applies discrete transition count regularization to prevent single-event noise.
-// Sensitivity Boundary: {{tier}} (Surprisal Score >= {{surprisal_threshold}}, Min Parent Launches >= {{min_parent_count}})
+//   - Evaluates the whole-window conditional transition probability P(Child | Parent) = (N_pair + 1) / (N_parent + {{vocab_smooth}})
+//     across the full search horizon rather than an isolated bucket, eliminating the arbitrary 3rd-run step-function
+//     cliff while enabling single-occurrence living-off-the-land spawns (e.g. winword.exe -> powershell.exe) to score
+//     smoothly via ln((N_parent + {{vocab_smooth}}) / (N_pair + 1)).
+// Sensitivity Boundary: {{tier}} (Surprisal Score >= {{surprisal_threshold}}, Min Parent Launches >= {{min_parent_count}}, Laplace Vocab V = {{vocab_smooth}})
 // ============================================================================
 
-// Stage 1: Parent Process Launch Baseline Frequency
-stage parent_baseline {
-    metadata.event_type = "{{event_type}}"
-    {{entity_field}} = $host
-    $host != ""
-    $parent = principal.process.file.full_path
-    $parent != ""
-
-  match:
-    $host, $parent by {{bucket_size}}
-
-  outcome:
-    $parent_total_launches = count(metadata.id)
-}
-
-// Stage 2: Child Process Transition Frequency
+// Stage 1: Bucketed Parent-Child Process Transition Activity
 stage child_transition {
     metadata.event_type = "{{event_type}}"
+    $etype = metadata.event_type
     {{entity_field}} = $host
     $host != ""
     $parent = principal.process.file.full_path
@@ -39,56 +23,77 @@ stage child_transition {
     $child != ""
 
   match:
-    $host, $parent, $child by {{bucket_size}}
+    $etype, $host, $parent, $child by {{bucket_size}}
 
   outcome:
     $transition_count = count(metadata.id)
     $sample_command = array_distinct(target.process.command_line)
 }
 
-// Root Stage: Markov Conditional Probability & Information Surprisal
-$host = $parent_baseline.host
+// Stage 2: Whole-Window Pair Transition Totals per Host
+stage pair_window_totals {
+    $etype = $child_transition.etype
+    $host = $child_transition.host
+    $parent = $child_transition.parent
+    $child = $child_transition.child
+
+  match:
+    $etype, $host, $parent, $child
+
+  outcome:
+    $total_pair_launches = sum($child_transition.transition_count)
+}
+
+// Stage 3: Whole-Window Parent Process Totals per Host
+stage parent_window_totals {
+    $etype = $child_transition.etype
+    $host = $child_transition.host
+    $parent = $child_transition.parent
+
+  match:
+    $etype, $host, $parent
+
+  outcome:
+    $total_parent_launches = sum($child_transition.transition_count)
+}
+
+// Root Stage: Laplace-Smoothed Markov Conditional Probability & Information Surprisal
+$etype = $child_transition.etype
+$etype = $pair_window_totals.etype
+$etype = $parent_window_totals.etype
 $host = $child_transition.host
-$parent = $parent_baseline.parent
+$host = $pair_window_totals.host
+$host = $parent_window_totals.host
 $parent = $child_transition.parent
+$parent = $pair_window_totals.parent
+$parent = $parent_window_totals.parent
 $child = $child_transition.child
-$ws = $parent_baseline.window_start
+$child = $pair_window_totals.child
 $ws = $child_transition.window_start
 
 match:
   $host, $parent, $child, $ws by {{bucket_size}}
 
 outcome:
-  $parent_launches = max($parent_baseline.parent_total_launches)
   $transition_launches = max($child_transition.transition_count)
+  $window_pair_launches = max($pair_window_totals.total_pair_launches)
+  $window_parent_launches = max($parent_window_totals.total_parent_launches)
   $sample_commands = array_distinct($child_transition.sample_command)
 
-  // 1. Safe Cardinalities
-  $safe_parent = if($parent_launches > 0, $parent_launches, 1)
-  $safe_trans = if($transition_launches > 0, $transition_launches, 1)
-
-  // 2. Markov Transition Probability: P(B | A) = Count(A -> B) / Count(A)
-  $transition_prob = $safe_trans / $safe_parent
-
-  // 3. Information Surprisal (Self-Information Rarity): I = -ln(P) = ln(Parent) - ln(Transition)
-  $log_parent = math.log($safe_parent)
-  $log_trans = math.log($safe_trans)
-  $surprisal_score = $log_parent - $log_trans
-
-  // 4. Rare Sequence Multiplier (Amplifies singleton transitions)
-  $rare_multiplier = if($transition_launches <= 2, 2.0, 1.0)
-  $markov_threat_score = $surprisal_score * $rare_multiplier
+  // Laplace-Smoothed Conditional Transition Probability & Surprisal
+  $transition_prob = ($window_pair_launches + 1.0) / ($window_parent_launches + {{vocab_smooth}})
+  $markov_threat_score = math.log(($window_parent_launches + {{vocab_smooth}}) / ($window_pair_launches + 1.0))
 
   // 6 Core Evidence Pillars
   $observation_count = $transition_launches
-  $baseline_active_samples = $parent_launches
+  $baseline_active_samples = $window_parent_launches
   $baseline_mean = $transition_prob
-  $baseline_dispersion = $surprisal_score
+  $baseline_dispersion = $markov_threat_score
   $fleet_prevalence = 0 - 1
   $distinct_binaries = 1
 
 condition:
-  $parent_launches >= {{min_parent_count}}
+  $window_parent_launches >= {{min_parent_count}}
   and $markov_threat_score >= {{surprisal_threshold}}
 
 order:

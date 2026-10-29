@@ -17,36 +17,29 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 2. Poisson-Gamma Bayesian Credibility Shrinkage ("The Seasoned SOC Detective")
-* **Goal**: Isolate high-confidence bursts on stable hosts while preventing false alarms on erratic endpoints.
-* **Method of Moments Gamma Prior**:
-  $$\text{Var} = \sigma^2, \quad \beta_0 = \frac{\mu}{\text{Var}}, \quad \alpha_0 = \mu \cdot \beta_0$$
-* **Conjugate Posterior Updating** (for observation $k$ across time $t=1$):
-  $$\alpha_{\text{post}} = \alpha_0 + k, \quad \beta_{\text{post}} = \beta_0 + 1.0$$
-* **Posterior Expected Arrival Rate & Credibility Weights**:
-  $$\lambda_{\text{post}} = \frac{\alpha_{\text{post}}}{\beta_{\text{post}}}, \quad W_{\text{prior}} = \frac{\beta_0}{\beta_{\text{post}}}, \quad W_{\text{evidence}} = \frac{1}{\beta_{\text{post}}}$$
-* **Belief Shift Ratio**:
-  $$\text{Shift Ratio} = \frac{\lambda_{\text{post}}}{\mu}$$
+## 2. Poisson-Gamma Bayesian Predictive Standardization (`BAYESIAN_GAMMA_SHRINKAGE`)
+* **Goal**: Isolate high-confidence bursts on stable hosts while shrinking steady overdispersed servers.
+* **Leave-One-Out Conjugate Gamma Prior & Excess Overdispersion**:
+  $$\alpha_{\text{prior}} = \alpha_0 + S_{-t}, \quad \beta_{\text{prior}} = \beta_0 + T_{\text{prior}}, \quad \mu_0 = \frac{\alpha_{\text{prior}}}{\beta_{\text{prior}}}$$
+  $$\sigma_{\text{pred}}^2 = \max\left(1.0, \mu_0 \frac{\beta_{\text{prior}} + 1}{\beta_{\text{prior}}} + \max\left(0, \frac{Q_{-t}}{T_{\text{prior}}} - \bar{x}_{-t}^2 - \bar{x}_{-t}\right)\right), \quad Z_{\text{Bayes}} = \frac{x_t - \mu_0}{\sqrt{\sigma_{\text{pred}}^2}}$$
 
 ---
 
-## 3. Beta-Binomial Failure Ratio Regularization ("Small-Sample Ratio Regularizer")
-* **Goal**: Prevent false positives from $1/1 = 100\%$ failure rates on single-trial mistakes.
-* **Informative Corporate Prior**: $\alpha_0 = 1.0, \beta_0 = 9.0$ ($\sim 10\%$ normal background error rate).
-* **Conjugate Posterior Update**:
-  $$\alpha_{\text{post}} = \alpha_0 + \text{fails}, \quad \beta_{\text{post}} = \beta_0 + \text{successes}$$
-* **Regularized Posterior Failure Probability**:
-  $$P(\text{Fail}) = \frac{\alpha_{\text{post}}}{\alpha_{\text{post}} + \beta_{\text{post}}}$$
+## 3. Beta-Binomial Predictive Failure Standardization (`BETA_BINOMIAL_FAILURE`)
+* **Goal**: Regularize small-sample failure ratios while suppressing accounts with chronically elevated historical failure rates.
+* **Leave-One-Out Conjugate Beta Prior**: $\alpha_{\text{prior}} = 1.0 + F_{-t}, \quad \beta_{\text{prior}} = 19.0 + (N_{-t} - F_{-t}), \quad p_0 = \frac{\alpha_{\text{prior}}}{M}$, where $M = \alpha_{\text{prior}} + \beta_{\text{prior}}$.
+* **Predictive Failure $Z$-Score (`$fail_z`)**:
+  $$\text{Var}_{\text{pred}} = \max\left(0.25, n_t p_0 (1 - p_0) \frac{M + n_t}{M + 1}\right), \quad Z_{\text{fail}} = \frac{f_t - n_t p_0}{\sqrt{\text{Var}_{\text{pred}}}}$$
 
 ---
 
 ## 4. Dual-Baseline Delta-$Z$ ("The Patch Tuesday Shield")
-* **Goal**: Isolate targeted endpoint spikes from company-wide software deployments.
+* **Goal**: Isolate targeted endpoint spikes from company-wide software deployments across mature peers.
 * **Formula**:
-  $$\Delta Z = Z_{\text{Personal}} - Z_{\text{Fleet Today}} = \left(\frac{x - \mu_{\text{personal}}}{\sigma_{\text{personal}}}\right) - \left(\frac{x - \mu_{\text{fleet}}}{\sigma_{\text{fleet}}}\right)$$
+  $$\Delta Z = Z_{\text{Personal, LOO}} - \max(0, Z_{\text{Fleet Mature Shift}})$$
 * **Behavior**:
-  - Company-wide deployment: $Z_{\text{Personal}} \approx 10.0$, $Z_{\text{Fleet}} \approx 9.8 \implies \Delta Z \approx 0.2$ (Ignored).
-  - Targeted attack: $Z_{\text{Personal}} \approx 8.5$, $Z_{\text{Fleet}} \approx 0.1 \implies \Delta Z \approx 8.4$ (Triggered).
+  - Company-wide deployment across mature peers: $Z_{\text{Personal}} \approx 12.0$, $Z_{\text{Fleet}} \approx 12.0 \implies \Delta Z \approx 0.0$ (Suppressed).
+  - Targeted single-host attack: $Z_{\text{Personal}} \approx 12.0$, $Z_{\text{Fleet}} \approx 0.0 \implies \Delta Z \approx 12.0$ (Triggered).
 
 ---
 
@@ -68,21 +61,20 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 7. Information-Theoretic Diversity Deficit (Entropy Proxy)
-* **Goal**: Detect automated scripted exfiltration where an entity touches many destinations with minimal vocabulary entropy.
-* **Formula**:
-  $$\text{Diversity Ratio} = \frac{k_{\text{vocab}}}{N_{\text{events}} + 1.0}$$
-* **Interpretation**:
-  - Scripted exfiltration produces severe diversity collapse ($\text{Diversity Ratio} \le 0.20$).
+## 7. Destination Diversity & Concentration Screen (`HYBRID_ENTROPY_CONCENTRATION`)
+* **Goal**: Detect destination diversity collapse paired with single-flow outbound byte concentration using strictly non-negative thresholds.
+* **Formulas**:
+  $$Z_{\text{deficit}} = \max\left(0, \frac{\mu_{d,-t} - d_t}{\max(s_{d,-t}, \sqrt{\max(\mu_{d,-t}, 1.0)})}\right), \quad \text{ConcRatio} = \frac{\text{PeakBytes}_t}{\max(\text{SumBytes}_t, 1)}$$
+  $$\text{ThreatScore} = 3.0 \cdot \sqrt{\left(\frac{Z_{\text{deficit}}}{Z_{\min}}\right)^2 + \left(\frac{\text{ConcRatio}}{C_{\min}}\right)^2}$$
 
 ---
 
-## 8. Elephant Flow Concentration (HHI / Gini Proxy)
+## 8. Elephant Flow Concentration Ratio
 * **Goal**: Detect single massive exfiltration bursts masked within routine traffic.
 * **Formula**:
-  $$\text{Concentration Ratio} = \frac{\text{Peak Transfer}}{\sum \text{Transfers} + 1.0}$$
+  $$\text{Concentration Ratio} = \frac{\text{Peak Transfer}}{\max(\sum \text{Transfers}, 1)}$$
 * **Interpretation**:
-  - Extreme concentration ($\text{Concentration Ratio} \ge 0.70$) indicates an isolated elephant flow.
+  - Extreme concentration ($\text{Concentration Ratio} \ge 0.65$) indicates an isolated elephant flow.
 
 ---
 
@@ -120,15 +112,12 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 13. Markov 2-Gram Transition Probability & Information Surprisal
-* **Goal**: Detect rare living-off-the-land process execution chains and unusual parent-child lineages.
+## 13. Markov 2-Gram Laplace-Smoothed Transition Surprisal (`MARKOV_2GRAM_TRANSITION_RARITY`)
+* **Goal**: Detect rare living-off-the-land process execution chains and unusual parent-child lineages without artificial step cliffs.
 * **Formula**:
-  $$P(B \mid A) = \frac{\text{Count}(A \to B)}{\text{Count}(A)}, \quad I(B \mid A) = -\ln P(B \mid A) = \ln(\text{Count}(A)) - \ln(\text{Count}(A \to B))$$
-* **Threat Score**:
-  $$\text{Score} = I(B \mid A) \times \text{RareMultiplier}$$
+  $$P(B \mid A) = \frac{\text{Count}(A \to B) + 1.0}{\text{Count}(A) + V}, \quad \text{Score} = \ln\left(\frac{\text{Count}(A) + V}{\text{Count}(A \to B) + 1.0}\right)$$
 * **Interpretation**:
-  - Administrative hierarchies (`services.exe` $\to$ `svchost.exe`) have high conditional probability and negligible surprisal.
-  - Malicious execution (`word.exe` $\to$ `powershell.exe`) yields high information surprisal ($I \ge 3.0$), isolating living-off-the-land chains.
+  - Whole-window Laplace smoothing ($V = 100$) enables single rare macro-to-shell transitions (`winword.exe` $\to$ `powershell.exe`) to score $\ln(101/2) \approx 3.92 \ge 3.0$ while decaying smoothly and monotonically.
 
 ---
 
@@ -142,13 +131,12 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 15. Power-Law / Zipfian Inverse Rank Frequency Rarity
-* **Goal**: Isolate rare administrative tools operating in the asymptotic long tail of enterprise process distributions ($f(k) \propto 1/k^s$).
+## 15. Host-Prevalence Inverse Document Frequency Rarity (`ZIPFIAN_PROCESS_RARITY`)
+* **Goal**: Isolate rare binaries in the enterprise long tail by pure host adoption breadth without mixing event volume and host counts.
 * **Formula**:
-  $$\text{ZipfLogRank} = \ln(\text{FleetVolume}) - \ln(\text{Adopters}), \quad \text{RarityScore} = \text{ZipfLogRank} \times \left(1.0 + \frac{1}{\text{Adopters}}\right)$$
+  $$\text{ZipfScore} = \ln\left(\frac{N_{\text{fleet hosts}}}{N_{\text{adopter hosts}}}\right)$$
 * **Interpretation**:
-  - Standard enterprise binaries executed by thousands of hosts yield near-zero tail rarity.
-  - Unfrequent admin utilities (`vssadmin.exe`, `certutil.exe`) executed on $\le 2$ hosts produce extreme asymptotic tail departure scores.
+  - Novel single-host binaries in a 50-host fleet score $\ln(50/1) \approx 3.91$, strictly outranking chatty multi-host daemons.
 
 ---
 
@@ -169,23 +157,22 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 18. Producer–Consumer Directional Byte Ratio Inversion (`PRODUCER_CONSUMER_RATIO_INVERSION`)
-* **Goal**: Detect an endpoint shifting from a net data consumer to a net data producer (staging or exfiltration).
+## 18. Leave-One-Out Producer–Consumer Ratio Inversion (`PRODUCER_CONSUMER_RATIO_INVERSION`)
+* **Goal**: Detect an endpoint shifting from a net data consumer to a net data producer while suppressing steady high-ratio log forwarders.
 * **Formula**:
-  $$\rho_{\text{producer}} = \frac{\text{SentBytes}}{\text{SentBytes} + \text{ReceivedBytes} + 1.0}, \quad Z_{\text{sent}} = \frac{\text{SentBytes} - \mu_{\text{sent}}}{\sigma_{\text{sent}}}$$
+  $$\rho_t = \frac{\text{SentBytes}_t}{\text{SentBytes}_t + \text{ReceivedBytes}_t + 1.0}, \quad Z_{\rho} = \frac{\rho_t - \mu_{\rho,-t}}{\max(s_{\rho,-t}, 0.05)}$$
 * **Interpretation**:
-  - Standard client workstations exhibit $\rho_{\text{producer}} \ll 0.30$; inversion to $\rho_{\text{producer}} \ge 0.70$ combined with $Z_{\text{sent}} \ge 2.5\sigma$ isolates active staging and outbound exfiltration.
+  - Dedicated forwarders with steady $\rho \approx 0.90$ yield $Z_{\rho} \approx 0$, whereas a consumer workstation ($\mu_{\rho} \approx 0.10$) inverting to $\rho_t = 0.85$ triggers $Z_{\rho} \gg 3.0$.
 
 ---
 
-## 19. Non-Parametric Quantiles, Bowley Skewness, Tail Ratio, QCD & Skewness-Adjusted Tukey Fence (`IQR_TUKEY_SKEW_FENCES`)
-* **Goal**: Isolate heavy-tailed volumetric surges, asymmetric burst exfiltration, and telemetry ingestion-lag/clock-skew anomalies in a single quantile stage (saving 1 stage compared to 2-stage MAD).
+## 19. Recalibrated Bowley Skewness-Adjusted Tukey Fence Excess $Z$ (`IQR_TUKEY_SKEW_FENCES`)
+* **Goal**: Isolate heavy-tailed volumetric surges in scale-invariant standard-deviation units using a single 5-point quantile stage.
 * **Formulas**:
-  $$\text{IQR} = Q_3 - Q_1, \quad B_{\text{skew}} = \frac{Q_3 + Q_1 - 2 Q_2}{\max(\text{IQR}, 1.0)} \in [-1, +1], \quad T_{\text{ratio}} = \frac{P_{90} - P_{10}}{\max(\text{IQR}, 1.0)}, \quad \text{QCD} = \frac{Q_3 - Q_1}{\max(Q_3 + Q_1, 1.0)}$$
-  $$\text{Fence}_{\text{adj}} = Q_3 + 1.5 \cdot e^{3 \cdot \max(0, B_{\text{skew}})} \cdot \max(\text{IQR}, 1.0), \quad \text{SurgeRatio} = \frac{x_t}{\max(\text{Fence}_{\text{adj}}, 1.0)}$$
+  $$\text{SafeIQR} = \max(Q_3 - Q_1, \max(0.01 Q_2, 1.0)), \quad B_{\text{skew}} = \frac{Q_3 + Q_1 - 2 Q_2}{\text{SafeIQR}} \in [-1, +1]$$
+  $$\text{Fence}_{\text{adj}} = Q_3 + 1.5 \cdot e^{1.35 \cdot \max(0, B_{\text{skew}})} \cdot \text{SafeIQR}, \quad Z_{\text{fence}} = \frac{x_t - \text{Fence}_{\text{adj}}}{\text{SafeIQR} / 1.349}$$
 * **Interpretation**:
-  - Standard Tukey fences ($Q_3 + 1.5 \cdot \text{IQR}$) suffer false positives on right-skewed telemetry ($B_{\text{skew}} > 0$). Scaling by $e^{3 B_{\text{skew}}}$ adapts to right-skewed servers while maintaining tight $1.5 \cdot \text{IQR}$ fences on symmetric hosts ($B_{\text{skew}} \le 0$).
-  - Computing `window.percentile(..., P)` ($P \in \{10, 25, 50, 75, 90\}$) in 1 stage frees Stage 3 for enterprise fleet prevalence (`$fleet_prevalence`).
+  - Recalibrates the Hubert-Vandervieren exponent to $1.35$ for bounded Bowley quartile skewness, replaces fixed IQR cliffs with a continuous relative floor, and frees Stage 3 for enterprise fleet prevalence (`$fleet_prevalence`).
 
 ---
 
@@ -227,9 +214,9 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `BAYESIAN_GAMMA_SHRINKAGE` | **CONSERVATIVE** | `bayesian_z=4.0`, `min_count=30`, `min_active_samples=60` |
 | `BAYESIAN_GAMMA_SHRINKAGE` | **BALANCED** | `bayesian_z=3.0`, `min_count=15`, `min_active_samples=30` |
 | `BAYESIAN_GAMMA_SHRINKAGE` | **AGGRESSIVE** | `bayesian_z=2.0`, `min_count=5`, `min_active_samples=14` |
-| `BETA_BINOMIAL_FAILURE` | **CONSERVATIVE** | `posterior_fail_prob=0.65`, `min_attempts=30`, `min_fails=20`, `min_active_samples=24` |
-| `BETA_BINOMIAL_FAILURE` | **BALANCED** | `posterior_fail_prob=0.5`, `min_attempts=15`, `min_fails=10`, `min_active_samples=12` |
-| `BETA_BINOMIAL_FAILURE` | **AGGRESSIVE** | `posterior_fail_prob=0.35`, `min_attempts=8`, `min_fails=5`, `min_active_samples=6` |
+| `BETA_BINOMIAL_FAILURE` | **CONSERVATIVE** | `fail_z=4.0`, `posterior_fail_prob=0.65`, `min_attempts=30`, `min_fails=15`, `min_active_samples=24` |
+| `BETA_BINOMIAL_FAILURE` | **BALANCED** | `fail_z=3.0`, `posterior_fail_prob=0.5`, `min_attempts=15`, `min_fails=8`, `min_active_samples=12` |
+| `BETA_BINOMIAL_FAILURE` | **AGGRESSIVE** | `fail_z=2.0`, `posterior_fail_prob=0.35`, `min_attempts=8`, `min_fails=4`, `min_active_samples=6` |
 | `C2_BEACONING_JITTER` | **CONSERVATIVE** | `cv=0.05`, `min_conns=50`, `prevalence=1`, `min_active_hours=12` |
 | `C2_BEACONING_JITTER` | **BALANCED** | `cv=0.2`, `min_conns=25`, `prevalence=2`, `min_active_hours=6` |
 | `C2_BEACONING_JITTER` | **AGGRESSIVE** | `cv=0.4`, `min_conns=15`, `prevalence=1`, `min_active_hours=3` |
@@ -251,18 +238,18 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `DISCRETE_ENTITY_RARITY` | **CONSERVATIVE** | `max_adopters=1`, `min_events=10`, `min_active_hours=12` |
 | `DISCRETE_ENTITY_RARITY` | **BALANCED** | `max_adopters=2`, `min_events=5`, `min_active_hours=6` |
 | `DISCRETE_ENTITY_RARITY` | **AGGRESSIVE** | `max_adopters=3`, `min_events=2`, `min_active_hours=1` |
-| `DIVERSITY_DEFICIT` | **CONSERVATIVE** | `max_diversity_z=-2.5`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
-| `DIVERSITY_DEFICIT` | **BALANCED** | `max_diversity_z=-1.5`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
-| `DIVERSITY_DEFICIT` | **AGGRESSIVE** | `max_diversity_z=-1.0`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
-| `DORMANT_ACCOUNT_AWAKENING` | **CONSERVATIVE** | `z_score=3.5`, `min_count=10`, `dormant_weight=3.0`, `min_sd=1.0`, `min_active_samples=14` |
-| `DORMANT_ACCOUNT_AWAKENING` | **BALANCED** | `z_score=2.5`, `min_count=5`, `dormant_weight=2.0`, `min_sd=0.5`, `min_active_samples=7` |
-| `DORMANT_ACCOUNT_AWAKENING` | **AGGRESSIVE** | `z_score=1.5`, `min_count=2`, `dormant_weight=1.5`, `min_sd=0.2`, `min_active_samples=3` |
+| `DIVERSITY_DEFICIT` | **CONSERVATIVE** | `min_deficit_z=2.5`, `max_diversity_ratio=0.1`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
+| `DIVERSITY_DEFICIT` | **BALANCED** | `min_deficit_z=1.5`, `max_diversity_ratio=0.2`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
+| `DIVERSITY_DEFICIT` | **AGGRESSIVE** | `min_deficit_z=1.0`, `max_diversity_ratio=0.35`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
+| `DORMANT_ACCOUNT_AWAKENING` | **CONSERVATIVE** | `z_score=4.0`, `min_count=10`, `min_awakening_volume=20`, `dormant_weight=3.0`, `min_active_samples=14` |
+| `DORMANT_ACCOUNT_AWAKENING` | **BALANCED** | `z_score=3.0`, `min_count=5`, `min_awakening_volume=10`, `dormant_weight=2.0`, `min_active_samples=7` |
+| `DORMANT_ACCOUNT_AWAKENING` | **AGGRESSIVE** | `z_score=2.0`, `min_count=2`, `min_awakening_volume=5`, `dormant_weight=1.5`, `min_active_samples=3` |
 | `DUAL_BASELINE_DELTA_Z` | **CONSERVATIVE** | `delta_z=4.0`, `min_count=50`, `min_sd=5.0`, `min_active_samples=60`, `min_active_hosts=10` |
 | `DUAL_BASELINE_DELTA_Z` | **BALANCED** | `delta_z=3.0`, `min_count=25`, `min_sd=2.0`, `min_active_samples=30`, `min_active_hosts=5` |
 | `DUAL_BASELINE_DELTA_Z` | **AGGRESSIVE** | `delta_z=2.0`, `min_count=10`, `min_sd=1.0`, `min_active_samples=14`, `min_active_hosts=3` |
-| `ELEPHANT_FLOW_CONCENTRATION` | **CONSERVATIVE** | `max_diversity_z=-2.5`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
-| `ELEPHANT_FLOW_CONCENTRATION` | **BALANCED** | `max_diversity_z=-1.5`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
-| `ELEPHANT_FLOW_CONCENTRATION` | **AGGRESSIVE** | `max_diversity_z=-1.0`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
+| `ELEPHANT_FLOW_CONCENTRATION` | **CONSERVATIVE** | `min_deficit_z=2.5`, `max_diversity_ratio=0.1`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
+| `ELEPHANT_FLOW_CONCENTRATION` | **BALANCED** | `min_deficit_z=1.5`, `max_diversity_ratio=0.2`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
+| `ELEPHANT_FLOW_CONCENTRATION` | **AGGRESSIVE** | `min_deficit_z=1.0`, `max_diversity_ratio=0.35`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
 | `EWMA_BURST_VELOCITY` | **CONSERVATIVE** | `velocity_threshold=4.0`, `min_count=50`, `min_sd=5.0`, `min_active_samples=60` |
 | `EWMA_BURST_VELOCITY` | **BALANCED** | `velocity_threshold=3.0`, `min_count=25`, `min_sd=2.0`, `min_active_samples=30` |
 | `EWMA_BURST_VELOCITY` | **AGGRESSIVE** | `velocity_threshold=2.0`, `min_count=10`, `min_sd=1.0`, `min_active_samples=14` |
@@ -275,27 +262,27 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `GLOBAL_THREAT_INTEL_ENRICHMENT` | **CONSERVATIVE** | `threat_score=4.0`, `min_obs_bytes=1000000.0`, `min_active_hours=24`, `nrd_multiplier=2.5` |
 | `GLOBAL_THREAT_INTEL_ENRICHMENT` | **BALANCED** | `threat_score=3.0`, `min_obs_bytes=100000.0`, `min_active_hours=12`, `nrd_multiplier=2.5` |
 | `GLOBAL_THREAT_INTEL_ENRICHMENT` | **AGGRESSIVE** | `threat_score=2.0`, `min_obs_bytes=10000.0`, `min_active_hours=6`, `nrd_multiplier=2.0` |
-| `HEAVY_TAIL_OUTLIERS` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_daily_volume=500`, `min_iqr=50.0`, `min_baseline_days=14` |
-| `HEAVY_TAIL_OUTLIERS` | **BALANCED** | `surge_ratio=2.0`, `min_daily_volume=100`, `min_iqr=10.0`, `min_baseline_days=7` |
-| `HEAVY_TAIL_OUTLIERS` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_daily_volume=25`, `min_iqr=5.0`, `min_baseline_days=3` |
+| `HEAVY_TAIL_OUTLIERS` | **CONSERVATIVE** | `fence_z=5.0`, `surge_ratio=3.0`, `min_daily_volume=500`, `min_baseline_days=14` |
+| `HEAVY_TAIL_OUTLIERS` | **BALANCED** | `fence_z=3.5`, `surge_ratio=2.0`, `min_daily_volume=100`, `min_baseline_days=7` |
+| `HEAVY_TAIL_OUTLIERS` | **AGGRESSIVE** | `fence_z=2.0`, `surge_ratio=1.5`, `min_daily_volume=25`, `min_baseline_days=3` |
 | `HOUR_OF_DAY_PROFILE` | **CONSERVATIVE** | `z_threshold=4.0`, `min_active_samples=48` |
 | `HOUR_OF_DAY_PROFILE` | **BALANCED** | `z_threshold=3.0`, `min_active_samples=24` |
 | `HOUR_OF_DAY_PROFILE` | **AGGRESSIVE** | `z_threshold=2.0`, `min_active_samples=12` |
-| `HYBRID_ENTROPY_CONCENTRATION` | **CONSERVATIVE** | `max_diversity_z=-2.5`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
-| `HYBRID_ENTROPY_CONCENTRATION` | **BALANCED** | `max_diversity_z=-1.5`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
-| `HYBRID_ENTROPY_CONCENTRATION` | **AGGRESSIVE** | `max_diversity_z=-1.0`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
-| `IQR_TUKEY_SKEW_FENCES` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_daily_volume=500`, `min_iqr=50.0`, `min_baseline_days=14` |
-| `IQR_TUKEY_SKEW_FENCES` | **BALANCED** | `surge_ratio=2.0`, `min_daily_volume=100`, `min_iqr=10.0`, `min_baseline_days=7` |
-| `IQR_TUKEY_SKEW_FENCES` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_daily_volume=25`, `min_iqr=5.0`, `min_baseline_days=3` |
+| `HYBRID_ENTROPY_CONCENTRATION` | **CONSERVATIVE** | `min_deficit_z=2.5`, `max_diversity_ratio=0.1`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
+| `HYBRID_ENTROPY_CONCENTRATION` | **BALANCED** | `min_deficit_z=1.5`, `max_diversity_ratio=0.2`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
+| `HYBRID_ENTROPY_CONCENTRATION` | **AGGRESSIVE** | `min_deficit_z=1.0`, `max_diversity_ratio=0.35`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
+| `IQR_TUKEY_SKEW_FENCES` | **CONSERVATIVE** | `fence_z=5.0`, `surge_ratio=3.0`, `min_daily_volume=500`, `min_baseline_days=14` |
+| `IQR_TUKEY_SKEW_FENCES` | **BALANCED** | `fence_z=3.5`, `surge_ratio=2.0`, `min_daily_volume=100`, `min_baseline_days=7` |
+| `IQR_TUKEY_SKEW_FENCES` | **AGGRESSIVE** | `fence_z=2.0`, `surge_ratio=1.5`, `min_daily_volume=25`, `min_baseline_days=3` |
 | `LOG_NORMAL_VOLUME` | **CONSERVATIVE** | `z_score=3.5`, `min_bytes=100000000.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `LOG_NORMAL_VOLUME` | **BALANCED** | `z_score=2.5`, `min_bytes=10000000.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `LOG_NORMAL_VOLUME` | **AGGRESSIVE** | `z_score=1.8`, `min_bytes=1000000.0`, `min_sd=0.2`, `min_active_samples=3` |
 | `LOG_NORMAL_VOLUME_SURGE` | **CONSERVATIVE** | `z_score=3.5`, `min_bytes=100000000.0`, `min_sd=1.0`, `min_active_samples=14` |
 | `LOG_NORMAL_VOLUME_SURGE` | **BALANCED** | `z_score=2.5`, `min_bytes=10000000.0`, `min_sd=0.5`, `min_active_samples=7` |
 | `LOG_NORMAL_VOLUME_SURGE` | **AGGRESSIVE** | `z_score=1.8`, `min_bytes=1000000.0`, `min_sd=0.2`, `min_active_samples=3` |
-| `MARKOV_2GRAM_TRANSITION_RARITY` | **CONSERVATIVE** | `surprisal_threshold=4.5`, `min_parent_count=20` |
-| `MARKOV_2GRAM_TRANSITION_RARITY` | **BALANCED** | `surprisal_threshold=3.0`, `min_parent_count=10` |
-| `MARKOV_2GRAM_TRANSITION_RARITY` | **AGGRESSIVE** | `surprisal_threshold=2.0`, `min_parent_count=5` |
+| `MARKOV_2GRAM_TRANSITION_RARITY` | **CONSERVATIVE** | `surprisal_threshold=4.2`, `min_parent_count=3`, `vocab_smooth=100.0` |
+| `MARKOV_2GRAM_TRANSITION_RARITY` | **BALANCED** | `surprisal_threshold=3.0`, `min_parent_count=1`, `vocab_smooth=100.0` |
+| `MARKOV_2GRAM_TRANSITION_RARITY` | **AGGRESSIVE** | `surprisal_threshold=2.0`, `min_parent_count=1`, `vocab_smooth=100.0` |
 | `MULTI_SECTOR_FUSION` | **CONSERVATIVE** | `threat_distance=4.0`, `min_active_samples=14`, `min_events=10` |
 | `MULTI_SECTOR_FUSION` | **BALANCED** | `threat_distance=3.0`, `min_active_samples=7`, `min_events=5` |
 | `MULTI_SECTOR_FUSION` | **AGGRESSIVE** | `threat_distance=2.0`, `min_active_samples=3`, `min_events=2` |
@@ -308,24 +295,24 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `POISSON_RARE_SURGE` | **CONSERVATIVE** | `poisson_z=5.0`, `min_observed=5`, `max_lambda=1.0`, `min_baseline_days=14` |
 | `POISSON_RARE_SURGE` | **BALANCED** | `poisson_z=3.5`, `min_observed=3`, `max_lambda=2.0`, `min_baseline_days=7` |
 | `POISSON_RARE_SURGE` | **AGGRESSIVE** | `poisson_z=2.5`, `min_observed=2`, `max_lambda=3.0`, `min_baseline_days=3` |
-| `PRIVILEGED_LATERAL_EXPANSION` | **CONSERVATIVE** | `z_score=3.0`, `min_distinct_targets=5`, `min_sd=1.0`, `min_active_samples=30` |
-| `PRIVILEGED_LATERAL_EXPANSION` | **BALANCED** | `z_score=2.0`, `min_distinct_targets=3`, `min_sd=0.5`, `min_active_samples=14` |
-| `PRIVILEGED_LATERAL_EXPANSION` | **AGGRESSIVE** | `z_score=1.5`, `min_distinct_targets=2`, `min_sd=0.2`, `min_active_samples=7` |
+| `PRIVILEGED_LATERAL_EXPANSION` | **CONSERVATIVE** | `z_score=3.5`, `min_distinct_targets=5`, `min_active_samples=30` |
+| `PRIVILEGED_LATERAL_EXPANSION` | **BALANCED** | `z_score=2.5`, `min_distinct_targets=3`, `min_active_samples=14` |
+| `PRIVILEGED_LATERAL_EXPANSION` | **AGGRESSIVE** | `z_score=1.5`, `min_distinct_targets=2`, `min_active_samples=7` |
 | `PRODUCER_CONSUMER_RATIO_INVERSION` | **CONSERVATIVE** | `min_producer_ratio=0.85`, `z_score=3.5`, `min_sent_bytes=50000000.0`, `min_active_samples=14` |
 | `PRODUCER_CONSUMER_RATIO_INVERSION` | **BALANCED** | `min_producer_ratio=0.7`, `z_score=2.5`, `min_sent_bytes=10000000.0`, `min_active_samples=7` |
 | `PRODUCER_CONSUMER_RATIO_INVERSION` | **AGGRESSIVE** | `min_producer_ratio=0.55`, `z_score=1.8`, `min_sent_bytes=1000000.0`, `min_active_samples=3` |
 | `SHANNON_ENTROPY_CHARACTER` | **CONSERVATIVE** | `entropy_threshold=7.0`, `min_length=40` |
 | `SHANNON_ENTROPY_CHARACTER` | **BALANCED** | `entropy_threshold=5.5`, `min_length=25` |
 | `SHANNON_ENTROPY_CHARACTER` | **AGGRESSIVE** | `entropy_threshold=4.0`, `min_length=15` |
-| `TWO_PART_HURDLE` | **CONSERVATIVE** | `z_score=3.5`, `min_count=10`, `dormant_weight=3.0`, `min_sd=1.0`, `min_active_samples=14` |
-| `TWO_PART_HURDLE` | **BALANCED** | `z_score=2.5`, `min_count=5`, `dormant_weight=2.0`, `min_sd=0.5`, `min_active_samples=7` |
-| `TWO_PART_HURDLE` | **AGGRESSIVE** | `z_score=1.5`, `min_count=2`, `dormant_weight=1.5`, `min_sd=0.2`, `min_active_samples=3` |
+| `TWO_PART_HURDLE` | **CONSERVATIVE** | `z_score=4.0`, `min_count=10`, `min_awakening_volume=20`, `dormant_weight=3.0`, `min_active_samples=14` |
+| `TWO_PART_HURDLE` | **BALANCED** | `z_score=3.0`, `min_count=5`, `min_awakening_volume=10`, `dormant_weight=2.0`, `min_active_samples=7` |
+| `TWO_PART_HURDLE` | **AGGRESSIVE** | `z_score=2.0`, `min_count=2`, `min_awakening_volume=5`, `dormant_weight=1.5`, `min_active_samples=3` |
 | `VELOCITY_SURGE_RATIO` | **CONSERVATIVE** | `ratio_1v7=5.0`, `ratio_1v30=8.0`, `min_today=200`, `min_baseline_days=20` |
 | `VELOCITY_SURGE_RATIO` | **BALANCED** | `ratio_1v7=3.0`, `ratio_1v30=5.0`, `min_today=100`, `min_baseline_days=14` |
 | `VELOCITY_SURGE_RATIO` | **AGGRESSIVE** | `ratio_1v7=2.0`, `ratio_1v30=3.0`, `min_today=50`, `min_baseline_days=7` |
-| `ZIPFIAN_PROCESS_RARITY` | **CONSERVATIVE** | `zipf_threshold=4.0`, `max_adopters=1`, `min_count=5` |
-| `ZIPFIAN_PROCESS_RARITY` | **BALANCED** | `zipf_threshold=2.5`, `max_adopters=2`, `min_count=2` |
-| `ZIPFIAN_PROCESS_RARITY` | **AGGRESSIVE** | `zipf_threshold=1.5`, `max_adopters=3`, `min_count=1` |
+| `ZIPFIAN_PROCESS_RARITY` | **CONSERVATIVE** | `zipf_threshold=4.0`, `max_adopters=1`, `min_count=2`, `min_fleet_hosts=15` |
+| `ZIPFIAN_PROCESS_RARITY` | **BALANCED** | `zipf_threshold=2.5`, `max_adopters=2`, `min_count=1`, `min_fleet_hosts=10` |
+| `ZIPFIAN_PROCESS_RARITY` | **AGGRESSIVE** | `zipf_threshold=1.5`, `max_adopters=3`, `min_count=1`, `min_fleet_hosts=5` |
 | `ZSCORE_PROCESS_SURGE` | **CONSERVATIVE** | `z_score=3.0`, `min_count=50`, `min_sd=10.0`, `min_active_samples=120` |
 | `ZSCORE_PROCESS_SURGE` | **BALANCED** | `z_score=2.0`, `min_count=25`, `min_sd=5.0`, `min_active_samples=60` |
 | `ZSCORE_PROCESS_SURGE` | **AGGRESSIVE** | `z_score=1.5`, `min_count=10`, `min_sd=2.0`, `min_active_samples=30` |

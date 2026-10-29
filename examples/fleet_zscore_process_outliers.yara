@@ -2,14 +2,12 @@
 // METHODOLOGY & HUNTING GOAL
 // Goal: Detect endpoints exhibiting anomalous process launch volume relative to peer enterprise fleet behavior.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
-// Statistical Model: Cross-Fleet Peer Normalization Z-Score (Z_fleet = (x_host - μ_fleet) / σ_fleet)
+// Statistical Model: Cross-Fleet Peer Normalization Z-Score (Z_fleet = (x_host - μ_fleet) / max(σ_fleet, sqrt(max(μ_fleet, 1.0))))
 // Mathematical Rationale:
-//   - Why this model: Evaluates each host against the fleet-wide peer population across all endpoints.
-//     Isolates singular hosts whose process volume explodes beyond organizational peer norms, identifying dedicated
-//     compromised machines, command-and-control pivot nodes, or anomalous local scripts.
-//   - Small-Sample & Peer Protection: Enforces a minimum peer fleet size floor (>= 15 active hosts),
-//     an activity floor of >= 25 executions, and a fleet standard deviation floor (σ >= 5.0).
-// Sensitivity Boundary: BALANCED (Fleet Z-Score >= 2.5σ, Min Hourly Executions >= 25, Min Fleet Stddev >= 5.0, Min Peer Hosts >= 15)
+//   - Evaluates each host against the concurrent fleet-wide peer population across all endpoints in the same hour.
+//   - Uses a continuous Poisson variance floor max(σ_fleet^2, max(μ_fleet, 1.0)) without additive denominator blunting
+//     or arbitrary dispersion cliffs, while tracking concurrent surging host breadth in Stage 3.
+// Sensitivity Boundary: BALANCED (Fleet Z-Score >= 2.5σ, Min Hourly Executions >= 25, Min Peer Hosts >= 15)
 // ============================================================================
 
 // Stage 1: Hourly process execution counts and distinct binaries per host
@@ -39,10 +37,21 @@ stage fleet_stats {
     $total_fleet_hosts = count_distinct($host_hourly.host)
 }
 
+// Stage 3: Count concurrent hosts exceeding the hourly surge floor per window
+stage fleet_surging {
+    $ws = $host_hourly.window_start
+
+  match:
+    $ws by 1h
+  outcome:
+    $surging_hosts = sum(if($host_hourly.hourly_count >= 25, 1, 0))
+}
+
 // Root Stage: Join host hourly with fleet stats, calculate Fleet Z-Score, and emit 6 Evidence Pillars
 $host = $host_hourly.host
 $ws = $host_hourly.window_start
 $ws = $fleet_stats.ws
+$ws = $fleet_surging.ws
 
 match:
   $host, $ws by 1h
@@ -51,26 +60,23 @@ outcome:
   $observation_count = max($host_hourly.hourly_count)
   $baseline_active_samples = max($fleet_stats.total_fleet_hosts)
   $baseline_mean = max($fleet_stats.fleet_mean)
-  $baseline_dispersion = max($fleet_stats.fleet_stddev)
-  $fleet_prevalence = max($fleet_stats.total_fleet_hosts)
+  $raw_sd = max($fleet_stats.fleet_stddev)
+  $floor_var = if($baseline_mean > 1.0, $baseline_mean, 1.0)
+  $raw_var = $raw_sd * $raw_sd
+  $safe_var = if($raw_var > $floor_var, $raw_var, $floor_var)
+  $baseline_dispersion = math.sqrt($safe_var)
+  $fleet_prevalence = max($fleet_surging.surging_hosts)
   $distinct_binaries = max($host_hourly.distinct_procs)
   $sample_commands = array_distinct($host_hourly.sample_cmd)
-  
-  // Aggregate Fleet Z-Score (Linear AST)
+
+  // Aggregate Fleet Z-Score
   $diff = $observation_count - $baseline_mean
-  $safe_stddev = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
-  $fleet_z = $diff / ($safe_stddev + 0.001)
+  $fleet_z = $diff / $baseline_dispersion
 
 condition:
-  // Small-Sample Protection: Require at least 15 active peer endpoints in comparison population
   $baseline_active_samples >= 15
-  // Activity Floor: at least 25 executions in peak hour
   and $observation_count >= 25
-  // Variance Floor: fleet standard deviation must be >= 5.0 to ensure meaningful spread
-  and $baseline_dispersion >= 5.0
-  // Outlier Boundary: 2.5-Sigma threshold relative to fleet peers
   and $fleet_z >= 2.5
 
 order:
   $fleet_z desc
-

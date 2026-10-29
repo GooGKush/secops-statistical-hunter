@@ -40,16 +40,14 @@ stage dispersion_baseline {
     $active_hours = count($hourly_failures.window_start)
 }
 
-// Stage 3: Measure enterprise-wide prevalence of users experiencing authentication failures per window.
-// Keyed on the window (NOT the entity): grouping by $entity and counting distinct
-// entities always yields 1. A $dummy = 1 Cartesian key is rejected by the compiler.
+// Stage 3: Measure enterprise-wide prevalence of users experiencing burst failures per window
 stage fleet_breadth {
     $ws = $hourly_failures.window_start
 
   match:
     $ws by 1h
   outcome:
-    $fleet_users = count_distinct($hourly_failures.entity)
+    $fleet_users = sum(if($hourly_failures.hourly_fails >= 5, 1, 0))
 }
 
 // Root Stage: Join stages, rebuild zero-inclusive Fano Factor over T = 168 hourly buckets, and emit 6 Evidence Pillars

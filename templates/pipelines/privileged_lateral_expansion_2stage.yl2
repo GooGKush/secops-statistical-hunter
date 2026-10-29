@@ -1,90 +1,89 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect privileged administrative accounts exhibiting anomalous lateral movement or destination expansion across unvisited endpoints.
+// Goal: Detect privileged administrative accounts exhibiting anomalous lateral movement or first-seen destination expansion.
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Bounded Historical Baseline of Daily Destination Breadth (Z = (Distinct_Today - μ_dest) / σ_dest)
+// Statistical Model: Bipartite First-Seen Destination Novelty + Leave-One-Out Breadth Standardization (Zero Cross-Products)
 // Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
 // Mathematical Rationale:
-//   - Why this model: Privileged accounts (Domain Admins, Tier-0) normally operate within a tight, bounded radius of endpoints (domain controllers, jump boxes).
-//     Volumetric login counts fail to detect single-hop lateral movement. Baselining daily unique target hostnames (count_distinct(target.asset.hostname))
-//     over a bounded historical window (e.g. 90d) reveals sudden breadth expansion and access to endpoints with zero prior interaction.
-//   - Small-Sample & Division-by-Zero Protection: Enforces Active Directory privilege filtering (%privileged_ad_accounts),
-//     an active baseline sample floor (>= {{min_active_samples}} samples), an activity floor (>= {{min_distinct_targets}} destinations),
-//     and a standard deviation floor (σ >= {{min_sd}}) to prevent zero-variance divisions and idle account false alarms.
-// Sensitivity Boundary: {{tier}} (Z-Score >= {{z_score}}, Distinct Endpoints Today >= {{min_distinct_targets}}, Min Stddev >= {{min_sd}}, Min Active Samples >= {{min_active_samples}})
+//   - Stage 1 extracts unique ($entity, $target) pairs per window from coalesced destination identifiers.
+//   - Stage 2 (user_target_history) records the earliest window ($first_ws) each ($entity, $target) pair appeared,
+//     counting brand-new lateral hops ($new_targets) without cross-product array joins or duplicate raw stages.
+//   - Stage 3 (user_breadth_baseline) tracks historical target-visit breadth with a continuous Poisson floor
+//     sqrt(max(loo_mean, 1.0)) and no hard SD cliff so clockwork jump-box admins (sd = 0) are never blinded.
+// Sensitivity Boundary: {{tier}} (Lateral Score >= {{z_score}}, Distinct Endpoints >= {{min_distinct_targets}} or New Targets >= 1, Min Active Samples >= {{min_active_samples}})
 // ============================================================================
 
-// Stage 1: Daily destination breadth and login activity per privileged account
+// Stage 1: Windowed privileged account destination pairs (single raw stage)
 stage daily_user_breadth {
     metadata.event_type = "{{event_type}}"
     security_result.action = "ALLOW"
     {{entity_field}} = $entity
     $entity != ""
-    // Privileged-account scoping. The regex compiles on any tenant. If a curated
-    // reference list exists, widen the predicate to:
-    //   ($entity in %privileged_ad_accounts or re.regex($entity, `(?i)(admin|adm_|svc_).*`))
-    // A reference to a list that does not exist is rejected as an invalid argument.
     re.regex($entity, `(?i)(admin|adm_|svc_).*`)
+    $target = strings.coalesce(target.asset.hostname, target.hostname, target.ip)
+    $target != ""
 
   match:
-    $entity by {{bucket_size}}
+    $entity, $target by {{bucket_size}}
   outcome:
-    $daily_targets = count_distinct(target.asset.hostname)
-    $daily_logins = count(metadata.id)
-    $sample_target = array_distinct(target.asset.hostname)
+    $pair_logins = count(metadata.id)
 }
 
-// Stage 2: Historical destination breadth baseline (mean, stddev, active days) per privileged account
+// Stage 2: First-seen window per (entity, target) pair across the search horizon
+stage user_target_history {
+    $entity = $daily_user_breadth.entity
+    $target = $daily_user_breadth.target
+
+  match:
+    $entity, $target
+  outcome:
+    $first_ws = min($daily_user_breadth.window_start)
+}
+
+// Stage 3: Historical destination breadth totals per privileged account
 stage user_breadth_baseline {
     $entity = $daily_user_breadth.entity
 
   match:
     $entity
   outcome:
-    $mean_daily_targets = avg($daily_user_breadth.daily_targets)
-    $stddev_daily_targets = stddev($daily_user_breadth.daily_targets)
-    $active_days = count($daily_user_breadth.window_start)
+    $total_target_visits = count($daily_user_breadth.window_start)
+    $active_days = count_distinct($daily_user_breadth.window_start)
 }
 
-// Stage 3: Current observation window destination footprint
-stage current_breadth {
-    $entity = $daily_user_breadth.entity
-    $ws = $daily_user_breadth.window_start
-
-  match:
-    $entity, $ws by {{bucket_size}}
-  outcome:
-    $current_targets = max($daily_user_breadth.daily_targets)
-    $current_logins = max($daily_user_breadth.daily_logins)
-    $current_hosts = array_distinct($daily_user_breadth.sample_target)
-}
-
-// Root Stage: Join historical baseline with current window, calculate breadth Z-Score, and emit 6 Evidence Pillars
+// Root Stage: Score First-Seen Destination Expansion & Leave-One-Out Breadth Z
+$entity = $daily_user_breadth.entity
+$target = $daily_user_breadth.target
+$entity = $user_target_history.entity
+$target = $user_target_history.target
 $entity = $user_breadth_baseline.entity
-$entity = $current_breadth.entity
-$window_start = $current_breadth.ws
+$window_start = $daily_user_breadth.window_start
 
 match:
   $entity, $window_start by {{bucket_size}}
 outcome:
-  // 6 Core Evidence Pillars
-  $observation_count = max($current_breadth.current_targets)
+  $observation_count = count_distinct($daily_user_breadth.target)
+  $new_targets = sum(if($daily_user_breadth.window_start = $user_target_history.first_ws, 1, 0))
   $baseline_active_samples = max($user_breadth_baseline.active_days)
-  $baseline_mean = max($user_breadth_baseline.mean_daily_targets)
-  $baseline_dispersion = max($user_breadth_baseline.stddev_daily_targets)
   $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($current_breadth.current_logins)
-  $sample_commands = array_distinct($current_breadth.current_hosts)
+  $distinct_binaries = sum($daily_user_breadth.pair_logins)
+  $sample_commands = array_distinct($daily_user_breadth.target)
 
-  // Breadth Expansion Z-Score
-  $diff = max($current_breadth.current_targets) - max($user_breadth_baseline.mean_daily_targets)
-  $safe_stddev = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
-  $z_score = $diff / $safe_stddev
+  // Leave-One-Out Breadth Baseline with Continuous Poisson Floor (No Hard SD Cliff)
+  $raw_n_prior = $baseline_active_samples - 1
+  $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
+  $raw_prior_visits = max($user_breadth_baseline.total_target_visits) - $observation_count
+  $prior_visits = if($raw_prior_visits > 0, $raw_prior_visits, 0)
+  $baseline_mean = 1.0 * $prior_visits / $n_prior
+  $floor_var = if($baseline_mean > 1.0, $baseline_mean, 1.0)
+  $baseline_dispersion = math.sqrt($floor_var)
+  $raw_breadth_z = ($observation_count - $baseline_mean) / $baseline_dispersion
+  $pos_breadth_z = if($raw_breadth_z > 0.0, $raw_breadth_z, 0.0)
+  $z_score = $pos_breadth_z + (1.5 * $new_targets)
 
 condition:
   $baseline_active_samples >= {{min_active_samples}}
-  and $observation_count >= {{min_distinct_targets}}
-  and $baseline_dispersion >= {{min_sd}}
+  and ($observation_count >= {{min_distinct_targets}} or $new_targets >= 1)
   and $z_score >= {{z_score}}
 
 order:

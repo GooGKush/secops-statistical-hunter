@@ -177,14 +177,14 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"m_z": 3.0, "min_daily_volume": 25, "dispersion_floor": 1.0, "min_baseline_days": 3},
     },
     "HEAVY_TAIL_OUTLIERS": {
-        "CONSERVATIVE": {"surge_ratio": 3.0, "min_daily_volume": 500, "min_iqr": 50.0, "min_baseline_days": 14},
-        "BALANCED": {"surge_ratio": DEFAULT_FOLD_CHANGE_THRESHOLD, "min_daily_volume": 100, "min_iqr": 10.0, "min_baseline_days": DEFAULT_MIN_BASELINE_DAYS},
-        "AGGRESSIVE": {"surge_ratio": 1.5, "min_daily_volume": 25, "min_iqr": 5.0, "min_baseline_days": 3},
+        "CONSERVATIVE": {"fence_z": 5.0, "surge_ratio": 3.0, "min_daily_volume": 500, "min_baseline_days": 14},
+        "BALANCED": {"fence_z": DEFAULT_ROBUST_THRESHOLD, "surge_ratio": DEFAULT_FOLD_CHANGE_THRESHOLD, "min_daily_volume": 100, "min_baseline_days": DEFAULT_MIN_BASELINE_DAYS},
+        "AGGRESSIVE": {"fence_z": 2.0, "surge_ratio": 1.5, "min_daily_volume": 25, "min_baseline_days": 3},
     },
     "IQR_TUKEY_SKEW_FENCES": {
-        "CONSERVATIVE": {"surge_ratio": 3.0, "min_daily_volume": 500, "min_iqr": 50.0, "min_baseline_days": 14},
-        "BALANCED": {"surge_ratio": DEFAULT_FOLD_CHANGE_THRESHOLD, "min_daily_volume": 100, "min_iqr": 10.0, "min_baseline_days": DEFAULT_MIN_BASELINE_DAYS},
-        "AGGRESSIVE": {"surge_ratio": 1.5, "min_daily_volume": 25, "min_iqr": 5.0, "min_baseline_days": 3},
+        "CONSERVATIVE": {"fence_z": 5.0, "surge_ratio": 3.0, "min_daily_volume": 500, "min_baseline_days": 14},
+        "BALANCED": {"fence_z": DEFAULT_ROBUST_THRESHOLD, "surge_ratio": DEFAULT_FOLD_CHANGE_THRESHOLD, "min_daily_volume": 100, "min_baseline_days": DEFAULT_MIN_BASELINE_DAYS},
+        "AGGRESSIVE": {"fence_z": 2.0, "surge_ratio": 1.5, "min_daily_volume": 25, "min_baseline_days": 3},
     },
     "VELOCITY_SURGE_RATIO": {
         "CONSERVATIVE": {"ratio_1v7": 5.0, "ratio_1v30": 8.0, "min_today": 200, "min_baseline_days": 20},
@@ -197,19 +197,19 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"fleet_z": 2.0, "min_host_count": 10, "min_fleet_sd": 2.0, "min_active_hosts": 10},
     },
     "PRIVILEGED_LATERAL_EXPANSION": {
-        "CONSERVATIVE": {"z_score": 3.0, "min_distinct_targets": 5, "min_sd": 1.0, "min_active_samples": 30},
-        "BALANCED": {"z_score": 2.0, "min_distinct_targets": 3, "min_sd": 0.5, "min_active_samples": 14},
-        "AGGRESSIVE": {"z_score": 1.5, "min_distinct_targets": 2, "min_sd": 0.2, "min_active_samples": 7},
+        "CONSERVATIVE": {"z_score": 3.5, "min_distinct_targets": 5, "min_active_samples": 30},
+        "BALANCED": {"z_score": 2.5, "min_distinct_targets": 3, "min_active_samples": 14},
+        "AGGRESSIVE": {"z_score": 1.5, "min_distinct_targets": 2, "min_active_samples": 7},
     },
     "TWO_PART_HURDLE": {
-        "CONSERVATIVE": {"z_score": 3.5, "min_count": 10, "dormant_weight": 3.0, "min_sd": 1.0, "min_active_samples": 14},
-        "BALANCED": {"z_score": 2.5, "min_count": 5, "dormant_weight": 2.0, "min_sd": 0.5, "min_active_samples": 7},
-        "AGGRESSIVE": {"z_score": 1.5, "min_count": 2, "dormant_weight": 1.5, "min_sd": 0.2, "min_active_samples": 3},
+        "CONSERVATIVE": {"z_score": 4.0, "min_count": 10, "min_awakening_volume": 20, "dormant_weight": 3.0, "min_active_samples": 14},
+        "BALANCED": {"z_score": 3.0, "min_count": 5, "min_awakening_volume": 10, "dormant_weight": 2.0, "min_active_samples": 7},
+        "AGGRESSIVE": {"z_score": 2.0, "min_count": 2, "min_awakening_volume": 5, "dormant_weight": 1.5, "min_active_samples": 3},
     },
     "DORMANT_ACCOUNT_AWAKENING": {
-        "CONSERVATIVE": {"z_score": 3.5, "min_count": 10, "dormant_weight": 3.0, "min_sd": 1.0, "min_active_samples": 14},
-        "BALANCED": {"z_score": 2.5, "min_count": 5, "dormant_weight": 2.0, "min_sd": 0.5, "min_active_samples": 7},
-        "AGGRESSIVE": {"z_score": 1.5, "min_count": 2, "dormant_weight": 1.5, "min_sd": 0.2, "min_active_samples": 3},
+        "CONSERVATIVE": {"z_score": 4.0, "min_count": 10, "min_awakening_volume": 20, "dormant_weight": 3.0, "min_active_samples": 14},
+        "BALANCED": {"z_score": 3.0, "min_count": 5, "min_awakening_volume": 10, "dormant_weight": 2.0, "min_active_samples": 7},
+        "AGGRESSIVE": {"z_score": 2.0, "min_count": 2, "min_awakening_volume": 5, "dormant_weight": 1.5, "min_active_samples": 3},
     },
     "GLOBAL_THREAT_INTEL": {
         "CONSERVATIVE": {"threat_score": 4.0, "min_obs_bytes": 1000000.0, "min_active_hours": 24, "nrd_multiplier": 2.5},
@@ -257,9 +257,9 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"z_score": 1.8, "min_bytes": 1000000.0, "min_sd": 0.2, "min_active_samples": 3},
     },
     "MARKOV_2GRAM_TRANSITION_RARITY": {
-        "CONSERVATIVE": {"surprisal_threshold": 4.5, "min_parent_count": 20},
-        "BALANCED": {"surprisal_threshold": 3.0, "min_parent_count": 10},
-        "AGGRESSIVE": {"surprisal_threshold": 2.0, "min_parent_count": 5},
+        "CONSERVATIVE": {"surprisal_threshold": 4.2, "min_parent_count": 3, "vocab_smooth": 100.0},
+        "BALANCED": {"surprisal_threshold": 3.0, "min_parent_count": 1, "vocab_smooth": 100.0},
+        "AGGRESSIVE": {"surprisal_threshold": 2.0, "min_parent_count": 1, "vocab_smooth": 100.0},
     },
     "SHANNON_ENTROPY_CHARACTER": {
         "CONSERVATIVE": {"entropy_threshold": 7.0, "min_length": 40},
@@ -267,9 +267,9 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"entropy_threshold": 4.0, "min_length": 15},
     },
     "ZIPFIAN_PROCESS_RARITY": {
-        "CONSERVATIVE": {"zipf_threshold": 4.0, "max_adopters": 1, "min_count": 5},
-        "BALANCED": {"zipf_threshold": 2.5, "max_adopters": 2, "min_count": 2},
-        "AGGRESSIVE": {"zipf_threshold": 1.5, "max_adopters": 3, "min_count": 1},
+        "CONSERVATIVE": {"zipf_threshold": 4.0, "max_adopters": 1, "min_count": 2, "min_fleet_hosts": 15},
+        "BALANCED": {"zipf_threshold": 2.5, "max_adopters": 2, "min_count": 1, "min_fleet_hosts": 10},
+        "AGGRESSIVE": {"zipf_threshold": 1.5, "max_adopters": 3, "min_count": 1, "min_fleet_hosts": 5},
     },
     "EWMA_BURST_VELOCITY": {
         "CONSERVATIVE": {"velocity_threshold": 4.0, "min_count": 50, "min_sd": 5.0, "min_active_samples": 60},
@@ -297,24 +297,24 @@ SENSITIVITY_MAP = {
         "AGGRESSIVE": {"bayesian_z": 2.0, "min_count": 5, "min_active_samples": 14},
     },
     "BETA_BINOMIAL_FAILURE": {
-        "CONSERVATIVE": {"posterior_fail_prob": 0.65, "min_attempts": 30, "min_fails": 20, "min_active_samples": 24},
-        "BALANCED": {"posterior_fail_prob": 0.50, "min_attempts": 15, "min_fails": 10, "min_active_samples": 12},
-        "AGGRESSIVE": {"posterior_fail_prob": 0.35, "min_attempts": 8, "min_fails": 5, "min_active_samples": 6},
+        "CONSERVATIVE": {"fail_z": 4.0, "posterior_fail_prob": 0.65, "min_attempts": 30, "min_fails": 15, "min_active_samples": 24},
+        "BALANCED": {"fail_z": 3.0, "posterior_fail_prob": 0.50, "min_attempts": 15, "min_fails": 8, "min_active_samples": 12},
+        "AGGRESSIVE": {"fail_z": 2.0, "posterior_fail_prob": 0.35, "min_attempts": 8, "min_fails": 4, "min_active_samples": 6},
     },
     "HYBRID_ENTROPY_CONCENTRATION": {
-        "CONSERVATIVE": {"max_diversity_z": -2.5, "min_concentration_ratio": 0.80, "min_events": 100, "min_active_samples": 48},
-        "BALANCED": {"max_diversity_z": -1.5, "min_concentration_ratio": 0.65, "min_events": 50, "min_active_samples": 24},
-        "AGGRESSIVE": {"max_diversity_z": -1.0, "min_concentration_ratio": 0.50, "min_events": 20, "min_active_samples": 12},
+        "CONSERVATIVE": {"min_deficit_z": 2.5, "max_diversity_ratio": 0.10, "min_concentration_ratio": 0.80, "min_events": 100, "min_active_samples": 48},
+        "BALANCED": {"min_deficit_z": 1.5, "max_diversity_ratio": 0.20, "min_concentration_ratio": 0.65, "min_events": 50, "min_active_samples": 24},
+        "AGGRESSIVE": {"min_deficit_z": 1.0, "max_diversity_ratio": 0.35, "min_concentration_ratio": 0.50, "min_events": 20, "min_active_samples": 12},
     },
     "DIVERSITY_DEFICIT": {
-        "CONSERVATIVE": {"max_diversity_z": -2.5, "min_concentration_ratio": 0.80, "min_events": 100, "min_active_samples": 48},
-        "BALANCED": {"max_diversity_z": -1.5, "min_concentration_ratio": 0.65, "min_events": 50, "min_active_samples": 24},
-        "AGGRESSIVE": {"max_diversity_z": -1.0, "min_concentration_ratio": 0.50, "min_events": 20, "min_active_samples": 12},
+        "CONSERVATIVE": {"min_deficit_z": 2.5, "max_diversity_ratio": 0.10, "min_concentration_ratio": 0.80, "min_events": 100, "min_active_samples": 48},
+        "BALANCED": {"min_deficit_z": 1.5, "max_diversity_ratio": 0.20, "min_concentration_ratio": 0.65, "min_events": 50, "min_active_samples": 24},
+        "AGGRESSIVE": {"min_deficit_z": 1.0, "max_diversity_ratio": 0.35, "min_concentration_ratio": 0.50, "min_events": 20, "min_active_samples": 12},
     },
     "ELEPHANT_FLOW_CONCENTRATION": {
-        "CONSERVATIVE": {"max_diversity_z": -2.5, "min_concentration_ratio": 0.80, "min_events": 100, "min_active_samples": 48},
-        "BALANCED": {"max_diversity_z": -1.5, "min_concentration_ratio": 0.65, "min_events": 50, "min_active_samples": 24},
-        "AGGRESSIVE": {"max_diversity_z": -1.0, "min_concentration_ratio": 0.50, "min_events": 20, "min_active_samples": 12},
+        "CONSERVATIVE": {"min_deficit_z": 2.5, "max_diversity_ratio": 0.10, "min_concentration_ratio": 0.80, "min_events": 100, "min_active_samples": 48},
+        "BALANCED": {"min_deficit_z": 1.5, "max_diversity_ratio": 0.20, "min_concentration_ratio": 0.65, "min_events": 50, "min_active_samples": 24},
+        "AGGRESSIVE": {"min_deficit_z": 1.0, "max_diversity_ratio": 0.35, "min_concentration_ratio": 0.50, "min_events": 20, "min_active_samples": 12},
     },
 }
 
@@ -1954,6 +1954,7 @@ def evaluate_confidence_tier(
 PRIMARY_SCORE_KEYS = [
     "hod_z_score",
     "burst_z",
+    "fail_z",
     "hurdle_anomaly_score",
     "hurdle_threat_score",
     "threat_distance",
@@ -1979,6 +1980,7 @@ PRIMARY_SCORE_KEYS = [
     "zipf_rarity_score",
     "entropy_score",
     "shannon_entropy_score",
+    "deficit_z",
     "concentration_ratio",
     "diversity_z",
     "poisson_z",
@@ -2000,8 +2002,9 @@ PRIMARY_SCORE_KEYS = [
 def get_soc_severity_badge(chosen_key: str, score: float) -> str:
   """Translates statistical score into a standard SOC operational rating."""
   if chosen_key in [
-      "hod_z_score", "z_score", "poisson_z", "fleet_z", "targeted_delta_z", "delta_z", "personal_z",
-      "bayesian_z", "anomaly_score", "threat_distance", "threat_score", "markov_threat_score",
+      "hod_z_score", "burst_z", "fail_z", "deficit_z", "z_score", "poisson_z", "fleet_z",
+      "targeted_delta_z", "delta_z", "personal_z", "bayesian_z", "anomaly_score",
+      "threat_distance", "threat_score", "markov_threat_score",
       "z_log", "hurdle_anomaly_score", "hurdle_threat_score", "velocity_score",
       "ewma_velocity_score", "rarity_score", "zipf_rarity_score", "entropy_score",
       "shannon_entropy_score", "score",
@@ -2041,7 +2044,7 @@ def get_soc_severity_badge(chosen_key: str, score: float) -> str:
       return "🟡 **[ELEVATED WATCH]**"
     else:
       return "🟢 **[INFORMATIONAL]**"
-  elif chosen_key in ["m_z_score", "modified_z"]:
+  elif chosen_key in ["m_z_score", "modified_z", "fence_z", "quantile_z"]:
     if score >= 3.5:
       return "🚨 **[CRITICAL OUTLIER]**"
     elif score >= 2.5:
@@ -3217,14 +3220,16 @@ class MultiStageTemplateRouter:
           "// METHODOLOGY & HUNTING GOAL\n"
           "// Goal: Detect Producer-Consumer Byte Ratio Inversion (Endpoint Shifting from Net Consumer to Data Producer).\n"
           "// Target Telemetry: UDM_EVENTS ({{event_type}})\n"
-          "// Statistical Model: Directional Byte Asymmetry Ratio (Sent / Total Bytes) with Historical Z-Score\n"
+          "// Statistical Model: Leave-One-Out Directional Producer Ratio Standardization (Z_rho = (rho_obs - mu_rho_LOO) / max(sd_rho_LOO, 0.05))\n"
           "// Mathematical Rationale:\n"
-          "//   - Why this model: Standard workstations and application clients are net data consumers (rho << 0.30).\n"
-          "//     When an endpoint stages and exfiltrates data or serves payloads laterally, its directional producer\n"
-          "//     ratio rho = sent_bytes / (sent_bytes + received_bytes) inverts toward 1.0 alongside a Z-score spike.\n"
-          "// Sensitivity Boundary: {{tier}} (Producer Ratio >= {{min_producer_ratio}}, Z-Score >= {{z_score}}, Sent Bytes >= {{min_sent_bytes}}, Active Samples >= {{min_active_samples}})\n"
+          "//   - Standard workstations and application clients maintain a low historical producer ratio rho = sent / (sent + recv + 1),\n"
+          "//     whereas dedicated log forwarders and backup agents maintain a consistently high historical rho (~0.90).\n"
+          "//   - Standardizing the current window's producer ratio $producer_ratio against the entity's leave-one-out historical\n"
+          "//     producer-ratio mean and dispersion (floored continuously at 0.05) suppresses steady high-ratio forwarders while\n"
+          "//     isolating true role inversions on consumer endpoints.\n"
+          "// Sensitivity Boundary: {{tier}} (Producer Ratio >= {{min_producer_ratio}}, Ratio Inversion Z >= {{z_score}}σ, Sent Bytes >= {{min_sent_bytes}}, Active Samples >= {{min_active_samples}})\n"
           "// ============================================================================\n\n"
-          "// Stage 1: Aggregate per-window outbound/inbound bytes and destination diversity\n"
+          "// Stage 1: Aggregate per-window directional bytes, producer ratio moments, and destination diversity\n"
           "stage stage1_directional_bytes {\n"
           "    metadata.event_type = \"{{event_type}}\"\n"
           "    {{entity_field}} = $entity\n"
@@ -3237,38 +3242,42 @@ class MultiStageTemplateRouter:
           "    $event_count = count(metadata.id)\n"
           "    $sent_bytes = sum(network.sent_bytes)\n"
           "    $recv_bytes = sum(network.received_bytes)\n"
+          "    $bucket_ratio = 1.0 * sum(network.sent_bytes) / (sum(network.sent_bytes) + sum(network.received_bytes) + 1.0)\n"
+          "    $bucket_ratio_sq = (1.0 * sum(network.sent_bytes) / (sum(network.sent_bytes) + sum(network.received_bytes) + 1.0)) * (1.0 * sum(network.sent_bytes) / (sum(network.sent_bytes) + sum(network.received_bytes) + 1.0))\n"
           "    $distinct_targets = count_distinct($dst_ip)\n"
           "}\n\n"
-          "// Stage 2: Establish per-entity historical baseline over outbound byte volume\n"
+          "// Stage 2: Accumulate per-entity historical producer ratio moments across active windows\n"
           "stage stage2_entity_baseline {\n"
           "    $entity = $stage1_directional_bytes.entity\n\n"
           "  match:\n"
           "    $entity\n\n"
           "  outcome:\n"
           "    $active_windows = count($stage1_directional_bytes.window_start)\n"
-          "    $mean_sent = avg($stage1_directional_bytes.sent_bytes)\n"
-          "    $sd_sent = stddev($stage1_directional_bytes.sent_bytes)\n"
+          "    $sum_ratio = sum($stage1_directional_bytes.bucket_ratio)\n"
+          "    $sum_ratio_sq = sum($stage1_directional_bytes.bucket_ratio_sq)\n"
           "}\n\n"
-          "// Root Stage: Score directional producer ratio inversion and outbound byte Z-score\n"
+          "// Root Stage: Score Leave-One-Out Producer Ratio Inversion Z-Score & 6 Evidence Pillars\n"
           "$entity = $stage1_directional_bytes.entity\n"
           "$entity = $stage2_entity_baseline.entity\n"
           "$ws = $stage1_directional_bytes.window_start\n\n"
           "match:\n"
           "  $entity, $ws by {{bucket_size}}\n\n"
           "outcome:\n"
-          "  // 6 Core Evidence Pillars\n"
+          "  // 6 Core Evidence Pillars & Leave-One-Out Ratio Baseline\n"
           "  $observation_count = max($stage1_directional_bytes.sent_bytes)\n"
           "  $baseline_active_samples = max($stage2_entity_baseline.active_windows)\n"
-          "  $baseline_mean = max($stage2_entity_baseline.mean_sent)\n"
-          "  $baseline_dispersion = max($stage2_entity_baseline.sd_sent)\n"
           "  $fleet_prevalence = 0 - 1\n"
-          "  $distinct_binaries = max($stage1_directional_bytes.distinct_targets)\n\n"
-          "  // Directional Producer-Consumer Ratio & Z-Score\n"
-          "  $window_recv = max($stage1_directional_bytes.recv_bytes)\n"
-          "  $total_bytes = $observation_count + $window_recv + 1.0\n"
-          "  $producer_ratio = $observation_count / $total_bytes\n"
-          "  $safe_sd = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)\n"
-          "  $z_score = ($observation_count - $baseline_mean) / $safe_sd\n\n"
+          "  $distinct_binaries = max($stage1_directional_bytes.distinct_targets)\n"
+          "  $producer_ratio = max($stage1_directional_bytes.bucket_ratio)\n\n"
+          "  $raw_n_prior = $baseline_active_samples - 1\n"
+          "  $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)\n"
+          "  $raw_loo_sum = max($stage2_entity_baseline.sum_ratio) - $producer_ratio\n"
+          "  $loo_sum = if($raw_loo_sum > 0.0, $raw_loo_sum, 0.0)\n"
+          "  $baseline_mean = $loo_sum / $n_prior\n"
+          "  $raw_loo_var = ((max($stage2_entity_baseline.sum_ratio_sq) - ($producer_ratio * $producer_ratio)) / $n_prior) - ($baseline_mean * $baseline_mean)\n"
+          "  $safe_var = if($raw_loo_var > 0.0025, $raw_loo_var, 0.0025)\n"
+          "  $baseline_dispersion = math.sqrt($safe_var)\n"
+          "  $z_score = ($producer_ratio - $baseline_mean) / $baseline_dispersion\n\n"
           "condition:\n"
           "  $baseline_active_samples >= {{min_active_samples}}\n"
           "  and $observation_count >= {{min_sent_bytes}}\n"
@@ -3326,6 +3335,7 @@ class MultiStageTemplateRouter:
       hod_scoring_end_epoch: Optional[int] = None,
       baseline_days: Optional[int] = None,
       token_field: Optional[str] = None,
+      window_days: Optional[int] = None,
   ) -> str:
     tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
     arch_norm = _normalize_archetype_token(archetype)
@@ -3526,6 +3536,19 @@ class MultiStageTemplateRouter:
       resolved_baseline_days = int(baseline_days) if baseline_days is not None else max(1, int(round(((eff_window_hours or 168.0) - 24.0) / 24.0)))
 
     resolved_token_field = str(token_field).strip() if token_field and str(token_field).strip() else "principal.process.command_line"
+    if window_days is not None:
+      if int(window_days) < 1:
+        raise ValueError(f"window_days must be >= 1, got {window_days!r}")
+      resolved_window_days = int(window_days)
+    else:
+      resolved_window_days = max(1, int(round((eff_window_hours or 336.0) / 24.0)) - 1)
+    resolved_prior_window_buckets = max(1, resolved_total_buckets - 1)
+    if template_file == "beta_binomial_failure_4stage.yl2":
+      resolved_prior_alpha0 = float(thresh.get("prior_alpha0", 1.0))
+      resolved_prior_beta0 = float(thresh.get("prior_beta0", 19.0))
+    else:
+      resolved_prior_alpha0 = float(thresh.get("prior_alpha0", 2.0))
+      resolved_prior_beta0 = float(thresh.get("prior_beta0", 2.0))
 
     event_filter_str = str(event_filter).strip() if event_filter is not None else ""
 
@@ -3546,6 +3569,10 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{hod_scoring_start_epoch}}", str(resolved_hod_start))
     rendered = rendered.replace("{{hod_scoring_end_epoch}}", str(resolved_hod_end))
     rendered = rendered.replace("{{baseline_days}}", str(resolved_baseline_days))
+    rendered = rendered.replace("{{window_days}}", str(resolved_window_days))
+    rendered = rendered.replace("{{prior_window_buckets}}", str(resolved_prior_window_buckets))
+    rendered = rendered.replace("{{prior_alpha0}}", str(resolved_prior_alpha0))
+    rendered = rendered.replace("{{prior_beta0}}", str(resolved_prior_beta0))
     rendered = rendered.replace("{{tenant_tz}}", clean_tz)
     rendered = rendered.replace("{{tier}}", tier_up)
     rendered = rendered.replace("{{event_type}}", event_type)
@@ -3570,12 +3597,16 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_count}}", str(thresh.get("min_count", 25)))
     rendered = rendered.replace("{{min_sd}}", str(thresh.get("min_sd", 5.0)))
     rendered = rendered.replace("{{min_distinct_targets}}", str(thresh.get("min_distinct_targets", 3)))
+    rendered = rendered.replace("{{min_awakening_volume}}", str(thresh.get("min_awakening_volume", 10)))
     rendered = rendered.replace("{{dormant_weight}}", str(thresh.get("dormant_weight", 2.0)))
     rendered = rendered.replace("{{z_score}}", str(thresh.get("z_score", 2.0)))
     rendered = rendered.replace("{{delta_z}}", str(thresh.get("delta_z", 3.0)))
     rendered = rendered.replace("{{bayesian_z}}", str(thresh.get("bayesian_z", 3.0)))
+    rendered = rendered.replace("{{fail_z}}", str(thresh.get("fail_z", 3.0)))
     rendered = rendered.replace("{{posterior_fail_prob}}", str(thresh.get("posterior_fail_prob", 0.50)))
     rendered = rendered.replace("{{min_attempts}}", str(thresh.get("min_attempts", 15)))
+    rendered = rendered.replace("{{min_deficit_z}}", str(thresh.get("min_deficit_z", 1.5)))
+    rendered = rendered.replace("{{max_diversity_ratio}}", str(thresh.get("max_diversity_ratio", 0.20)))
     rendered = rendered.replace("{{max_diversity_z}}", str(thresh.get("max_diversity_z", -1.5)))
     rendered = rendered.replace("{{min_concentration_ratio}}", str(thresh.get("min_concentration_ratio", 0.65)))
     rendered = rendered.replace("{{min_events}}", str(thresh.get("min_events", 5)))
@@ -3604,6 +3635,7 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_conns}}", str(thresh.get("min_conns", 25)))
     rendered = rendered.replace("{{prevalence}}", str(thresh.get("prevalence", 2)))
     rendered = rendered.replace("{{m_z}}", str(thresh.get("m_z", 3.5)))
+    rendered = rendered.replace("{{fence_z}}", str(thresh.get("fence_z", 3.5)))
     rendered = rendered.replace("{{min_daily_volume}}", str(thresh.get("min_daily_volume", 100)))
     rendered = rendered.replace("{{dispersion_floor}}", str(thresh.get("dispersion_floor", 1.0)))
     rendered = rendered.replace("{{fleet_z}}", str(thresh.get("fleet_z", 2.5)))
@@ -3611,11 +3643,13 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{min_fleet_sd}}", str(thresh.get("min_fleet_sd", 5.0)))
     rendered = rendered.replace("{{min_active_hosts}}", str(thresh.get("min_active_hosts", 15)))
     rendered = rendered.replace("{{surprisal_threshold}}", str(thresh.get("surprisal_threshold", 3.0)))
-    rendered = rendered.replace("{{min_parent_count}}", str(thresh.get("min_parent_count", 10)))
+    rendered = rendered.replace("{{min_parent_count}}", str(thresh.get("min_parent_count", 1)))
+    rendered = rendered.replace("{{vocab_smooth}}", str(thresh.get("vocab_smooth", 100.0)))
     rendered = rendered.replace("{{entropy_threshold}}", str(thresh.get("entropy_threshold", 5.5)))
     rendered = rendered.replace("{{min_length}}", str(thresh.get("min_length", 25)))
     rendered = rendered.replace("{{zipf_threshold}}", str(thresh.get("zipf_threshold", 2.5)))
     rendered = rendered.replace("{{max_adopters}}", str(thresh.get("max_adopters", 2)))
+    rendered = rendered.replace("{{min_fleet_hosts}}", str(thresh.get("min_fleet_hosts", 10)))
     rendered = rendered.replace("{{velocity_threshold}}", str(thresh.get("velocity_threshold", 2.0)))
     rendered = rendered.replace("{{z_threshold}}", str(thresh.get("z_threshold", 3.0)))
     rendered = rendered.replace("{{min_producer_ratio}}", str(thresh.get("min_producer_ratio", 0.70)))

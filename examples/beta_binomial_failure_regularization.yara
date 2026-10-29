@@ -1,18 +1,17 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Hunt for anomalous failure ratios (e.g. password spray or HTTP 5xx errors) with Beta-Binomial Regularization
-// Target Telemetry: UDM_EVENTS (USER_LOGIN / NETWORK_HTTP)
-// Statistical Model: Beta-Binomial Bayesian Updating & Small-Sample Shrinkage
-// Operational Analogy: "Small-Sample Ratio Regularization"
+// Goal: Hunt for anomalous failure bursts (password spray, credential stuffing, or service errors) via Beta-Binomial Predictive Standardization
+// Target Telemetry: UDM_EVENTS (USER_LOGIN)
+// Statistical Model: Leave-One-Out Conjugate Beta-Binomial Updating & Predictive Failure Z-Score ($fail_z)
+// Operational Analogy: "Entity-Adaptive Failure Rate Regularization"
 // Mathematical Rationale:
-//   Raw failure percentages (fails / total) trigger massive false alarms on low sample counts
-//   (e.g., 1 failed login out of 1 total attempt = 100% failure rate).
-//   Beta-Binomial conjugate updating regularizes the failure probability toward the population
-//   prior baseline, filtering out transient single-trial mistakes while catching true sustained attacks.
-// Sensitivity Boundary: BALANCED (Regularized Posterior Failure Prob >= 0.50, Min Attempts >= 15, Active Samples >= 12)
+//   Updates a Beta(1.0, 19.0) hyperprior (~5% baseline failure rate) with each entity's leave-one-out
+//   historical failures and successes from Stage 2, then standardizes the scored hour's failure count against
+//   the exact Beta-Binomial predictive variance n * p0 * (1 - p0) * (M + n) / (M + 1).
+// Sensitivity Boundary: BALANCED (Predictive Failure Z >= 3.5σ, Min Attempts >= 15, Min Fails >= 10, Active Hours >= 12)
 // ============================================================================
 
-// Stage 1: Aggregate successes and failures per entity in tumbling hourly windows
+// Stage 1: Aggregate total and failed trials per entity in tumbling hourly windows
 stage entity_hourly_trials {
   $e.metadata.event_type = "USER_LOGIN"
   $user = $e.target.user.userid
@@ -23,11 +22,11 @@ stage entity_hourly_trials {
 
   outcome:
     $total_trials = count($e.metadata.id)
-    $failed_trials = sum(if($e.security_result.action = "BLOCK", 1, 0))
+    $failed_trials = sum(if($e.security_result.action = "BLOCK" or $e.security_result.action = "FAIL", 1, 0))
     $distinct_sources = count_distinct($e.principal.ip)
 }
 
-// Stage 2: Historical Parameter Estimation across all active baseline windows
+// Stage 2: Historical Trial & Failure Accumulation per Entity
 stage entity_historical_rates {
   $user = $entity_hourly_trials.user
 
@@ -40,9 +39,7 @@ stage entity_historical_rates {
     $active_hours = count($entity_hourly_trials.window_start)
 }
 
-// Stage 3: Fleet Context
-// Keyed on the window (NOT the user): grouping by $user and counting distinct
-// users always yields 1. A $dummy = 1 Cartesian key is rejected by the compiler.
+// Stage 3: Concurrent Fleet Failure Breadth
 stage fleet_stats {
   $ws = $entity_hourly_trials.window_start
 
@@ -50,10 +47,10 @@ stage fleet_stats {
     $ws by 1h
 
   outcome:
-    $fleet_users = count_distinct($entity_hourly_trials.user)
+    $fleet_users = sum(if($entity_hourly_trials.failed_trials >= 10, 1, 0))
 }
 
-// Root Stage: Beta-Binomial Conjugate Updating & Shrinkage
+// Root Stage: Leave-One-Out Beta-Binomial Conjugate Updating & Predictive Failure Z
 $user = $entity_hourly_trials.user
 $user = $entity_historical_rates.user
 $ws = $entity_hourly_trials.window_start
@@ -63,24 +60,34 @@ match:
   $user, $ws by 1h
 
 outcome:
-  // 6 Standardized Evidence Pillars
   $observation_count = max($entity_hourly_trials.failed_trials)
+  $hourly_trials_count = max($entity_hourly_trials.total_trials)
+  $safe_trials = if($hourly_trials_count > 0, $hourly_trials_count, 1)
   $baseline_active_samples = max($entity_historical_rates.active_hours)
-  $baseline_mean = max($entity_historical_rates.total_historical_fails)
-  $baseline_dispersion = max($entity_historical_rates.total_historical_events)
   $fleet_prevalence = max($fleet_stats.fleet_users)
   $distinct_binaries = max($entity_hourly_trials.distinct_sources)
 
-  // Regularized Posterior Probability (alpha_0 = 1.0, beta_0 = 9.0)
-  $regularized_failure_prob = (max($entity_hourly_trials.failed_trials) + 1.0) / (max($entity_hourly_trials.total_trials) + 10.0)
-  $hourly_trials_count = max($entity_hourly_trials.total_trials)
-  $safe_trials = if($hourly_trials_count > 0, $hourly_trials_count, 1.0)
-  $unregularized_raw_rate = max($entity_hourly_trials.failed_trials) / $safe_trials
+  // Leave-One-Out Beta Prior & Beta-Binomial Predictive Standardization
+  $raw_prior_fails = max($entity_historical_rates.total_historical_fails) - $observation_count
+  $prior_fails = if($raw_prior_fails > 0, $raw_prior_fails, 0)
+  $raw_prior_events = max($entity_historical_rates.total_historical_events) - $hourly_trials_count
+  $prior_events = if($raw_prior_events > $prior_fails, $raw_prior_events, $prior_fails)
+  $prior_succ = $prior_events - $prior_fails
+  $alpha_prior = 1.0 + $prior_fails
+  $beta_prior = 19.0 + $prior_succ
+  $prior_total = $alpha_prior + $beta_prior
+  $baseline_mean = $alpha_prior / $prior_total
+  $posterior_fail_prob = ($alpha_prior + $observation_count) / ($prior_total + $safe_trials)
+  $pred_var = $safe_trials * $baseline_mean * (1.0 - $baseline_mean) * (($prior_total + $safe_trials) / ($prior_total + 1.0))
+  $safe_pred_var = if($pred_var > 0.25, $pred_var, 0.25)
+  $baseline_dispersion = math.sqrt($safe_pred_var)
+  $fail_z = ($observation_count - ($safe_trials * $baseline_mean)) / $baseline_dispersion
 
 condition:
   $baseline_active_samples >= 12
-  and $observation_count >= 15
-  and $regularized_failure_prob >= 0.50
+  and $hourly_trials_count >= 15
+  and $observation_count >= 10
+  and $fail_z >= 3.5
 
 order:
-  $regularized_failure_prob desc
+  $fail_z desc
