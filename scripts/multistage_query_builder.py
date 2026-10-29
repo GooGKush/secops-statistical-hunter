@@ -2053,10 +2053,10 @@ def parse_columnar_stats(stats_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def calculate_fleet_adjusted_threshold(base_z: float, fleet_size: int) -> float:
-  """Calculates Bonferroni / Extreme Value Theory adjusted Z-score threshold for large fleets."""
+  """Calculates Gaussian extreme-value expected-maximum adjusted Z-score threshold for large fleets."""
   if fleet_size <= 1:
     return base_z
-  # Bonferroni adjustment approximation for Gaussian tail: Z_adj ~ sqrt(2 * ln(N))
+  # Gaussian extreme-value expected-maximum approximation: E[max_{1<=i<=N} Z_i] ~ sqrt(2 * ln(N))
   correction = math.sqrt(2.0 * math.log(max(fleet_size, 2)))
   return max(base_z, round(correction, 2))
 
@@ -2494,7 +2494,11 @@ def format_triage_report(
   
   if fleet_size > 1:
     adj_z = calculate_fleet_adjusted_threshold(3.0, fleet_size)
-    out.append(f"* **Fleet Scaling / Multiple-Comparison Adjustment**: Fleet Size $N = {fleet_size}$ | Bonferroni Threshold $Z_{{\\text{{adj}}}} \\ge {adj_z}\\sigma$")
+    out.append(
+        f"* **Fleet Scaling / Multiple-Comparison Adjustment**: Fleet Size $N = {fleet_size}$ | "
+        f"Expected-Maximum Threshold $Z_{{\\text{{adj}}}} \\ge {adj_z}\\sigma$ "
+        f"($\\mathbb{{E}}[\\max Z_i] \\approx \\sqrt{{2 \\ln N}}$)"
+    )
 
   if "baseline_mean" in rows[0] and "baseline_dispersion" in rows[0]:
     out.append(f"* **Normal Baseline Envelope**: Typical Average ($\\mu$) $\\approx {float(rows[0]['baseline_mean']):.1f}$ | Typical Variation ($\\sigma$) $\\approx \\pm{float(rows[0]['baseline_dispersion']):.1f}$")
@@ -2725,6 +2729,13 @@ def format_triage_report(
     out.append("  $$M_Z = \\frac{x - \\tilde{x}}{s}, \\quad s = \\begin{cases} \\text{MAD} / 0.6745 & \\text{MAD} > 0 \\\\ 1.253314 \\cdot \\text{meanAD} & \\text{MAD} = 0 \\\\ \\text{dispersion floor} & \\text{both} = 0 \\end{cases}$$")
     out.append(f"* **Result**: $M_Z = {top_score_str}$ (equivalent to $0.6745 \\cdot (x - \\tilde{{x}}) / \\text{{MAD}}$ when MAD > 0).")
     out.append(describe_mad_scale_branch(top_ent))
+  elif chosen_key == "threat_distance":
+    out.append("* **Model**: Multi-Sector Rectified Euclidean Threat Distance ($D$)")
+    out.append("  $$D = \\sqrt{\\sum_{i=1}^{k} \\max(0, Z_i)^2} = " + f"{top_score_str}" + "$$")
+    out.append(
+        "* **Sector Correlation Caveat**: Multi-sector fusion false-positive rates depend on how correlated the sectors are — "
+        "positively correlated sectors exceed the independent $\\chi^2_k$ tail rate."
+    )
   out.append("")
   out.append("##### 🎚️ Calibrated Risk Index (CRI) Sigmoid Normalization")
   out.append("  $$\\text{CRI} = \\text{round}\\left(\\frac{100}{1 + \\exp(-0.6 \\cdot (Z - 3.0))}\\right) = \\mathbf{" + format_cri(top_cri_val) + "}$$")
@@ -2733,10 +2744,13 @@ def format_triage_report(
   if fleet_size > 1:
     adj_z = calculate_fleet_adjusted_threshold(3.0, fleet_size)
     out.append("")
-    out.append("##### 🌐 Multiple-Comparison Fleet Correction (Bonferroni / Gumbel Tail)")
-    out.append(f"* **Fleet Population ($N$)**: `{fleet_size}` independent endpoints evaluated simultaneously.")
-    out.append(f"* **Adjusted Critical Threshold**: $Z_{{\\text{{adj}}}} \\approx \\sqrt{{2 \\ln N}} = {adj_z}\\sigma$.")
-    out.append(f"* **Family-Wise Error Rate (FWER)**: Controls fleet-wide false discovery probability at $\\alpha = 0.01$.")
+    out.append("##### 🌐 Multiple-Comparison Fleet Correction (Expected Maximum $\\mathbb{E}[\\max Z_i] \\approx \\sqrt{2 \\ln N}$)")
+    out.append(f"* **Fleet Population ($N$)**: `{fleet_size}` endpoints evaluated across the fleet.")
+    out.append(
+        f"* **Expected-Maximum Reference**: $Z_{{\\text{{adj}}}} = \\max(3.0, \\sqrt{{2 \\ln N}}) = {adj_z}\\sigma$ "
+        "approximates the expected maximum $\\mathbb{E}[\\max_{1 \\le i \\le N} Z_i]$ of $N$ independent standard normal scores "
+        "(not a Bonferroni correction and not an exact $\\alpha = 0.01$ FWER bound)."
+    )
 
   out.append("")
   out.append("##### 🛡️ Statistical Validity & Safeguard Verification")
@@ -3944,8 +3958,11 @@ class MultiStageTemplateRouter:
       fusion_entity_expr = "strings.coalesce($e.principal.hostname, $e.principal.asset.hostname, $e.principal.ip[0])"
 
     # Default event type resolution
+    is_exfil_iqr = arch_norm == "EXFILTRATION_IQR_OUTLIER"
     if not event_type:
-      if (
+      if is_exfil_iqr:
+        event_type = "NETWORK_CONNECTION"
+      elif (
           "poisson_burst" in template_file.lower()
           or "beta_binomial" in template_file
           or "privileged_lateral" in template_file
@@ -3965,9 +3982,9 @@ class MultiStageTemplateRouter:
       else:
         event_type = "PROCESS_LAUNCH"
 
-    # MAD template slots: daily observed value and evidence sample field.
+    # MAD / Tukey template slots: daily observed value and evidence sample field.
     if not daily_aggregation:
-      daily_aggregation = "count(metadata.id)"
+      daily_aggregation = "sum(network.sent_bytes)" if is_exfil_iqr else "count(metadata.id)"
     if not sample_field:
       sample_field = MAD_SAMPLE_FIELD_BY_EVENT_TYPE.get(event_type.upper(), "metadata.product_event_type")
 
@@ -4571,19 +4588,40 @@ class HandoffEndpoint:
       tier = resolve_micro_sensitivity_tier(str(raw_tier), strict=False)
 
     local_exec = bool(payload.get("local_execution_available", True))
+    raw_event_type = payload.get("event_type")
+    raw_daily_agg = payload.get("daily_aggregation")
+    for opt_label, opt_val in (("event_type", raw_event_type), ("daily_aggregation", raw_daily_agg)):
+      if opt_val is not None:
+        if (
+            not isinstance(opt_val, str)
+            or not opt_val.strip()
+            or any(ch in opt_val for ch in ('"', "'", "\n", "\r", "{", "}", ";", "\x00"))
+            or re.search(r"\b(?:stage|match|outcome|condition|order)\s*:", opt_val, re.IGNORECASE)
+            or check_scope_exclusions(opt_val)
+        ):
+          return {
+              "status": "HANDOFF_ACK_REJECTED",
+              "request_id": req_id,
+              "action": "RETRY_REQUIRED",
+              "errors": [f"Invalid or unsafe {opt_label} in handoff payload: {opt_val!r}"],
+          }
+
+    build_archetype = "EXFILTRATION_IQR_OUTLIER" if intent_key == "EXFILTRATION_IQR_OUTLIER" else mapped_archetype
     try:
       template_file = router.get_template_filename(mapped_archetype)
       resolved_scoping_field = router.resolve_target_entity_field(
-          archetype=mapped_archetype,
+          archetype=build_archetype,
           entity_type=router_entity_type,
           entity_field=raw_entity_field,
           target_entity_value=entity_val,
       )
       compiled_query = router.build_query(
-          archetype=mapped_archetype,
+          archetype=build_archetype,
           tier=tier,
           entity_type=router_entity_type,
+          event_type=raw_event_type.strip() if isinstance(raw_event_type, str) else None,
           window_hours=window_hours,
+          daily_aggregation=raw_daily_agg.strip() if isinstance(raw_daily_agg, str) else None,
           entity_field=raw_entity_field,
           local_execution_available=local_exec,
           target_entity_value=entity_val,
