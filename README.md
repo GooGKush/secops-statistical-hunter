@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v2.9.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-179%2F179%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v3.0.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-300%2F300%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 

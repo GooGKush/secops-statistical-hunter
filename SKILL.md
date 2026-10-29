@@ -1,7 +1,7 @@
 ---
 name: secops-statistical-hunter
 author: Greg Kushmerek
-version: 2.9.0
+version: 3.0.0
 description: |
   Multi-stage statistical outlier hunting, Bayesian updating, and Entity Context Graph (GLOBAL_CONTEXT, DERIVED_CONTEXT) enrichment in Google SecOps over raw UDM telemetry. Supports Z-Score, Fano, Poisson, standalone Median Absolute Deviation (MAD) over raw fields or custom windows (30d MAD: secops-risk-metrics-multistage), Quantile/Bowley-Skewness Tukey Fences, CV, Gamma, Beta-Binomial, Delta-Z, Multi-Sector, Markov, Shannon, Zipf, EWMA, and Hybrid Models with 5-Section Triage Reporting (6 pillars, CRI [0-100]). Triggers: beaconing with jitter, MAD on DNS, Tukey fence, Bowley skewness, quantile fence, ingestion lag, hour-of-day circadian profile, poisson burst, fano factor, bayesian gamma, beta-binomial, dual-baseline delta-z, multi-sector threat fusion, service account out of normal behavioral scope, diversity deficit, elephant flow, two-part hurdle, global threat intel, derived context, markov process transition, shannon character entropy, zipfian process rarity, ewma burst velocity.
 compatibility: Requires access to a Google SecOps SIEM instance with the SecOps GUS MCP server (udm_search, get_operation) or Chronicle API.
