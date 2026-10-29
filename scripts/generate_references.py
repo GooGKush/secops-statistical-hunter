@@ -3,20 +3,77 @@
 # Author: Greg Kushmerek
 #
 # Generates references/statistical-models-taxonomy.md and references/dynamic-windowing-matrix.md
-# directly from scripts/multistage_query_builder.py, ensuring Code-as-Single-Source-of-Truth.
+# directly from scripts/multistage_query_builder.py and templates/pipelines/*.yl2,
+# ensuring Code-as-Single-Source-of-Truth with zero template/slot drift.
 
 from pathlib import Path
+import re
 import sys
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_DIR))
 
-from scripts.multistage_query_builder import (
-    SENSITIVITY_MAP,
+from scripts.multistage_query_builder import (  # pylint: disable=wrong-import-position
     MultiStageTemplateRouter,
+    RETIRED_IMPOSSIBLE_TRAVEL_MESSAGE,
+    SENSITIVITY_MAP,
+    calculate_fleet_adjusted_threshold,  # noqa: F401
     get_adaptive_window_parameters,
-    calculate_fleet_adjusted_threshold,
+    get_score_semantics,
 )
+
+
+def _build_per_pipeline_spec_rows() -> list[str]:
+  """Extracts complete per-pipeline slot & topology specifications directly from templates/pipelines/*.yl2."""
+  router = MultiStageTemplateRouter()
+  pipelines_dir = REPO_DIR / "templates" / "pipelines"
+  yl2_paths = sorted(pipelines_dir.glob("*.yl2"))
+
+  helper_map = MultiStageTemplateRouter.PYTHON_HELPER_SCREEN_ALTERNATIVES
+  screen_to_subcmd = {screen_arch: subcmd for subcmd, screen_arch in helper_map.values()}
+
+  rows: list[str] = []
+  for p in yl2_paths:
+    tmpl_file = p.name
+    sens_key = MultiStageTemplateRouter.TEMPLATE_TO_SENSITIVITY_KEY[tmpl_file]
+    raw_yl2 = p.read_text(encoding="utf-8")
+    code_only = re.sub(r"//[^\n]*", "", raw_yl2)
+    code_only = re.sub(r"/\*.*?\*/", "", code_only, flags=re.DOTALL)
+
+    named_stages = re.findall(r"^\s*stage\s+([a-zA-Z0-9_]+)\s*\{", code_only, flags=re.MULTILINE)
+    total_stages = len(named_stages) + 1
+    if sens_key in helper_map:
+      subcmd, screen_arch = helper_map[sens_key]
+      exec_mode = f"Vetted helper: `micro_python_helpers.py {subcmd}` (`D6`; screen: `{screen_arch}`)"
+    elif sens_key in screen_to_subcmd:
+      parent_subcmd = screen_to_subcmd[sens_key]
+      exec_mode = f"Stateless screen (`D6-G5` for `{parent_subcmd}`)"
+    else:
+      exec_mode = "In-query SIEM"
+    stage_exec_cell = f"{total_stages} stages ({len(named_stages)} named + root) · {exec_mode}"
+
+    rendered_default = router.build_query(sens_key)
+    event_types = sorted(set(re.findall(r'metadata\.event_type\s*=\s*"([^"]+)"', rendered_default)))
+    event_str = ", ".join(f"`{et}`" for et in event_types) if event_types else "`UDM_EVENTS`"
+    default_entity_field = router.resolve_target_entity_field(sens_key, entity_type="host")
+
+    root_matches = re.findall(r"^\s*match:\s*\n\s*([^\n]+)", code_only, flags=re.MULTILINE)
+    root_match_str = root_matches[-1].strip() if root_matches else "unwindowed"
+    grain_cell = f"{event_str} / `{default_entity_field}` · Root `match: {root_match_str}`"
+
+    root_orders = re.findall(r"^\s*order:\s*\n\s*([^\n]+)", code_only, flags=re.MULTILINE)
+    order_expr = root_orders[-1].strip() if root_orders else "$z_score desc"
+    order_var = order_expr.split()[0]
+    sem = get_score_semantics(order_var.lstrip("$"))
+    score_cell = f"`{order_var}` (`{sem.kind}`, `order: {order_expr}`)"
+
+    slots = sorted(set(re.findall(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", raw_yl2)))
+    slots_cell = ", ".join(f"`{{{{{slot}}}}}`" for slot in slots)
+
+    rows.append(
+        f"| `{tmpl_file}` | `{sens_key}` | {stage_exec_cell} | {grain_cell} | {score_cell} | {slots_cell} |"
+    )
+  return rows
 
 
 def generate_statistical_taxonomy() -> str:
@@ -200,16 +257,19 @@ def generate_statistical_taxonomy() -> str:
       "",
       "---",
       "",
-      "## 20. Canonical Golden Pipeline Template Mapping (27 Templates)",
+      "## 20. Per-Pipeline Template & Slot Specification Matrix (27 Active Templates)",
       "",
-      "| Pipeline Template (`.yl2`) | Canonical `SENSITIVITY_MAP` Key |",
-      "| :--- | :--- |",
+      "| Pipeline Template (`.yl2`) | Canonical `SENSITIVITY_MAP` Key | Stages & Execution Mode | Default Event / Entity & Match Spine | Primary Score Outcome (`order:`) | Template `{{slot}}` Placeholders |",
+      "| :--- | :--- | :--- | :--- | :--- | :--- |",
   ]
 
-  for tmpl_file, sens_key in sorted(MultiStageTemplateRouter.TEMPLATE_TO_SENSITIVITY_KEY.items()):
-    lines.append(f"| `{tmpl_file}` | `{sens_key}` |")
+  lines.extend(_build_per_pipeline_spec_rows())
 
   lines.extend([
+      "",
+      "### Retired Dispositions (`D1`)",
+      "",
+      f"* **`impossible_travel_geo_velocity_2stage.yl2` (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`, aliases `IMPOSSIBLE_TRAVEL`, `GEO_VELOCITY`, `SUPERSONIC_TRAVEL`) — Retired (`D1`)**: Removed from active templates and raises a deterministic `ValueError` (`\"{RETIRED_IMPOSSIBLE_TRAVEL_MESSAGE}\"`). Use `HOUR_OF_DAY_PROFILE` (`hour_of_day_profile_3stage.yl2`) for circadian out-of-profile login anomalies or `PRIVILEGED_LATERAL_EXPANSION` (`privileged_lateral_expansion_2stage.yl2`) for first-seen destination expansion.",
       "",
       "---",
       "",

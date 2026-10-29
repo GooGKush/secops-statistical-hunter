@@ -57,8 +57,8 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
     * `QueryIntegrityGate` (`scripts/multistage_query_builder.py`) audits pre-dispatch queries for unresolved `{{slot}}` placeholders, missing target entity scoping, and malformed `%<table_name>.<column>` Data Table syntax, and inspects post-execution `udm_search` responses so backend compiler/RPC errors never masquerade as `0.00σ` clean baselines.
 14. **Automated Clean Hand-Off Protocol**:
     * Generates schema-compliant synthetic UDM security analytics events (`CUSTOM_SECURITY_DATA_ANALYTICS`) under a unique `Hunt Campaign ID`, caught by tenant rule `secops_statistical_hunter_alert_catchall` for seamless alert escalation without case wall pollution.
-15. **Advanced Information-Theoretic, Long-Tail, Geospatial, Directional Asymmetry & Non-Parametric Quantile/Skewness Models**:
-    * Expands analytical reach with Markov 2-Gram Transition Rarity (evaluating $- \ln P(B \mid A)$ conditional process surprisal), Shannon Character-Class Entropy (obfuscated scripts & DGA detection), Power-Law / Zipfian Long-Tail Process Rarity ($f(k) \propto 1/k^s$ asymptotic tail isolation), Intraday EWMA Burst Velocity ($\alpha = 0.30$ kinetic rate acceleration), **Impossible Travel Geodesic Velocity (`impossible_travel_geo_velocity_2stage.yl2`, Haversine `math.geo_distance`)**, **Producer-Consumer Byte Ratio Inversion (`producer_consumer_ratio_inversion_2stage.yl2`, $\rho = \text{sent} / (\text{sent} + \text{recv})$)**, and **1-Stage Quantile, Bowley Skewness, Tail Ratio & Hubert–Vandervieren Skewness-Adjusted Tukey Fence (`iqr_tukey_skew_fences_3stage.yl2`, `window.percentile`)**, bringing the golden pipeline suite to 24 models.
+15. **Advanced Information-Theoretic, Long-Tail, Circadian Profile, Directional Asymmetry & Non-Parametric Quantile/Skewness Models**:
+    * Expands analytical reach with Markov 2-Gram Transition Rarity (evaluating $- \ln P(B \mid A)$ conditional process surprisal), Shannon Character-Class Entropy (`shannon_entropy_character_2stage.yl2` + `micro_python_helpers.py shannon`, plus stateless `long_string_screen_2stage.yl2`), Power-Law / Zipfian Long-Tail Process Rarity ($f(k) \propto 1/k^s$ asymptotic tail isolation), Intraday EWMA Burst Velocity (`ewma_burst_velocity_2stage.yl2` + `micro_python_helpers.py ewma`, plus stateless `burst_z_screen_2stage.yl2`), **Learned 24-Bin Hour-of-Day Circadian Profile (`hour_of_day_profile_3stage.yl2`, replacing retired `impossible_travel_geo_velocity_2stage.yl2` under `D1`)**, **Producer-Consumer Byte Ratio Inversion (`producer_consumer_ratio_inversion_2stage.yl2`, $\rho = \text{sent} / (\text{sent} + \text{recv})$)**, and **1-Stage Quantile, Bowley Skewness, Tail Ratio & Recalibrated Skewness-Adjusted Tukey Fence (`iqr_tukey_skew_fences_3stage.yl2`, `window.percentile`)**, bringing the active golden pipeline suite to 27 templates.
 
 ---
 
@@ -71,20 +71,23 @@ secops-statistical-hunter/
 ├── RELEASE_NOTES.md                         # Detailed version changelog & release history
 ├── LICENSE                                  # Apache 2.0 open-source license
 ├── llms.txt                                 # Token-efficient AI agent summary file
-├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (24)
+├── templates/pipelines/                     # Golden YARA-L 2.0 multi-stage DAG templates (27)
 │   ├── bayesian_gamma_shrinkage_4stage.yl2  # Poisson-Gamma Bayesian Credibility Shrinkage
 │   ├── beta_binomial_failure_4stage.yl2     # Beta-Binomial Failure Rate Shrinkage
-│   ├── c2_beaconing_jitter_2stage.yl2       # C2 beaconing timing jitter & interval regularity (CV)
+│   ├── burst_z_screen_2stage.yl2            # Stateless LOO burst-Z screen (D6-G5 fallback for ewma)
+│   ├── c2_beaconing_jitter_2stage.yl2       # C2 beaconing timestamp extractor (+ micro_python_helpers.py c2-jitter)
 │   ├── derived_context_domain_prevalence_3stage.yl2 # Derived Context domain egress enterprise prevalence
 │   ├── derived_context_file_prevalence_3stage.yl2 # Derived Context binary SHA-256 enterprise prevalence
 │   ├── derived_context_prevalence_3stage.yl2 # Derived Context enterprise user prevalence & asset age
 │   ├── dual_baseline_delta_z_3stage.yl2     # Dual-Baseline Delta-Z & Fleet Prevalence Normalization
-│   ├── ewma_burst_velocity_2stage.yl2       # Intraday EWMA burst rate velocity & kinetic acceleration
+│   ├── ewma_burst_velocity_2stage.yl2       # Ungated hourly series extractor (+ micro_python_helpers.py ewma)
+│   ├── flow_gap_ratio_screen_2stage.yl2     # Stateless flow-gap ratio screen (D6-G5 fallback for c2-jitter)
 │   ├── global_threat_intel_enrichment_3stage.yl2 # GCTI Threat Intel & WHOIS NRD egress correlation
-│   ├── hybrid_entropy_concentration_2stage.yl2 # Diversity Deficit & Elephant Flow Concentration
-│   ├── impossible_travel_geo_velocity_2stage.yl2 # Geodesic Haversine Velocity (math.geo_distance / Δt)
+│   ├── hour_of_day_profile_3stage.yl2       # Learned 24-bin circadian hour-of-day profile (WS5-HOD / D1)
+│   ├── hybrid_entropy_concentration_2stage.yl2 # Destination Diversity Deficit & Elephant Flow Concentration
 │   ├── iqr_tukey_skew_fences_3stage.yl2     # 1-Stage Quantiles (P10..P90), Bowley Skewness, Tail Ratio & Skew-Adjusted Tukey Fence
 │   ├── log_normal_volume_surge_2stage.yl2   # Parametric Log-Normal Volumetric Standardization & Sigmoid CRI
+│   ├── long_string_screen_2stage.yl2        # Stateless long-string screen (D6-G5 fallback for shannon)
 │   ├── mad_modified_z_4stage.yl2            # Standalone MAD / Modified Z-Score (4-stage, Iglewicz-Hoaglin MAD=0 fallback)
 │   ├── markov_2gram_transition_rarity_2stage.yl2 # Markov 2-Gram transition probability & information surprisal
 │   ├── multi_sector_threat_fusion_4stage.yl2 # Orthogonal Threat Space & Euclidean Distance
@@ -92,7 +95,7 @@ secops-statistical-hunter/
 │   ├── poisson_rare_surge_2stage.yl2        # Discrete Poisson Rarity & Low-Volume Spikes
 │   ├── privileged_lateral_expansion_2stage.yl2 # Privileged lateral movement & destination expansion
 │   ├── producer_consumer_ratio_inversion_2stage.yl2 # Directional Byte Asymmetry Ratio (Sent / Total Bytes)
-│   ├── shannon_entropy_character_2stage.yl2 # Shannon character-class entropy & obfuscated script density
+│   ├── shannon_entropy_character_2stage.yl2 # Distinct token extractor (+ micro_python_helpers.py shannon)
 │   ├── two_part_hurdle_2stage.yl2           # Two-Part Hurdle model for zero-inflated dormant entities
 │   ├── zipfian_process_rarity_2stage.yl2    # Power-Law / Zipfian long-tail administrative utility rarity
 │   └── zscore_process_surge_2stage.yl2      # Parametric Z-Score process surges per host
@@ -176,7 +179,7 @@ When interacting with an analyst, the skill translates operational hunting hypot
 | *"Find dormant accounts waking up today"* | Two-Part Hurdle Model | **The Sleeping Giant**: Evaluates binary transition from zero history to positive activity. |
 | *"Correlate spikes with threat intel & newly registered domains"* | Global Threat Intel Correlation | **The Outside Threat**: Cross-references outbound spikes with GCTI intel and WHOIS domain age. |
 | *"Find unusual binaries executed on this machine"* | `DERIVED_CONTEXT_FILE_PREVALENCE` / `FLEET_PREVALENCE_NORMALIZATION` (`dual_baseline_delta_z_3stage.yl2`) | **The Unprecedented Binary**: Blends host execution bursts with enterprise-wide rarity (`prevalence.rolling_max <= 3` and `> 0`). |
-| *"Find impossible travel logins across distant countries"* | Geodesic Haversine Velocity (`math.geo_distance`) | **The Supersonic Traveler**: Measures physical travel speed ($\text{km/h}$) across consecutive login coordinates. |
+| *"Find off-hours or circadian out-of-profile logins"* | Learned 24-Bin Hour-of-Day Profile (`HOUR_OF_DAY_PROFILE`) | **The Night-Shift Impostor**: Scores each hour out-of-sample against the entity's prior 24-bin circadian schedule (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY` retired under `D1`). |
 | *"Find workstations flipping from downloading to uploading"* | Producer-Consumer Byte Ratio Inversion | **The Role Flip**: Detects client endpoints whose directional byte ratio $\rho = \text{sent} / (\text{sent} + \text{recv})$ inverts toward $1.0$. |
 
 ### 2. The Two-Tier Scoping Choice
@@ -190,81 +193,10 @@ For asset and endpoint hunts, the skill proactively offers the analyst a structu
 * *"Hunt for low-prevalence C2 beaconing with random timing jitter in outbound proxy connections."*
 * *"Find connections with suspiciously regular inter-arrival timing intervals over the last 24 hours."*
 
-#### ✈️ Impossible Travel & Supersonic Geodesic Velocity (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`)
-* *"Hunt for impossible travel velocity across user logins where the same user authenticates from two distant cities faster than commercial flight speed (`900 km/h`)."*
-* *"Check if `frank.kolzig` logged in from geographically distant IP locations within the same 1-hour bucket."*
-
-```yara
-// Goal: Detect Impossible Travel / Supersonic Geodesic Velocity across consecutive authentication events.
-stage stage1_geo_sessions {
-    metadata.event_type = "USER_LOGIN"
-    target.user.userid = $entity
-    $entity != ""
-    principal.ip = $src_ip
-    $src_ip != ""
-    principal.ip_geo_artifact.location.region_latitude = $lat
-    principal.ip_geo_artifact.location.region_longitude = $lon
-    $ts = metadata.event_timestamp.seconds
-
-  match:
-    $entity by 1h
-
-  outcome:
-    $login_count = count(metadata.id)
-    $distinct_ips = count_distinct($src_ip)
-    $min_lat = min($lat)
-    $max_lat = max($lat)
-    $min_lon = min($lon)
-    $max_lon = max($lon)
-    $first_ts = min($ts)
-    $last_ts = max($ts)
-}
-
-stage stage2_user_baseline {
-    $entity = $stage1_geo_sessions.entity
-
-  match:
-    $entity
-
-  outcome:
-    $active_windows = count($stage1_geo_sessions.window_start)
-    $mean_logins = avg($stage1_geo_sessions.login_count)
-    $sd_logins = stddev($stage1_geo_sessions.login_count)
-}
-
-$entity = $stage1_geo_sessions.entity
-$entity = $stage2_user_baseline.entity
-
-match:
-  $entity by 1h
-
-outcome:
-  $observation_count = max($stage1_geo_sessions.login_count)
-  $baseline_active_samples = max($stage2_user_baseline.active_windows)
-  $baseline_mean = max($stage2_user_baseline.mean_logins)
-  $baseline_dispersion = max($stage2_user_baseline.sd_logins)
-  $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($stage1_geo_sessions.distinct_ips)
-  $lat1 = min($stage1_geo_sessions.min_lat)
-  $lon1 = min($stage1_geo_sessions.min_lon)
-  $lat2 = max($stage1_geo_sessions.max_lat)
-  $lon2 = max($stage1_geo_sessions.max_lon)
-  $distance_meters = math.geo_distance($lon1, $lat1, $lon2, $lat2)
-  $distance_km = $distance_meters / 1000.0
-  $delta_seconds = max($stage1_geo_sessions.last_ts) - min($stage1_geo_sessions.first_ts)
-  $safe_seconds = if($delta_seconds > 60, $delta_seconds, 60.0)
-  $elapsed_hours = $safe_seconds / 3600.0
-  $velocity_kmh = $distance_km / $elapsed_hours
-
-condition:
-  $baseline_active_samples >= 3
-  and $distinct_binaries >= 2
-  and $distance_km >= 500.0
-  and $velocity_kmh >= 900.0
-
-order:
-  $velocity_kmh desc
-```
+#### 🌙 Learned 24-Bin Hour-of-Day Circadian Profile (`HOUR_OF_DAY_PROFILE` — replaces retired `IMPOSSIBLE_TRAVEL_GEO_VELOCITY`)
+* *"Hunt for off-hours or circadian out-of-profile logins across the last 7 to 14 days using each user's learned 24-hour schedule."*
+* *"Check if `charles.hardy` authenticated during an hour of the day with near-zero historical profile mass."*
+* *(Note: `impossible_travel_geo_velocity_2stage.yl2` / `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` is retired under `D1` because VPN egress and coarse city-centroid geolocation produce unreliable velocity alerts; use `HOUR_OF_DAY_PROFILE` or `PRIVILEGED_LATERAL_EXPANSION`.)*
 
 #### 🔄 Producer-Consumer Byte Ratio Inversion (`PRODUCER_CONSUMER_RATIO_INVERSION`)
 * *"Hunt for workstations that normally act as data consumers flipping into net data producers ($\rho \ge 0.80$) while spiking above their outbound byte baseline."*
