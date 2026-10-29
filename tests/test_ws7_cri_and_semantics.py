@@ -213,5 +213,94 @@ class TestWS702ScoreSemanticsRegistry(unittest.TestCase):
         self.assertNotIn(f"{expected_str}σ", rep)
 
 
+class TestWS702Phase4ScoreSemantics(unittest.TestCase):
+  """Phase 4C (WS7-02): Synchronized macro + micro Phase 4 score semantics and boolean novelty_flag."""
+
+  def test_phase4_score_semantics_registry_thresholds_and_sigma_flags(self) -> None:
+    self.assertEqual(uc.DEFAULT_TUKEY_EXCESS_THRESHOLD, 1.0)
+    self.assertEqual(uc.RADAR_FUSION_DISTANCE_THRESHOLD, 3.0)
+    self.assertEqual(uc.RADAR_COMPOSITE_D_THRESHOLD, 3.5)
+
+    phase4_cases = (
+        ("tukey_excess_z", 1.0, False, "1.00"),
+        ("adaptive_z", 3.0, False, "3.00"),
+        ("rel_dev_z_equiv", 3.0, False, "3.00"),
+        ("beta_binomial_z", 3.0, True, "+3.00σ"),
+        ("posterior_fail_rate", 0.50, False, "0.50"),
+        ("above_max_z", 3.0, True, "+3.00σ"),
+        ("windowed_slack_sum", 3.0, False, "3.00"),
+        ("flow_surge_score", 3.0, True, "+3.00σ"),
+        ("hod_z_score", 3.0, True, "+3.00σ"),
+        ("burst_z", 3.0, True, "+3.00σ"),
+        ("deficit_z", 1.5, True, "+1.50σ"),
+    )
+    for key, thresh_val, expected_sigma, expected_fmt in phase4_cases:
+      with self.subTest(key=key):
+        sem = uc.get_score_semantics(key)
+        self.assertIn(key, uc.SCORE_SEMANTICS_REGISTRY)
+        self.assertEqual(sem.kind, "linear")
+        self.assertAlmostEqual(sem.threshold, thresh_val, places=4)
+        self.assertEqual(sem.neutral, 0.0)
+        self.assertEqual(sem.is_true_sigma, expected_sigma)
+        self.assertEqual(uc.is_true_sigma_key(key), expected_sigma)
+        self.assertAlmostEqual(uc.score_to_z_equivalent(key, thresh_val), 3.0, places=4)
+        self.assertEqual(uc.cri_from_model_score(key, thresh_val), 50)
+        self.assertEqual(uc.format_score_with_unit(key, thresh_val), expected_fmt)
+
+  def test_novelty_flag_boolean_semantics_never_sigma_or_cri(self) -> None:
+    sem = uc.get_score_semantics("novelty_flag")
+    self.assertEqual(sem, uc.ScoreSemantics("boolean_flag", 1.0, 0.0, False))
+    self.assertFalse(uc.is_true_sigma_key("novelty_flag"))
+    for flag_val in (0, 1, 0.0, 1.0):
+      self.assertIsNone(uc.score_to_z_equivalent("novelty_flag", flag_val))
+      self.assertIsNone(uc.cri_from_model_score("novelty_flag", flag_val))
+      self.assertEqual(uc.format_cri(uc.cri_from_model_score("novelty_flag", flag_val)), "N/A")
+      rendered = uc.format_score_with_unit("novelty_flag", flag_val)
+      self.assertNotIn("σ", rendered)
+    self.assertEqual(uc.format_score_with_unit("novelty_flag", 1), "NOVEL (flag=1)")
+    self.assertEqual(uc.format_score_with_unit("novelty_flag", 0), "SEEN (flag=0)")
+
+  def test_micro_triage_and_chart_consumers_wire_phase4_score_keys_and_novelty_flag(self) -> None:
+    for col, val, expected_str, expect_sigma in (
+        ("hod_z_score", 3.0, "+3.00σ", True),
+        ("burst_z", 3.0, "+3.00σ", True),
+        ("deficit_z", 1.5, "+1.50σ", True),
+        ("beta_binomial_z", 3.0, "+3.00σ", True),
+        ("above_max_z", 3.0, "+3.00σ", True),
+        ("flow_surge_score", 3.0, "+3.00σ", True),
+        ("tukey_excess_z", 1.0, "1.00", False),
+        ("adaptive_z", 3.0, "3.00", False),
+        ("rel_dev_z_equiv", 3.0, "3.00", False),
+        ("posterior_fail_rate", 0.50, "0.50", False),
+        ("windowed_slack_sum", 3.0, "3.00", False),
+    ):
+      with self.subTest(col=col):
+        payload = _single_row_payload(f"host-{col}", col, val)
+        rep = mqb.format_triage_report(f"Phase 4 {col}", payload)
+        self.assertIn("`[CRI: 50]`", rep)
+        self.assertIn(f"(`{expected_str}`)", rep)
+        if not expect_sigma:
+          self.assertNotIn(f"{expected_str}σ", rep)
+        reduced = mqb.DataReductionEngine.reduce([{col: val, "host": f"host-{col}"}])
+        self.assertEqual(reduced["primary_score_metric"], col)
+        chart = mqb.generate_chart_spec(payload, plot_type="DUAL_Y_TIMESERIES")
+        axis_title = chart["layer"][1]["encoding"]["y"]["axis"]["title"]
+        if expect_sigma:
+          self.assertIn("Z-Score (σ)", axis_title)
+        else:
+          self.assertIn("Anomaly Score", axis_title)
+          self.assertNotIn("σ", axis_title)
+
+    # deficit_z = 1.5 is the BALANCED alertable threshold -> HIGH SUSPICION
+    rep_def = mqb.format_triage_report("Deficit Z", _single_row_payload("host-def", "deficit_z", 1.5))
+    self.assertIn("[HIGH SUSPICION]", rep_def)
+
+    # Boolean novelty_flag=1 renders NOVEL (flag=1) with CRI: N/A and zero sigma
+    rep_nov = mqb.format_triage_report("First-Seen Novelty", _single_row_payload("host-nov", "novelty_flag", 1.0))
+    self.assertIn("⚪ `[CRI: N/A]`", rep_nov)
+    self.assertIn("`NOVEL (flag=1)`", rep_nov)
+    self.assertNotIn("σ", rep_nov)
+
+
 if __name__ == "__main__":
   unittest.main()
