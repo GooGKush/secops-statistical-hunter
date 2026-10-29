@@ -161,12 +161,12 @@ This reference details the mathematical physics, derivations, and formulas used 
 
 ---
 
-## 17. Geodesic Haversine Velocity (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`)
-* **Goal**: Detect impossible travel / supersonic geographic velocity across authentication sessions.
+## 17. Learned 24-Bin Hour-of-Day Profile (`HOUR_OF_DAY_PROFILE`)
+* **Goal**: Detect off-hours or circadian out-of-profile activity per entity without relying on hardcoded UTC business hours or noisy city-centroid geo-velocity (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY` retired under `D1`).
 * **Formula**:
-  $$d_{\text{km}} = \frac{\text{math.geo\_distance}(\text{lon}_1, \text{lat}_1, \text{lon}_2, \text{lat}_2)}{1000.0}, \quad v_{\text{km/h}} = \frac{d_{\text{km}}}{\text{if}(\Delta t > 60, \Delta t, 60) / 3600.0}$$
+  $$\mu_h = \frac{\sum_{t \notin S} x_{t,h}}{D_{\text{base}}}, \quad \sigma_h^2 = \max\left(0, \frac{\sum_{t \notin S} x_{t,h}^2}{D_{\text{base}}} - \mu_h^2\right), \quad \sigma_{\text{safe},h} = \max\left(\sqrt{\sigma_h^2}, \sqrt{\max(\mu_h, 1.0)}\right), \quad Z_{\text{hod}} = \frac{x_{\text{obs},h} - \mu_h}{\sigma_{\text{safe},h}}$$
 * **Interpretation**:
-  - Commercial subsonic flight ceiling is $\approx 900\text{ km/h}$; authentication sessions spanning $\ge 500\text{ km}$ at $v \ge 900\text{ km/h}$ across $\ge 2$ distinct source IPs isolate credential compromise or simultaneous proxy egress.
+  - Scores each hour in the final scoring window out-of-sample against the prior $D_{\text{base}}$ calendar days (zero-count hours included via $D_{\text{base}}$ and stabilized by the continuous Poisson floor $\sqrt{\max(\mu_h, 1.0)}$), alongside `$hour_profile_mass` measuring the entity's historical fraction of activity in hour $h$.
 
 ---
 
@@ -203,8 +203,8 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `dual_baseline_delta_z_3stage.yl2` | `DUAL_BASELINE_DELTA_Z` |
 | `ewma_burst_velocity_2stage.yl2` | `EWMA_BURST_VELOCITY` |
 | `global_threat_intel_enrichment_3stage.yl2` | `GLOBAL_THREAT_INTEL_ENRICHMENT` |
+| `hour_of_day_profile_3stage.yl2` | `HOUR_OF_DAY_PROFILE` |
 | `hybrid_entropy_concentration_2stage.yl2` | `HYBRID_ENTROPY_CONCENTRATION` |
-| `impossible_travel_geo_velocity_2stage.yl2` | `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` |
 | `iqr_tukey_skew_fences_3stage.yl2` | `IQR_TUKEY_SKEW_FENCES` |
 | `log_normal_volume_surge_2stage.yl2` | `LOG_NORMAL_VOLUME_SURGE` |
 | `mad_modified_z_4stage.yl2` | `DATA_EXFILTRATION_SPIKE` |
@@ -279,12 +279,12 @@ This reference details the mathematical physics, derivations, and formulas used 
 | `HEAVY_TAIL_OUTLIERS` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_daily_volume=500`, `min_iqr=50.0`, `min_baseline_days=14` |
 | `HEAVY_TAIL_OUTLIERS` | **BALANCED** | `surge_ratio=2.0`, `min_daily_volume=100`, `min_iqr=10.0`, `min_baseline_days=7` |
 | `HEAVY_TAIL_OUTLIERS` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_daily_volume=25`, `min_iqr=5.0`, `min_baseline_days=3` |
+| `HOUR_OF_DAY_PROFILE` | **CONSERVATIVE** | `z_threshold=4.0`, `min_active_samples=48` |
+| `HOUR_OF_DAY_PROFILE` | **BALANCED** | `z_threshold=3.0`, `min_active_samples=24` |
+| `HOUR_OF_DAY_PROFILE` | **AGGRESSIVE** | `z_threshold=2.0`, `min_active_samples=12` |
 | `HYBRID_ENTROPY_CONCENTRATION` | **CONSERVATIVE** | `max_diversity_z=-2.5`, `min_concentration_ratio=0.8`, `min_events=100`, `min_active_samples=48` |
 | `HYBRID_ENTROPY_CONCENTRATION` | **BALANCED** | `max_diversity_z=-1.5`, `min_concentration_ratio=0.65`, `min_events=50`, `min_active_samples=24` |
 | `HYBRID_ENTROPY_CONCENTRATION` | **AGGRESSIVE** | `max_diversity_z=-1.0`, `min_concentration_ratio=0.5`, `min_events=20`, `min_active_samples=12` |
-| `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **CONSERVATIVE** | `velocity_kmh=1200.0`, `min_distance_km=1000.0`, `min_active_samples=14` |
-| `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **BALANCED** | `velocity_kmh=900.0`, `min_distance_km=500.0`, `min_active_samples=7` |
-| `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` | **AGGRESSIVE** | `velocity_kmh=500.0`, `min_distance_km=250.0`, `min_active_samples=3` |
 | `IQR_TUKEY_SKEW_FENCES` | **CONSERVATIVE** | `surge_ratio=3.0`, `min_daily_volume=500`, `min_iqr=50.0`, `min_baseline_days=14` |
 | `IQR_TUKEY_SKEW_FENCES` | **BALANCED** | `surge_ratio=2.0`, `min_daily_volume=100`, `min_iqr=10.0`, `min_baseline_days=7` |
 | `IQR_TUKEY_SKEW_FENCES` | **AGGRESSIVE** | `surge_ratio=1.5`, `min_daily_volume=25`, `min_iqr=5.0`, `min_baseline_days=3` |

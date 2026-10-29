@@ -276,10 +276,10 @@ SENSITIVITY_MAP = {
         "BALANCED": {"velocity_threshold": 2.0, "min_count": 25, "min_sd": 2.0, "min_active_samples": 30},
         "AGGRESSIVE": {"velocity_threshold": 1.5, "min_count": 10, "min_sd": 1.0, "min_active_samples": 14},
     },
-    "IMPOSSIBLE_TRAVEL_GEO_VELOCITY": {
-        "CONSERVATIVE": {"velocity_kmh": 1200.0, "min_distance_km": 1000.0, "min_active_samples": 14},
-        "BALANCED": {"velocity_kmh": 900.0, "min_distance_km": 500.0, "min_active_samples": 7},
-        "AGGRESSIVE": {"velocity_kmh": 500.0, "min_distance_km": 250.0, "min_active_samples": 3},
+    "HOUR_OF_DAY_PROFILE": {
+        "CONSERVATIVE": {"z_threshold": 4.0, "min_active_samples": 48},
+        "BALANCED": {"z_threshold": 3.0, "min_active_samples": 24},
+        "AGGRESSIVE": {"z_threshold": 2.0, "min_active_samples": 12},
     },
     "PRODUCER_CONSUMER_RATIO_INVERSION": {
         "CONSERVATIVE": {"min_producer_ratio": 0.85, "z_score": 3.5, "min_sent_bytes": 50000000.0, "min_active_samples": 14},
@@ -319,13 +319,64 @@ SENSITIVITY_MAP = {
 }
 
 
+RETIRED_IMPOSSIBLE_TRAVEL_MESSAGE: str = (
+    "IMPOSSIBLE_TRAVEL_GEO_VELOCITY is retired (D1): city-centroid geo-velocity and VPN egress "
+    "produce systematic false positives; use HOUR_OF_DAY_PROFILE or DERIVED_CONTEXT_PREVALENCE instead."
+)
+
+RETIRED_ARCHETYPES: Dict[str, str] = {
+    "IMPOSSIBLE_TRAVEL_GEO_VELOCITY": RETIRED_IMPOSSIBLE_TRAVEL_MESSAGE,
+    "IMPOSSIBLE_TRAVEL": RETIRED_IMPOSSIBLE_TRAVEL_MESSAGE,
+    "GEO_VELOCITY": RETIRED_IMPOSSIBLE_TRAVEL_MESSAGE,
+    "SUPERSONIC_TRAVEL": RETIRED_IMPOSSIBLE_TRAVEL_MESSAGE,
+}
+
+
+class ModelArchetype(str, Enum):
+  """Canonical and retired micro-plane statistical hunting archetypes (Rule 10 / WS5)."""
+
+  ZSCORE_PROCESS_SURGE = "ZSCORE_PROCESS_SURGE"
+  POISSON_BURST_CLUSTERING = "POISSON_BURST_CLUSTERING"
+  POISSON_RARE_SURGE = "POISSON_RARE_SURGE"
+  C2_BEACONING_JITTER = "C2_BEACONING_JITTER"
+  DATA_EXFILTRATION_SPIKE = "DATA_EXFILTRATION_SPIKE"
+  IQR_TUKEY_SKEW_FENCES = "IQR_TUKEY_SKEW_FENCES"
+  DUAL_BASELINE_DELTA_Z = "DUAL_BASELINE_DELTA_Z"
+  BAYESIAN_GAMMA_SHRINKAGE = "BAYESIAN_GAMMA_SHRINKAGE"
+  BETA_BINOMIAL_FAILURE = "BETA_BINOMIAL_FAILURE"
+  MULTI_SECTOR_THREAT_FUSION = "MULTI_SECTOR_THREAT_FUSION"
+  LOG_NORMAL_VOLUME_SURGE = "LOG_NORMAL_VOLUME_SURGE"
+  HYBRID_ENTROPY_CONCENTRATION = "HYBRID_ENTROPY_CONCENTRATION"
+  TWO_PART_HURDLE = "TWO_PART_HURDLE"
+  PRIVILEGED_LATERAL_EXPANSION = "PRIVILEGED_LATERAL_EXPANSION"
+  GLOBAL_THREAT_INTEL_ENRICHMENT = "GLOBAL_THREAT_INTEL_ENRICHMENT"
+  DERIVED_CONTEXT_PREVALENCE = "DERIVED_CONTEXT_PREVALENCE"
+  DERIVED_CONTEXT_FILE_PREVALENCE = "DERIVED_CONTEXT_FILE_PREVALENCE"
+  DERIVED_CONTEXT_DOMAIN_PREVALENCE = "DERIVED_CONTEXT_DOMAIN_PREVALENCE"
+  MARKOV_2GRAM_TRANSITION_RARITY = "MARKOV_2GRAM_TRANSITION_RARITY"
+  SHANNON_ENTROPY_CHARACTER = "SHANNON_ENTROPY_CHARACTER"
+  ZIPFIAN_PROCESS_RARITY = "ZIPFIAN_PROCESS_RARITY"
+  EWMA_BURST_VELOCITY = "EWMA_BURST_VELOCITY"
+  HOUR_OF_DAY_PROFILE = "HOUR_OF_DAY_PROFILE"
+  PRODUCER_CONSUMER_RATIO_INVERSION = "PRODUCER_CONSUMER_RATIO_INVERSION"
+  # Retired under D1 (preserved in enum per Rule 10 so callers receive a descriptive ValueError)
+  IMPOSSIBLE_TRAVEL_GEO_VELOCITY = "IMPOSSIBLE_TRAVEL_GEO_VELOCITY"
+
+
+def _normalize_archetype_token(archetype_or_model: Any) -> str:
+  raw = archetype_or_model.value if isinstance(archetype_or_model, Enum) else str(archetype_or_model)
+  return raw.upper().replace("-", "_").strip()
+
+
 def get_adaptive_window_parameters(
     duration_hours: float,
     archetype: str,
     tier: str = "BALANCED"
 ) -> Dict[str, Any]:
   """Calculates adaptive bucket granularity, proportional sample floors, and model fit based on search window duration."""
-  archetype_up = archetype.upper()
+  archetype_up = _normalize_archetype_token(archetype)
+  if archetype_up in RETIRED_ARCHETYPES:
+    raise ValueError(RETIRED_ARCHETYPES[archetype_up])
   tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
   base_thresh = SENSITIVITY_MAP.get(archetype_up, {}).get(tier_up, {})
 
@@ -663,6 +714,111 @@ def compute_ecg_search_window(
   }
 
 
+def compute_hod_window_slots(
+    start_time_iso: Optional[str] = None,
+    end_time_iso: Optional[str] = None,
+    window_hours: Optional[float] = None,
+    scoring_hours: float = 24.0,
+    reference_end_iso: Optional[str] = None,
+) -> Dict[str, Any]:
+  """Computes scoring epoch boundaries and pre-scoring baseline_days (>= 1) for HOUR_OF_DAY_PROFILE (WS5-HOD)."""
+  if float(scoring_hours) <= 0.0:
+    raise ValueError(f"scoring_hours must be > 0, got {scoring_hours!r}")
+
+  if start_time_iso and end_time_iso:
+    start_dt = _parse_utc_iso(start_time_iso)
+    end_dt = _parse_utc_iso(end_time_iso)
+    if start_dt >= end_dt:
+      raise ValueError(
+          f"start_time_iso ({start_time_iso}) must be strictly earlier than end_time_iso ({end_time_iso})"
+      )
+    total_hours = (end_dt - start_dt).total_seconds() / 3600.0
+    baseline_hours = total_hours - float(scoring_hours)
+    if baseline_hours < 24.0 - 1e-6:
+      raise ValueError(
+          f"HOUR_OF_DAY_PROFILE requires at least 1 pre-scoring baseline day (>= 24h before the "
+          f"{scoring_hours:.1f}h scoring window); got total span {total_hours:.1f}h."
+      )
+    baseline_days = max(1, int(round(baseline_hours / 24.0)))
+    scoring_start_dt = end_dt - timedelta(hours=float(scoring_hours))
+    return {
+        "hod_scoring_start_epoch": int(scoring_start_dt.timestamp()),
+        "hod_scoring_end_epoch": int(end_dt.timestamp()),
+        "baseline_days": baseline_days,
+        "window_hours": total_hours,
+    }
+
+  eff_hours = 168.0 if window_hours is None else float(window_hours)
+  if eff_hours <= 0.0:
+    raise ValueError(f"window_hours must be positive, got {window_hours!r}")
+  end_dt = (
+      _parse_utc_iso(reference_end_iso)
+      if reference_end_iso
+      else datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+  )
+  eff_scoring_h = float(scoring_hours) if eff_hours >= (float(scoring_hours) + 24.0) else max(1.0, eff_hours / 2.0)
+  scoring_start_dt = end_dt - timedelta(hours=eff_scoring_h)
+  baseline_days = max(1, int(round(max(24.0, eff_hours - eff_scoring_h) / 24.0)))
+  return {
+      "hod_scoring_start_epoch": int(scoring_start_dt.timestamp()),
+      "hod_scoring_end_epoch": int(end_dt.timestamp()),
+      "baseline_days": baseline_days,
+      "window_hours": eff_hours,
+  }
+
+
+def compute_hour_of_day_profile(
+    observed: float,
+    baseline_hour_counts: Sequence[float],
+    baseline_days: int,
+    entity_base_total: float,
+    entity_active_hours: int,
+) -> Dict[str, float]:
+  """Reference golden math evaluator for HOUR_OF_DAY_PROFILE (D1a / WS5-HOD).
+
+  Evaluates out-of-sample zero-inclusive mean/variance across `baseline_days` for a single
+  (entity, hour_of_day) bin, applying the continuous Poisson floor `sqrt(max(mu_hod, 1.0))`.
+  """
+  b_days = int(baseline_days)
+  if b_days < 1:
+    raise ValueError(f"baseline_days must be >= 1, got {baseline_days!r}")
+  vals = [float(v) for v in baseline_hour_counts]
+  if len(vals) > b_days:
+    raise ValueError(
+        f"baseline_hour_counts length ({len(vals)}) cannot exceed baseline_days ({b_days})"
+    )
+  if any(v < 0.0 for v in vals) or float(observed) < 0.0:
+    raise ValueError("Hour-of-day counts cannot be negative")
+
+  sum_x_hod = sum(vals)
+  sum_x2_hod = sum(v * v for v in vals)
+  active_days_hod = sum(1 for v in vals if v > 0.0)
+  mu_hod = sum_x_hod / float(b_days)
+  raw_var_hod = (sum_x2_hod / float(b_days)) - (mu_hod * mu_hod)
+  var_hod = raw_var_hod if raw_var_hod > 0.0 else 0.0
+  sd_hod = math.sqrt(var_hod)
+  floor_hod = math.sqrt(mu_hod if mu_hod > 1.0 else 1.0)
+  safe_sd_hod = sd_hod if sd_hod > floor_hod else floor_hod
+  safe_entity_total = float(entity_base_total) if float(entity_base_total) > 0.0 else 1.0
+  hour_profile_mass = sum_x_hod / safe_entity_total
+  hod_z_score = (float(observed) - mu_hod) / safe_sd_hod
+
+  return {
+      "observed": float(observed),
+      "sum_x_hod": sum_x_hod,
+      "sum_x2_hod": sum_x2_hod,
+      "active_days_hod": float(active_days_hod),
+      "entity_active_hours": float(entity_active_hours),
+      "mu_hod": mu_hod,
+      "var_hod": var_hod,
+      "sd_hod": sd_hod,
+      "floor_hod": floor_hod,
+      "safe_sd_hod": safe_sd_hod,
+      "hour_profile_mass": hour_profile_mass,
+      "hod_z_score": hod_z_score,
+  }
+
+
 def build_day0_companion_query(
     archetype: str = "DERIVED_CONTEXT_DOMAIN_PREVALENCE",
     tier: str = "BALANCED",
@@ -792,6 +948,29 @@ def build_day0_companion_query(
   )
 
 THREAT_EXPLANATIONS = {
+    "hod_z_score": {
+        "name": "Learned Hour-of-Day Circadian Profile Anomaly (Out-of-Sample Temporal Z-Score)",
+        "plain_concept": "Activity occurred during an hour of the day when this account or host is historically inactive or far quieter.",
+        "why_it_matters": (
+            "Each user and workload develops a stable 24-hour rhythm across the week. Scoring the final 24 hours "
+            "out-of-sample against the prior baseline days (with zero-count hours included and a Poisson sqrt(mean) floor) "
+            "isolates stolen credentials used from a foreign timezone or off-hours interactive intrusion."
+        ),
+        "malicious_scenarios": [
+            "Compromised interactive user credentials replayed at 03:00 local time by an overseas threat actor.",
+            "Interactive administrative sign-in or cloud console access outside the operator's established shift.",
+            "Scheduled nocturnal staging task executing during hours with zero historical profile mass."
+        ],
+        "benign_scenarios": [
+            "Employee traveling across timezones or working an approved emergency maintenance window.",
+            "On-call incident responder handling a pager escalation overnight."
+        ],
+        "playbook": [
+            "Compare $hour_profile_mass and $mu_hod: if profile mass is ~0.0, this entity never operates at $hod.",
+            "Correlate source IP ASN, MFA method, and user-agent during the anomalous $ws hour against daytime sessions.",
+            "Pivot to subsequent process or resource-access events within 60 minutes of $ws."
+        ]
+    },
     "z_score": {
         "name": "Process Execution Volume Surge (Parametric Z-Score)",
         "plain_concept": "Massive sudden burst in program launches compared to this computer's normal daily routine.",
@@ -1674,6 +1853,7 @@ def evaluate_confidence_tier(row: Dict[str, Any]) -> Tuple[str, str]:
 
 
 PRIMARY_SCORE_KEYS = [
+    "hod_z_score",
     "hurdle_anomaly_score",
     "hurdle_threat_score",
     "threat_distance",
@@ -1720,7 +1900,7 @@ PRIMARY_SCORE_KEYS = [
 def get_soc_severity_badge(chosen_key: str, score: float) -> str:
   """Translates statistical score into a standard SOC operational rating."""
   if chosen_key in [
-      "z_score", "poisson_z", "fleet_z", "targeted_delta_z", "delta_z", "personal_z",
+      "hod_z_score", "z_score", "poisson_z", "fleet_z", "targeted_delta_z", "delta_z", "personal_z",
       "bayesian_z", "anomaly_score", "threat_distance", "threat_score", "markov_threat_score",
       "z_log", "hurdle_anomaly_score", "hurdle_threat_score", "velocity_score",
       "ewma_velocity_score", "rarity_score", "zipf_rarity_score", "entropy_score",
@@ -2490,7 +2670,9 @@ def get_thresholds_for_tier(
     archetype: str, tier: str
 ) -> Dict[str, float]:
   """Resolves semantic sensitivity tier to concrete statistical thresholds."""
-  archetype_up = archetype.upper()
+  archetype_up = _normalize_archetype_token(archetype)
+  if archetype_up in RETIRED_ARCHETYPES:
+    raise ValueError(RETIRED_ARCHETYPES[archetype_up])
   if archetype_up not in SENSITIVITY_MAP:
     raise ValueError(f"Unknown threat archetype: {archetype}")
   try:
@@ -2856,10 +3038,11 @@ class MultiStageTemplateRouter:
       "EWMA_VELOCITY": "ewma_burst_velocity_2stage.yl2",
       "EWMA": "ewma_burst_velocity_2stage.yl2",
       "BURST_VELOCITY": "ewma_burst_velocity_2stage.yl2",
-      "IMPOSSIBLE_TRAVEL_GEO_VELOCITY": "impossible_travel_geo_velocity_2stage.yl2",
-      "IMPOSSIBLE_TRAVEL": "impossible_travel_geo_velocity_2stage.yl2",
-      "GEO_VELOCITY": "impossible_travel_geo_velocity_2stage.yl2",
-      "SUPERSONIC_TRAVEL": "impossible_travel_geo_velocity_2stage.yl2",
+      "HOUR_OF_DAY_PROFILE": "hour_of_day_profile_3stage.yl2",
+      "HOURLY_TEMPORAL_ZSCORE": "hour_of_day_profile_3stage.yl2",
+      "CIRCADIAN_VON_MISES": "hour_of_day_profile_3stage.yl2",
+      "TIME_OF_DAY": "hour_of_day_profile_3stage.yl2",
+      "CIRCADIAN": "hour_of_day_profile_3stage.yl2",
       "PRODUCER_CONSUMER_RATIO_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
       "PRODUCER_CONSUMER_ROLE_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
       "PRODUCER_CONSUMER_INVERSION": "producer_consumer_ratio_inversion_2stage.yl2",
@@ -2897,7 +3080,7 @@ class MultiStageTemplateRouter:
       "shannon_entropy_character_2stage.yl2": "SHANNON_ENTROPY_CHARACTER",
       "zipfian_process_rarity_2stage.yl2": "ZIPFIAN_PROCESS_RARITY",
       "ewma_burst_velocity_2stage.yl2": "EWMA_BURST_VELOCITY",
-      "impossible_travel_geo_velocity_2stage.yl2": "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
+      "hour_of_day_profile_3stage.yl2": "HOUR_OF_DAY_PROFILE",
       "producer_consumer_ratio_inversion_2stage.yl2": "PRODUCER_CONSUMER_RATIO_INVERSION",
   }
 
@@ -2975,7 +3158,9 @@ class MultiStageTemplateRouter:
       self.template_dir = Path(template_dir)
 
   def get_template_filename(self, archetype_or_model: str) -> str:
-    key = archetype_or_model.upper().replace("-", "_").strip()
+    key = _normalize_archetype_token(archetype_or_model)
+    if key in RETIRED_ARCHETYPES:
+      raise ValueError(RETIRED_ARCHETYPES[key])
     if key in self.ARCHETYPE_TEMPLATE_MAP:
       return self.ARCHETYPE_TEMPLATE_MAP[key]
     for k, v in self.ARCHETYPE_TEMPLATE_MAP.items():
@@ -3007,9 +3192,15 @@ class MultiStageTemplateRouter:
       ecg_event_time_filter: Optional[str] = None,
       ecg_scoring_start_epoch: Optional[int] = None,
       ecg_scoring_end_epoch: Optional[int] = None,
+      tenant_tz: str = "UTC",
+      event_filter: Optional[str] = None,
+      hod_scoring_start_epoch: Optional[int] = None,
+      hod_scoring_end_epoch: Optional[int] = None,
+      baseline_days: Optional[int] = None,
   ) -> str:
     tier_up = resolve_micro_sensitivity_tier(tier, strict=False)
-    template_file = self.get_template_filename(archetype)
+    arch_norm = _normalize_archetype_token(archetype)
+    template_file = self.get_template_filename(arch_norm)
     template_path = self.template_dir / template_file
     if template_path.exists():
       raw_template = template_path.read_text()
@@ -3023,19 +3214,27 @@ class MultiStageTemplateRouter:
     if not canonical_key:
       canonical_key = "ZSCORE_PROCESS_SURGE"
       for k in SENSITIVITY_MAP.keys():
-        if k in archetype.upper() or archetype.upper() in k:
+        if k in arch_norm or arch_norm in k:
           canonical_key = k
           break
     thresh = dict(SENSITIVITY_MAP.get(canonical_key, {}).get(tier_up, {}))
 
+    if template_file == "hour_of_day_profile_3stage.yl2" and window_hours is None and not (start_time and end_time):
+      eff_window_hours: Optional[float] = 168.0
+    else:
+      eff_window_hours = window_hours
+
     # Adaptive window calculation
-    resolved_bucket_size = bucket_size or ("1d" if "iqr_tukey_skew" in template_file else "1h")
-    if window_hours:
-      adapt = get_adaptive_window_parameters(window_hours, canonical_key, tier_up)
-      if not bucket_size:
+    if template_file == "hour_of_day_profile_3stage.yl2":
+      resolved_bucket_size = bucket_size or "1h"
+    else:
+      resolved_bucket_size = bucket_size or ("1d" if "iqr_tukey_skew" in template_file else "1h")
+    if eff_window_hours:
+      adapt = get_adaptive_window_parameters(eff_window_hours, canonical_key, tier_up)
+      if not bucket_size and template_file != "hour_of_day_profile_3stage.yl2":
         resolved_bucket_size = adapt["recommended_bucket"]
-      if bucket_size:
-        eff_total = compute_total_window_buckets(window_hours, resolved_bucket_size)
+      if bucket_size or template_file == "hour_of_day_profile_3stage.yl2":
+        eff_total = compute_total_window_buckets(eff_window_hours, resolved_bucket_size)
         default_floor = (
             thresh.get("min_active_samples")
             or thresh.get("min_baseline_days")
@@ -3066,7 +3265,7 @@ class MultiStageTemplateRouter:
       if resolved_total_buckets <= 0:
         raise ValueError(f"total_window_buckets must be > 0, got {total_window_buckets!r}")
     else:
-      resolved_total_buckets = compute_total_window_buckets(window_hours, resolved_bucket_size)
+      resolved_total_buckets = compute_total_window_buckets(eff_window_hours, resolved_bucket_size)
 
     # Entity field resolution (D4 / WS1-07: explicit override -> coverage probe -> entity_type / template default)
     entity_field_map = {
@@ -3083,7 +3282,7 @@ class MultiStageTemplateRouter:
     else:
       ent_norm = entity_type.lower().strip()
       resolved_entity_field = entity_field_map.get(ent_norm, "principal.hostname")
-      if ("impossible_travel" in template_file or "privileged_lateral" in template_file) and ent_norm == "host":
+      if "privileged_lateral" in template_file and ent_norm == "host":
         resolved_entity_field = "target.user.userid"
       elif (
           "producer_consumer" in template_file
@@ -3108,7 +3307,7 @@ class MultiStageTemplateRouter:
           or "beta_binomial" in template_file
           or "privileged_lateral" in template_file
           or "two_part_hurdle" in template_file
-          or "impossible_travel" in template_file
+          or "hour_of_day_profile" in template_file
       ):
         event_type = "USER_LOGIN"
       elif (
@@ -3158,6 +3357,29 @@ class MultiStageTemplateRouter:
     else:
       ecg_filter_str = default_ecg_filter
 
+    clean_tz = str(tenant_tz or "UTC").strip()
+    if not clean_tz or '"' in clean_tz or "\n" in clean_tz:
+      raise ValueError(f"Invalid tenant_tz: {tenant_tz!r}")
+
+    if baseline_days is not None and int(baseline_days) < 1:
+      raise ValueError(f"baseline_days must be >= 1, got {baseline_days!r}")
+
+    if template_file == "hour_of_day_profile_3stage.yl2":
+      hod_slots = compute_hod_window_slots(
+          start_time_iso=start_time,
+          end_time_iso=end_time,
+          window_hours=eff_window_hours,
+      )
+      resolved_hod_start = int(hod_scoring_start_epoch) if hod_scoring_start_epoch is not None else hod_slots["hod_scoring_start_epoch"]
+      resolved_hod_end = int(hod_scoring_end_epoch) if hod_scoring_end_epoch is not None else hod_slots["hod_scoring_end_epoch"]
+      resolved_baseline_days = int(baseline_days) if baseline_days is not None else hod_slots["baseline_days"]
+    else:
+      resolved_hod_start = int(hod_scoring_start_epoch) if hod_scoring_start_epoch is not None else 0
+      resolved_hod_end = int(hod_scoring_end_epoch) if hod_scoring_end_epoch is not None else 9999999999
+      resolved_baseline_days = int(baseline_days) if baseline_days is not None else max(1, int(round(((eff_window_hours or 168.0) - 24.0) / 24.0)))
+
+    event_filter_str = str(event_filter).strip() if event_filter is not None else ""
+
     # Substitutions
     rendered = raw_template
     if ecg_filter_str:
@@ -3165,8 +3387,17 @@ class MultiStageTemplateRouter:
     else:
       rendered = re.sub(r"\n[ \t]*\{\{ecg_event_time_filter\}\}[ \t]*(?=\n)", "", rendered)
       rendered = rendered.replace("{{ecg_event_time_filter}}", "")
+    if event_filter_str:
+      rendered = rendered.replace("{{event_filter}}", event_filter_str)
+    else:
+      rendered = re.sub(r"\n[ \t]*\{\{event_filter\}\}[ \t]*(?=\n)", "", rendered)
+      rendered = rendered.replace("{{event_filter}}", "")
     rendered = rendered.replace("{{ecg_scoring_start_epoch}}", str(resolved_scoring_start))
     rendered = rendered.replace("{{ecg_scoring_end_epoch}}", str(resolved_scoring_end))
+    rendered = rendered.replace("{{hod_scoring_start_epoch}}", str(resolved_hod_start))
+    rendered = rendered.replace("{{hod_scoring_end_epoch}}", str(resolved_hod_end))
+    rendered = rendered.replace("{{baseline_days}}", str(resolved_baseline_days))
+    rendered = rendered.replace("{{tenant_tz}}", clean_tz)
     rendered = rendered.replace("{{tier}}", tier_up)
     rendered = rendered.replace("{{event_type}}", event_type)
     rendered = rendered.replace("{{entity_field}}", resolved_entity_field)
@@ -3233,8 +3464,7 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{zipf_threshold}}", str(thresh.get("zipf_threshold", 2.5)))
     rendered = rendered.replace("{{max_adopters}}", str(thresh.get("max_adopters", 2)))
     rendered = rendered.replace("{{velocity_threshold}}", str(thresh.get("velocity_threshold", 2.0)))
-    rendered = rendered.replace("{{velocity_kmh}}", str(thresh.get("velocity_kmh", 900.0)))
-    rendered = rendered.replace("{{min_distance_km}}", str(thresh.get("min_distance_km", 500.0)))
+    rendered = rendered.replace("{{z_threshold}}", str(thresh.get("z_threshold", 3.0)))
     rendered = rendered.replace("{{min_producer_ratio}}", str(thresh.get("min_producer_ratio", 0.70)))
     rendered = rendered.replace("{{min_sent_bytes}}", str(thresh.get("min_sent_bytes", 10000000.0)))
     rendered = rendered.replace("{{surge_ratio}}", str(thresh.get("surge_ratio", 2.0)))
@@ -3459,6 +3689,12 @@ class HandoffEndpoint:
       "IMPOSSIBLE_TRAVEL_GEO_VELOCITY": "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
       "IMPOSSIBLE_TRAVEL": "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
       "GEO_VELOCITY": "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
+      "SUPERSONIC_TRAVEL": "IMPOSSIBLE_TRAVEL_GEO_VELOCITY",
+      "HOUR_OF_DAY_PROFILE": "HOUR_OF_DAY_PROFILE",
+      "HOURLY_TEMPORAL_ZSCORE": "HOUR_OF_DAY_PROFILE",
+      "CIRCADIAN_VON_MISES": "HOUR_OF_DAY_PROFILE",
+      "TIME_OF_DAY": "HOUR_OF_DAY_PROFILE",
+      "CIRCADIAN": "HOUR_OF_DAY_PROFILE",
       "PRODUCER_CONSUMER_RATIO_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
       "PRODUCER_CONSUMER_ROLE_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",
       "BYTE_RATIO_INVERSION": "PRODUCER_CONSUMER_RATIO_INVERSION",

@@ -51,7 +51,7 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
 | *"Obfuscated command lines, base64 payloads, or algorithmic DGA domains."* | **`SHANNON_ENTROPY_CHARACTER`** (Entropy $\ge 5.5$) | **The Scrambled Script**: Encoded payloads and DGA tokens exhibit elevated character-class entropy proxy scores. |
 | *"Rare admin utilities executing in the asymptotic fleet tail (<= 2 hosts)."* | **`ZIPFIAN_PROCESS_RARITY`** (Zipf Rarity $\ge 2.5$) | **The Long-Tail Tool**: Process execution follows a power law ($f(k) \propto 1/k^s$); stealthy utilities sit in the fleet tail. |
 | *"Acute intraday rate acceleration without lagging trailing baselines."* | **`EWMA_BURST_VELOCITY`** (Velocity $V \ge 2.0\sigma$) | **The Sudden Kinetic Thrust**: Exponentially weighted moving average ($\alpha = 0.30$) captures instantaneous intraday velocity shifts. |
-| *"Consecutive user logins faster than physical flight speed (> 900 km/h)."* | **`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`** ($V \ge 900\text{ km/h}$) | **The Supersonic Commuter**: Haversine geodesic distance (`math.geo_distance`) across logins isolates cross-continent credential theft. |
+| *"Off-hours or circadian out-of-profile logins/activity by hour of day."* | **`HOUR_OF_DAY_PROFILE`** ($Z_{\text{hod}} \ge 3.0\sigma$) | **The Night-Shift Impostor**: Learned 24-bin empirical circadian profile (`timestamp.get_hour`) scores hours out-of-sample with zero-inclusive variance. |
 | *"Workstations inverting directional byte ratio to become net producers."* | **`PRODUCER_CONSUMER_RATIO_INVERSION`** ($\rho \ge 0.70$, $Z \ge 2.5\sigma$) | **The Role Reversal**: Workstations consume data ($\rho < 0.20$); exfiltration flips $\rho = \text{sent}/(\text{sent}+\text{received}) \ge 0.70$. |
 
 ---
@@ -79,7 +79,7 @@ Match the analyst's hypothesis to the optimal statistical model and explain usin
      - **Parametric/Robust**: `zscore_process_surge_2stage.yl2`, `mad_modified_z_4stage.yl2` (`MAD_EXFILTRATION`), `iqr_tukey_skew_fences_3stage.yl2` (`IQR_TUKEY_SKEW_FENCES`), `log_normal_volume_surge_2stage.yl2`, `ewma_burst_velocity_2stage.yl2`
      - **Poisson/Timing**: `poisson_burst_clustering_2stage.yl2`, `poisson_rare_surge_2stage.yl2` (`POISSON_ORIGIN_RARITY`), `c2_beaconing_jitter_2stage.yl2`
      - **Bayesian/Fleet**: `bayesian_gamma_shrinkage_4stage.yl2`, `beta_binomial_failure_4stage.yl2`, `dual_baseline_delta_z_3stage.yl2`
-     - **Multi-Sector/Hybrid**: `multi_sector_threat_fusion_4stage.yl2`, `privileged_lateral_expansion_2stage.yl2`, `two_part_hurdle_2stage.yl2`, `hybrid_entropy_concentration_2stage.yl2`, `impossible_travel_geo_velocity_2stage.yl2`, `producer_consumer_ratio_inversion_2stage.yl2`
+     - **Multi-Sector/Hybrid**: `multi_sector_threat_fusion_4stage.yl2`, `privileged_lateral_expansion_2stage.yl2`, `two_part_hurdle_2stage.yl2`, `hybrid_entropy_concentration_2stage.yl2`, `hour_of_day_profile_3stage.yl2`, `producer_consumer_ratio_inversion_2stage.yl2`
      - **Info-Theoretic & ECG**: `zipfian_process_rarity_2stage.yl2`, `markov_2gram_transition_rarity_2stage.yl2`, `shannon_entropy_character_2stage.yl2`, `global_threat_intel_enrichment_3stage.yl2`, `derived_context_prevalence_3stage.yl2`, `derived_context_file_prevalence_3stage.yl2`, `derived_context_domain_prevalence_3stage.yl2`
    * *Canonical Pre-Flight Specification Card Structure*:
      ```markdown

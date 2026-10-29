@@ -54,9 +54,9 @@ Every threat—known, emerging, or zero-day—physically deforms raw UDM event s
 │    ("The Role Reversal")    │ net producer (sent/(sent+recv)│ Inversion (`producer_consumer_ratio_ │
 │                             │ >= 0.70 directional shift)    │ inversion_2stage.yl2`)               │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
-│ 13. Geospatial Velocity     │ Consecutive logins across     │ Haversine Geodesic Velocity          │
-│    ("Supersonic Commuter")  │ unreachable coordinates       │ (`math.geo_distance`, Δd/Δt > 900    │
-│                             │                               │ km/h, `impossible_travel_...yl2`)    │
+│ 13. Circadian / Hour-of-Day │ Activity during hours with    │ Out-of-Sample 24-Bin Hour-of-Day     │
+│    ("Night-Shift Impostor") │ ~0 historical profile mass    │ Profile (`timestamp.get_hour`,       │
+│                             │                               │ `hour_of_day_profile_3stage.yl2`)    │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 14. Quantile Asymmetry &    │ Right-skewed bursts, intra-   │ 1-Stage Quantiles (`window.percentile│
 │     Tail Skew / Lag Drift   │ bucket payload bimodal split  │ P10..P90`), Bowley Skewness, Tail    │
@@ -71,7 +71,7 @@ Before selecting a statistical model in State 1, condition your baseline expecta
 
 | Entity Persona | Normal Baseline Physics | High-Signal Anomaly Signature & Model |
 | :--- | :--- | :--- |
-| **Human Interactive User** | Diurnal variance expected; chaotic inter-arrival intervals ($\text{CV} > 0.50$); bounded geography and host radius. | Robotic timing regularity (**`C2_BEACONING_JITTER`**, $\text{CV} \le 0.20$), supersonic geographic velocity (**`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`**, $> 900\text{ km/h}$ via `math.geo_distance`), or machine radius expansion (**`PRIVILEGED_LATERAL_EXPANSION`**). |
+| **Human Interactive User** | Diurnal variance expected; chaotic inter-arrival intervals ($\text{CV} > 0.50$); bounded circadian hours and host radius. | Flow-gap regularity (**`C2_BEACONING_JITTER`**, $\text{CV} \le 0.20$), out-of-profile circadian hours (**`HOUR_OF_DAY_PROFILE`**, $Z_{\text{hod}} \ge 3.0\sigma$ via `timestamp.get_hour`), or machine radius expansion (**`PRIVILEGED_LATERAL_EXPANSION`**). |
 | **Service Account / Workload Identity** | Clockwork timing is *normal*; fixed source runner IPs/hosts (`count_distinct(principal.ip) == 1`); deterministic repository scope. | **Source-IP/Host Breadth Expansion** ($>1$ origin via **`POISSON_ORIGIN_RARITY`**), interactive logon types, or dormancy awakening (**`TWO_PART_HURDLE`**). |
 | **CI/CD Runner / Admin Jump Host** | High process/connection volume is normal; wide internal destination fan-out is routine. | **Long-Tail Zipfian Process Rarity** (**`ZIPFIAN_PROCESS_RARITY`**), **Parent-Child Markov Surprisal** (**`MARKOV_2GRAM_TRANSITION_RARITY`**), **First-Seen Domain Egress** (**`DERIVED_CONTEXT_DOMAIN_PREVALENCE`**), or **Producer–Consumer Byte Ratio Inversion** ($\rho \ge 0.70$). |
 

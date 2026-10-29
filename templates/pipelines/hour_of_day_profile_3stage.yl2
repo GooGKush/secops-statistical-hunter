@@ -1,0 +1,98 @@
+// ============================================================================
+// METHODOLOGY & HUNTING GOAL
+// Goal: Detect anomalous off-hours or out-of-profile activity using a learned per-entity 24-bin Hour-of-Day Profile (Z >= {{z_threshold}}).
+// Target Telemetry: UDM_EVENTS ({{event_type}})
+// Statistical Model: Out-of-Sample Zero-Inclusive 24-Hour Temporal Profile (HOUR_OF_DAY_PROFILE / D1a)
+// Mathematical Rationale:
+//   - Why this model: Replaces brittle UTC business-hour cutoffs, single-angle von Mises approximations, and
+//     city-centroid geo-velocity heuristics with an empirical 24-bin circadian profile per entity in {{tenant_tz}}.
+//   - Out-of-Sample & Zero-Inclusive Variance: Stage 1 separates pre-scoring baseline hours from the scored window
+//     [{{hod_scoring_start_epoch}}, {{hod_scoring_end_epoch}}) so anomalous activity never contaminates its own mean or SD.
+//     Root reconstructs zero-inclusive μ_h and σ²_h over all {{baseline_days}} pre-scoring calendar days at hour h,
+//     bounded below by a continuous Poisson floor sqrt(max(μ_h, 1.0)).
+// Sensitivity Boundary: {{tier}} (HOD Z-Score >= {{z_threshold}}, Active Baseline Hours >= {{min_active_samples}}, Baseline Days = {{baseline_days}}, Timezone = {{tenant_tz}})
+// ============================================================================
+
+// Stage 1: Hourly activity per (entity, hour-of-day) with out-of-sample baseline separation
+stage hourly_activity {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    {{event_filter}}
+    $hod = timestamp.get_hour(metadata.event_timestamp.seconds, "{{tenant_tz}}")
+
+  match:
+    $entity, $hod by 1h
+  outcome:
+    $obs = count(metadata.id)
+    $distinct_samples = count_distinct({{sample_field}})
+    $in_scoring_window = max(if(metadata.event_timestamp.seconds >= {{hod_scoring_start_epoch}} and metadata.event_timestamp.seconds < {{hod_scoring_end_epoch}}, 1, 0))
+    $base_obs = sum(if(metadata.event_timestamp.seconds < {{hod_scoring_start_epoch}} or metadata.event_timestamp.seconds >= {{hod_scoring_end_epoch}}, 1.0, 0.0))
+    $base_obs_sq = sum(if(metadata.event_timestamp.seconds < {{hod_scoring_start_epoch}} or metadata.event_timestamp.seconds >= {{hod_scoring_end_epoch}}, 1.0, 0.0)) * sum(if(metadata.event_timestamp.seconds < {{hod_scoring_start_epoch}} or metadata.event_timestamp.seconds >= {{hod_scoring_end_epoch}}, 1.0, 0.0))
+    $base_active = max(if(metadata.event_timestamp.seconds < {{hod_scoring_start_epoch}} or metadata.event_timestamp.seconds >= {{hod_scoring_end_epoch}}, 1, 0))
+}
+
+// Stage 2: Per-(entity, hour-of-day) pre-scoring baseline sums across {{baseline_days}} days
+stage hod_baseline {
+    $entity = $hourly_activity.entity
+    $hod = $hourly_activity.hod
+
+  match:
+    $entity, $hod
+  outcome:
+    $sum_x_hod = sum($hourly_activity.base_obs)
+    $sum_x2_hod = sum($hourly_activity.base_obs_sq)
+    $active_days_hod = sum($hourly_activity.base_active)
+}
+
+// Stage 3: Whole-profile baseline volume and active-hour maturity per entity
+stage entity_total_profile {
+    $entity = $hourly_activity.entity
+
+  match:
+    $entity
+  outcome:
+    $entity_base_total = sum($hourly_activity.base_obs)
+    $entity_active_hours = sum($hourly_activity.base_active)
+}
+
+// Root Stage: Score each 1h bucket in the scoring window against its zero-inclusive hour-of-day profile
+$entity = $hourly_activity.entity
+$entity = $hod_baseline.entity
+$entity = $entity_total_profile.entity
+$hod = $hourly_activity.hod
+$hod = $hod_baseline.hod
+$ws = $hourly_activity.window_start
+
+match:
+  $entity, $hod, $ws by 1h
+outcome:
+  $observed = max($hourly_activity.obs)
+  $in_scoring_window = max($hourly_activity.in_scoring_window)
+  $entity_active_hours = max($entity_total_profile.entity_active_hours)
+  $mu_hod = 1.0 * max($hod_baseline.sum_x_hod) / {{baseline_days}}
+  $raw_var_hod = (1.0 * max($hod_baseline.sum_x2_hod) / {{baseline_days}}) - ($mu_hod * $mu_hod)
+  $var_hod = if($raw_var_hod > 0.0, $raw_var_hod, 0.0)
+  $sd_hod = math.sqrt($var_hod)
+  $floor_arg = if($mu_hod > 1.0, $mu_hod, 1.0)
+  $floor_hod = math.sqrt($floor_arg)
+  $safe_sd_hod = if($sd_hod > $floor_hod, $sd_hod, $floor_hod)
+  $safe_entity_total = if(max($entity_total_profile.entity_base_total) > 0.0, max($entity_total_profile.entity_base_total), 1.0)
+  $hour_profile_mass = max($hod_baseline.sum_x_hod) / $safe_entity_total
+  $hod_z_score = ($observed - $mu_hod) / $safe_sd_hod
+
+  // 6 Core Evidence Pillars
+  $observation_count = $observed
+  $baseline_active_samples = $entity_active_hours
+  $baseline_mean = $mu_hod
+  $baseline_dispersion = $safe_sd_hod
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($hourly_activity.distinct_samples)
+
+condition:
+  $in_scoring_window = 1
+  and $entity_active_hours >= {{min_active_samples}}
+  and $hod_z_score >= {{z_threshold}}
+
+order:
+  $hod_z_score desc
