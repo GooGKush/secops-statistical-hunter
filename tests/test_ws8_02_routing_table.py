@@ -89,6 +89,10 @@ class TestWS802CanonicalRoutingTable(unittest.TestCase):
     for retired in RETIRED_TEMPLATES:
       self.assertNotIn(retired, block)
 
+    self.assertNotIn("sub-second/cron timing;", block)
+    self.assertIn("sub-day cron", block)
+    self.assertIn("Scheduled Exfiltration", block)
+
   def test_cross_skill_routing_table_byte_for_byte_parity(self):
     rm_root = _find_peer_repo("secops-risk-metrics-multistage")
     if rm_root is None:
