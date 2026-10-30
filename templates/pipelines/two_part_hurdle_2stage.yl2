@@ -2,17 +2,17 @@
 // METHODOLOGY & HUNTING GOAL
 // Goal: Detect dormant or quiet accounts suddenly awakening with unusual activity (Hurdle Score >= {{z_score}}).
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Two-Part Hurdle Outlier Model for Zero-Inflated Telemetry
+// Statistical Model: Two-Part Hurdle Outlier Model (Single Raw Stage, Dormant Awakening Volume Gate & Positive-Rectified LOO Intensity Z)
 // Mathematical Rationale:
-//   - Part 1 (Discrete Bernoulli Hurdle): Tests whether an account was historically dormant (active_samples <= {{min_active_samples}}).
-//     If dormant, sudden activity incurs a discrete activation penalty score.
-//   - Part 2 (Continuous Intensity): If historically active, evaluates continuous deviation against historical baseline:
-//     Z = (observed - mean) / if(safe_stddev > 0, safe_stddev, 1.0).
-//   - Safe Zero-Dispersion: Divisors protected conditionally via if() without variance blunting.
-// Sensitivity Boundary: {{tier}} (Hurdle Score >= {{z_score}}, Min Activity >= {{min_count}}, Min Active Samples >= {{min_active_samples}})
+//   - Part 1 (Discrete Bernoulli Hurdle): Accounts with active_samples <= {{min_active_samples}} must cross an explicit
+//     awakening volume gate (observation_count >= {{min_awakening_volume}}) before scoring 3.0 * (obs / {{min_awakening_volume}}),
+//     suppressing low-volume dormant trickle noise (e.g. 2-4 logins).
+//   - Part 2 (Continuous Intensity): Mature accounts use leave-one-out mean and variance with a continuous sqrt(max(mean, 1.0))
+//     floor and positive rectification max(0, Z) so below-average activity never produces negative alert scores.
+// Sensitivity Boundary: {{tier}} (Hurdle Score >= {{z_score}}, Min Activity >= {{min_count}}, Dormant Awakening >= {{min_awakening_volume}}, Active Threshold <= {{min_active_samples}})
 // ============================================================================
 
-// Stage 1: Historical activity extraction per entity
+// Stage 1: Windowed activity extraction per entity (single raw stage)
 stage entity_historical {
     metadata.event_type = "{{event_type}}"
     {{entity_field}} = $entity
@@ -22,63 +22,55 @@ stage entity_historical {
     $entity by {{bucket_size}}
   outcome:
     $bucket_count = count(metadata.id)
+    $bucket_count_sq = 1.0 * count(metadata.id) * count(metadata.id)
     $distinct_targets = count_distinct(target.user.userid)
+    $sample_target = array_distinct(target.user.userid)
 }
 
-// Stage 2: Historical active sample density and dispersion
+// Stage 2: Historical moment accumulation across active windows
 stage entity_stats {
     $entity = $entity_historical.entity
 
   match:
     $entity
   outcome:
-    $hist_mean = avg($entity_historical.bucket_count)
-    $hist_stddev = stddev($entity_historical.bucket_count)
+    $sum_x = sum($entity_historical.bucket_count)
+    $sum_x2 = sum($entity_historical.bucket_count_sq)
     $active_samples = count($entity_historical.window_start)
 }
 
-// Stage 3: Current window activity
-stage current_activity {
-    metadata.event_type = "{{event_type}}"
-    {{entity_field}} = $entity
-    $entity != ""
-
-  match:
-    $entity by {{bucket_size}}
-  outcome:
-    $current_count = count(metadata.id)
-    $sample_target = array_distinct(target.user.userid)
-}
-
-// Root Stage: Two-Part Hurdle Evaluation
+// Root Stage: Two-Part Hurdle Evaluation (Dormant Awakening Gate + LOO Positive Intensity Z)
+$entity = $entity_historical.entity
 $entity = $entity_stats.entity
-$entity = $current_activity.entity
-$window_start = $current_activity.window_start
+$window_start = $entity_historical.window_start
 
 match:
   $entity, $window_start by {{bucket_size}}
 
 outcome:
-  // 6 Core Evidence Pillars
-  $observation_count = max($current_activity.current_count)
+  $observation_count = max($entity_historical.bucket_count)
   $baseline_active_samples = max($entity_stats.active_samples)
-  $baseline_mean = max($entity_stats.hist_mean)
-  $baseline_dispersion = max($entity_stats.hist_stddev)
   $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($current_activity.current_count)
-  $sample_commands = array_distinct($current_activity.sample_target)
+  $distinct_binaries = max($entity_historical.distinct_targets)
+  $sample_commands = array_distinct($entity_historical.sample_target)
 
-  // 1. Part 1: Discrete Bernoulli Hurdle (dormant awakening)
-  $is_dormant = if($baseline_active_samples <= {{min_active_samples}}, 1.0, 0.0)
-  $dormant_score = $observation_count * {{dormant_weight}}
+  // Leave-One-Out Continuous Intensity Standardization (Positive-Rectified)
+  $raw_n_prior = $baseline_active_samples - 1
+  $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
+  $raw_loo_sum = max($entity_stats.sum_x) - $observation_count
+  $loo_sum = if($raw_loo_sum > 0, $raw_loo_sum, 0)
+  $baseline_mean = 1.0 * $loo_sum / $n_prior
+  $raw_loo_var = ((max($entity_stats.sum_x2) - (1.0 * $observation_count * $observation_count)) / $n_prior) - ($baseline_mean * $baseline_mean)
+  $floor_var = if($baseline_mean > 1.0, $baseline_mean, 1.0)
+  $safe_var = if($raw_loo_var > $floor_var, $raw_loo_var, $floor_var)
+  $baseline_dispersion = math.sqrt($safe_var)
+  $raw_intensity_z = ($observation_count - $baseline_mean) / $baseline_dispersion
+  $intensity_z = if($raw_intensity_z > 0.0, $raw_intensity_z, 0.0)
 
-  // 2. Part 2: Continuous Intensity Conditioned on Crossing Hurdle
-  $diff = $observation_count - $baseline_mean
-  $safe_stddev = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
-  $intensity_z = $diff / $safe_stddev
-
-  // 3. Composite Hurdle Threat Score
-  $hurdle_threat_score = if($is_dormant > 0, $dormant_score, $intensity_z)
+  // Dormant Awakening Branch (Gated by {{min_awakening_volume}})
+  $dormant_raw = 3.0 * (1.0 * $observation_count / {{min_awakening_volume}})
+  $dormant_score = if($observation_count >= {{min_awakening_volume}}, $dormant_raw, 0.0)
+  $hurdle_threat_score = if($baseline_active_samples <= {{min_active_samples}}, $dormant_score, $intensity_z)
 
 condition:
   $observation_count >= {{min_count}}

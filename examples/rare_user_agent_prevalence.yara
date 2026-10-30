@@ -1,76 +1,91 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect outlier browser user-agent strings across enterprise devices by fleet prevalence and volume.
+// Goal: Detect outlier browser user-agent strings across enterprise devices by pure host-prevalence inverse document frequency.
 // Target Telemetry: UDM_EVENTS (NETWORK_HTTP)
-// Statistical Model: Fleet Prevalence Normalization & Discrete Host Rarity
+// Statistical Model: Host-Prevalence Inverse Document Frequency Rarity (ln(N_fleet_hosts / N_adopter_hosts))
 // Mathematical Rationale:
-//   - Why this model: Compares each user-agent string's endpoint adoption across the enterprise.
-//     Standard corporate browsers appear across many hosts; rare/outlier user-agent strings
-//     (scrapers, malicious scripts, custom CLI tools, or spoofed implants) appear on an isolated minority of hosts.
-//   - Small-Sample & Volume Protection: Enforces a maximum fleet adoption ceiling (<= 2 distinct endpoints)
-//     and an activity volume floor (>= 5 HTTP requests) to prevent false positives from transient single-request noise.
-// Sensitivity Boundary: BALANCED (Host Prevalence <= 2, Minimum Event Volume >= 5, Minimum Active Hours >= 6)
+//   - Single Raw Scan: Extracts host-day user-agent activity once in Stage 1, then derives fleetwide user-agent
+//     adopter breadth (Stage 2) and total active fleet hosts (Stage 3) with zero redundant raw telemetry scans.
+//   - Pure Host Prevalence: Scores ln(safe_fleet_hosts / safe_adopter_hosts) so chatty multi-host user-agents
+//     cannot outrank genuinely rare single-host scripts or implants.
+// Sensitivity Boundary: BALANCED (Host Prevalence <= 2, Min Host Requests >= 5, Min Fleet Hosts >= 5, Rarity Score >= 1.5)
 // ============================================================================
 
-// Stage 1: Individual host activity per user-agent string
+// Stage 1: Individual host activity per user-agent string (single raw scan)
 stage host_ua_activity {
     metadata.event_type = "NETWORK_HTTP"
+    $etype = metadata.event_type
     network.http.user_agent = $user_agent
     $user_agent != ""
     principal.asset.hostname = $host
     $host != ""
 
   match:
-    $host, $user_agent by 1d
+    $etype, $host, $user_agent by 1d
 
   outcome:
     $host_events = count(metadata.id)
     $sample_uris = array_distinct(target.url)
 }
 
-// Stage 2: Enterprise-wide concurrent fleet adoption on user-agent string
+// Stage 2: Enterprise-wide fleet adoption per user-agent string across the search window
 stage fleet_ua_prevalence {
-    metadata.event_type = "NETWORK_HTTP"
-    network.http.user_agent = $user_agent
-    $user_agent != ""
-    principal.asset.hostname = $host
-    $host != ""
+    $etype = $host_ua_activity.etype
+    $user_agent = $host_ua_activity.user_agent
 
   match:
-    $user_agent by 1d
+    $etype, $user_agent
 
   outcome:
-    $fleet_adopters = count_distinct($host)
-    $total_fleet_events = count(metadata.id)
-    $sample_hosts = array_distinct($host)
+    $fleet_adopters = count_distinct($host_ua_activity.host)
+    $total_fleet_events = sum($host_ua_activity.host_events)
 }
 
-// Root Stage: Join host activity with fleet adoption on token ($user_agent)
+// Stage 3: Total active HTTP client host population across the search window
+stage fleet_host_total {
+    $etype = $host_ua_activity.etype
+
+  match:
+    $etype
+
+  outcome:
+    $total_hosts = count_distinct($host_ua_activity.host)
+}
+
+// Root Stage: Join host-day activity with fleet adoption and total fleet size
+$etype = $host_ua_activity.etype
+$etype = $fleet_ua_prevalence.etype
+$etype = $fleet_host_total.etype
+$host = $host_ua_activity.host
 $user_agent = $host_ua_activity.user_agent
 $user_agent = $fleet_ua_prevalence.user_agent
+$ws = $host_ua_activity.window_start
 
 match:
-  $user_agent by 1d
+  $host, $user_agent, $ws by 1d
 
 outcome:
+  $adopter_hosts = max($fleet_ua_prevalence.fleet_adopters)
+  $fleet_total_hosts = max($fleet_host_total.total_hosts)
+  $local_events = max($host_ua_activity.host_events)
+  $safe_hosts = if($adopter_hosts > 0, $adopter_hosts, 1)
+  $safe_fleet_hosts = if($fleet_total_hosts > $safe_hosts, $fleet_total_hosts, $safe_hosts)
+  $rarity_score = math.log(1.0 * $safe_fleet_hosts / $safe_hosts)
+
   // 6 Core Evidence Pillars
-  $observation_count = max($fleet_ua_prevalence.total_fleet_events)
-  $baseline_active_samples = max($fleet_ua_prevalence.fleet_adopters)
-  $baseline_mean = 1.0
-  $baseline_dispersion = 0.0
-  $fleet_prevalence = max($fleet_ua_prevalence.fleet_adopters)
-  $distinct_binaries = count_distinct($host_ua_activity.host)
-  $sample_commands = array_distinct($fleet_ua_prevalence.sample_hosts)
-  
-  // Linear Prevalence Dampening Factor: 1.0 / (fleet_adopters + 1.0)
-  $prevalence_dampener = 1.0 / ($fleet_prevalence + 1.0)
-  $rarity_score = $observation_count * $prevalence_dampener
+  $observation_count = $local_events
+  $baseline_active_samples = $safe_fleet_hosts
+  $baseline_mean = 1.0 * $adopter_hosts / $safe_fleet_hosts
+  $baseline_dispersion = $rarity_score
+  $fleet_prevalence = $adopter_hosts
+  $distinct_binaries = 1
+  $sample_commands = array_distinct($host_ua_activity.sample_uris)
 
 condition:
-  // Fleet Prevalence Filter: User agent must appear on at most 2 distinct enterprise endpoints
-  $fleet_prevalence <= 2
-  // Activity Floor: Must have observed at least 5 requests
+  $safe_fleet_hosts >= 5
+  and $fleet_prevalence <= 2
   and $observation_count >= 5
+  and $rarity_score >= 1.5
 
 order:
   $rarity_score desc

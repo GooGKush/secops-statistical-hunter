@@ -371,41 +371,89 @@ class TestCompilerGrammar(unittest.TestCase):
     self.assertEqual(errors, [], f"Root stage derivations should pass cleanly: {errors}")
 
   def test_reject_excessive_named_stages(self):
-    """Rejects queries with > 3 named stages (allowance is strictly 1-3 named stages + root)."""
+    """Allows up to 4 named stages + root (5 stages total) and rejects >= 5 named stages."""
     four_named_stages = """
-    // Goal: Test stage limit rejection
-    // Statistical Model: Excessive stages
+    // Goal: Test 4 named stages + root supported by Malachite
+    // Statistical Model: 5-stage pipeline
     stage s1 {
       metadata.event_type = "USER_LOGIN"
-      $u = principal.user.userid
+      principal.user.userid = $u
       match: $u by 1h
       outcome: $c1 = count(metadata.id)
     }
     stage s2 {
       $u = $s1.u
-      match: $u by 1h
+      $ws = $s1.window_start
+      match: $u, $ws by 1h
       outcome: $c2 = max($s1.c1)
     }
     stage s3 {
       $u = $s2.u
-      match: $u by 1h
+      $ws = $s2.ws
+      match: $u, $ws by 1h
       outcome: $c3 = max($s2.c2)
     }
     stage s4 {
       $u = $s3.u
-      match: $u by 1h
+      $ws = $s3.ws
+      match: $u, $ws by 1h
       outcome: $c4 = max($s3.c3)
     }
     $u = $s4.u
-    match: $u by 1h
+    $ws = $s4.ws
+    match: $u, $ws by 1h
     outcome:
       $final = max($s4.c4)
     condition:
       $final >= 1
     """
-    errors = validate_multistage_syntax(four_named_stages)
-    self.assertTrue(any("STAGE COUNT LIMIT EXCEEDED" in e for e in errors),
-                    f"Expected STAGE COUNT LIMIT EXCEEDED rejection for 4 named stages, got: {errors}")
+    errors_4 = validate_multistage_syntax(four_named_stages)
+    self.assertEqual(errors_4, [], f"4 named stages + root should pass cleanly, got: {errors_4}")
+
+    five_named_stages = """
+    // Goal: Test stage limit rejection
+    // Statistical Model: Excessive stages
+    stage s1 {
+      metadata.event_type = "USER_LOGIN"
+      principal.user.userid = $u
+      match: $u by 1h
+      outcome: $c1 = count(metadata.id)
+    }
+    stage s2 {
+      $u = $s1.u
+      $ws = $s1.window_start
+      match: $u, $ws by 1h
+      outcome: $c2 = max($s1.c1)
+    }
+    stage s3 {
+      $u = $s2.u
+      $ws = $s2.ws
+      match: $u, $ws by 1h
+      outcome: $c3 = max($s2.c2)
+    }
+    stage s4 {
+      $u = $s3.u
+      $ws = $s3.ws
+      match: $u, $ws by 1h
+      outcome: $c4 = max($s3.c3)
+    }
+    stage s5 {
+      $u = $s4.u
+      $ws = $s4.ws
+      match: $u, $ws by 1h
+      outcome: $c5 = max($s4.c4)
+    }
+    $u = $s5.u
+    $ws = $s5.ws
+    match: $u, $ws by 1h
+    outcome:
+      $final = max($s5.c5)
+    condition:
+      $final >= 1
+    """
+    errors_5 = validate_multistage_syntax(five_named_stages)
+    self.assertTrue(any("STAGE COUNT LIMIT EXCEEDED" in e for e in errors_5),
+                    f"Expected STAGE COUNT LIMIT EXCEEDED rejection for 5 named stages, got: {errors_5}")
 
   def test_reject_cartesian_dummy_join(self):
     """Cartesian joins via $dummy = 1 or match: $dummy must be rejected."""
@@ -587,16 +635,21 @@ class TestCompilerGrammar(unittest.TestCase):
     self.assertEqual(fatal_errors, [], f"Nested if() with aggregations should pass cleanly, got: {fatal_errors}")
 
   def test_impossible_travel_geo_velocity_template_passes_cleanly(self):
-    """Rendered IMPOSSIBLE_TRAVEL_GEO_VELOCITY pipeline must use math.geo_distance and pass syntax validation."""
+    """Retired IMPOSSIBLE_TRAVEL_GEO_VELOCITY (D1 / WS5-D1) must raise a clear ValueError while replacement HOUR_OF_DAY_PROFILE passes syntax validation."""
     from multistage_query_builder import MultiStageTemplateRouter
     router = MultiStageTemplateRouter()
+    for retired_alias in ["IMPOSSIBLE_TRAVEL_GEO_VELOCITY", "IMPOSSIBLE_TRAVEL", "GEO_VELOCITY", "SUPERSONIC_TRAVEL"]:
+      with self.assertRaises(ValueError) as ctx:
+        router.build_query(retired_alias, tier="BALANCED")
+      self.assertIn("IMPOSSIBLE_TRAVEL_GEO_VELOCITY is retired (D1)", str(ctx.exception))
+      self.assertIn("HOUR_OF_DAY_PROFILE", str(ctx.exception))
     for tier in ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]:
-      query = router.build_query("IMPOSSIBLE_TRAVEL_GEO_VELOCITY", tier=tier)
-      self.assertIn("math.geo_distance(", query)
-      self.assertIn("$velocity_kmh", query)
+      query = router.build_query("HOUR_OF_DAY_PROFILE", tier=tier)
+      self.assertIn("timestamp.get_hour(", query)
+      self.assertIn("$hod_z_score", query)
       self.assertEqual(check_scope_exclusions(query), [])
       errors = validate_multistage_syntax(query)
-      self.assertEqual(errors, [], f"Rendered impossible travel pipeline ({tier}) had errors: {errors}")
+      self.assertEqual(errors, [], f"Rendered HOUR_OF_DAY_PROFILE pipeline ({tier}) had errors: {errors}")
 
   def test_producer_consumer_ratio_inversion_template_passes_cleanly(self):
     """Rendered PRODUCER_CONSUMER_RATIO_INVERSION pipeline must compute producer_ratio and pass syntax validation."""
@@ -650,7 +703,7 @@ class TestCompilerGrammar(unittest.TestCase):
     """QueryIntegrityGate must catch unresolved slots, unscoped entities, and backend API errors."""
     from multistage_query_builder import MultiStageTemplateRouter, QueryIntegrityGate
     router = MultiStageTemplateRouter()
-    q = router.build_query("IMPOSSIBLE_TRAVEL_GEO_VELOCITY")
+    q = router.build_query("HOUR_OF_DAY_PROFILE")
 
     # 1. Valid fleet query passes pre-dispatch
     res_ok = QueryIntegrityGate.verify_pre_dispatch(q, expected_entity="fleet")

@@ -1,21 +1,17 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
 // Goal: Hunt for targeted host volume surges isolated from company-wide shifts (Delta-Z)
-// Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH / NETWORK_HTTP / NETWORK_CONNECTION)
-// Statistical Model: 3-Stage Dual-Baseline Population Normalization (Delta-Z = Z_Personal - max(0, Z_Fleet_Shift))
+// Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
+// Statistical Model: Leave-One-Out Personal Z Minus Mature-Cohort Fleet Historical Shift Z (Delta-Z = Z_Personal - max(0, Z_Fleet))
 // Operational Analogy: "The Patch Tuesday Immunity Shield"
 // Mathematical Rationale:
-//   If a corporate-wide software deployment (e.g. Patch Tuesday or agent rollout) occurs,
-//   all endpoints experience massive concurrent surges. Standard Z-scores flag the entire fleet.
-//   Dual-Baseline Delta-Z scales the concurrent fleet mean shift ($f_mean - $p_mean) in units of
-//   personal standard deviations ($safe_personal_sd) and subtracts positive fleet-wide shifts from
-//   the personal Z-score: when the entire fleet spikes together, Delta-Z remains near zero; when a
-//   single host spikes while the fleet remains at baseline, Delta-Z isolates the targeted anomaly.
-//   Note: The scored window is included in the personal baseline estimation (in-sample baseline).
-// Sensitivity Boundary: BALANCED (Delta-Z >= 3.0σ, Min Events >= 25, Min Fleet Hosts >= 5, Min Active Samples >= 30)
+//   Computes leave-one-out personal standardization ($personal_z) with a continuous Poisson dispersion floor
+//   sqrt(max(loo_mean, 1.0)) and subtracts concurrent fleet shift ($fleet_z) evaluated strictly across mature
+//   peer hosts (active_hours >= 30) relative to their own historical expected mean and spread.
+// Sensitivity Boundary: BALANCED (Delta-Z >= 3.0σ, Min Events >= 25, Mature Fleet Hosts >= 5, Min Active Samples >= 30)
 // ============================================================================
 
-// Stage 1: Individual Host Activity Volume in tumbling hourly windows
+// Stage 1: Individual Host Activity Volume and Squared Moments in tumbling hourly windows
 stage host_hourly_extract {
   $e.metadata.event_type = "PROCESS_LAUNCH"
   $host = $e.principal.hostname
@@ -26,10 +22,11 @@ stage host_hourly_extract {
 
   outcome:
     $hourly_count = count($e.metadata.id)
+    $hourly_count_sq = 1.0 * count($e.metadata.id) * count($e.metadata.id)
     $distinct_procs = count_distinct($e.target.process.file.full_path)
 }
 
-// Stage 2: Individual Host Personal Historical Baseline (Temporal Baseline)
+// Stage 2: Individual Host Personal Historical Baseline
 stage host_personal_baseline {
   $host = $host_hourly_extract.host
 
@@ -37,26 +34,30 @@ stage host_personal_baseline {
     $host
 
   outcome:
+    $sum_x = sum($host_hourly_extract.hourly_count)
+    $sum_x2 = sum($host_hourly_extract.hourly_count_sq)
     $personal_avg = avg($host_hourly_extract.hourly_count)
     $personal_stddev = stddev($host_hourly_extract.hourly_count)
     $active_hours = count($host_hourly_extract.window_start)
 }
 
-// Stage 3: Concurrent Fleet-Wide Macro Baseline across all active endpoints in the same hour
+// Stage 3: Concurrent Mature-Fleet Shift Baseline (excludes cold-start hosts < 30 active hours)
 stage fleet_concurrent_baseline {
   $host = $host_hourly_extract.host
+  $host = $host_personal_baseline.host
   $ws = $host_hourly_extract.window_start
 
   match:
     $ws by 1h
 
   outcome:
-    $fleet_hour_avg = avg($host_hourly_extract.hourly_count)
-    $fleet_hour_stddev = stddev($host_hourly_extract.hourly_count)
-    $active_fleet_hosts = count_distinct($host_hourly_extract.host)
+    $active_fleet_hosts = sum(if($host_personal_baseline.active_hours >= 30, 1, 0))
+    $sum_fleet_obs = sum(if($host_personal_baseline.active_hours >= 30, $host_hourly_extract.hourly_count, 0))
+    $sum_fleet_exp = sum(if($host_personal_baseline.active_hours >= 30, $host_personal_baseline.personal_avg, 0.0))
+    $sum_fleet_sd = sum(if($host_personal_baseline.active_hours >= 30, $host_personal_baseline.personal_stddev, 0.0))
 }
 
-// Root Stage: Dual-Baseline Delta-Z Evaluation
+// Root Stage: Leave-One-Out Personal Z & Mature-Cohort Fleet Shift Subtraction
 $host = $host_hourly_extract.host
 $host = $host_personal_baseline.host
 $ws = $host_hourly_extract.window_start
@@ -66,30 +67,30 @@ match:
   $host, $ws by 1h
 
 outcome:
-  // 6 Standardized Evidence Pillars
   $observation_count = max($host_hourly_extract.hourly_count)
   $baseline_active_samples = max($host_personal_baseline.active_hours)
-  $baseline_mean = max($host_personal_baseline.personal_avg)
-  $baseline_dispersion = max($host_personal_baseline.personal_stddev)
   $fleet_prevalence = max($fleet_concurrent_baseline.active_fleet_hosts)
   $distinct_binaries = max($host_hourly_extract.distinct_procs)
 
-  // Dual-Baseline Metrics (Common Personal Dispersion Scale)
-  $obs = max($host_hourly_extract.hourly_count)
-  $p_mean = max($host_personal_baseline.personal_avg)
-  $f_mean = max($fleet_concurrent_baseline.fleet_hour_avg)
-  $raw_personal_sd = max($host_personal_baseline.personal_stddev)
-  $safe_personal_sd = if($raw_personal_sd > 0, $raw_personal_sd, 1.0)
+  // Leave-One-Out Personal Standardization
+  $raw_n_prior = $baseline_active_samples - 1
+  $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
+  $baseline_mean = 1.0 * (max($host_personal_baseline.sum_x) - $observation_count) / $n_prior
+  $raw_loo_var = ((max($host_personal_baseline.sum_x2) - (1.0 * $observation_count * $observation_count)) / $n_prior) - ($baseline_mean * $baseline_mean)
+  $floor_var = if($baseline_mean > 1.0, $baseline_mean, 1.0)
+  $safe_var = if($raw_loo_var > $floor_var, $raw_loo_var, $floor_var)
+  $baseline_dispersion = math.sqrt($safe_var)
+  $personal_z = ($observation_count - $baseline_mean) / $baseline_dispersion
 
-  $personal_z = ($obs - $p_mean) / $safe_personal_sd
-  $f_shift = $f_mean - $p_mean
-  $fleet_z = $f_shift / $safe_personal_sd
-  $pos_fleet_z = if($fleet_z > 0, $fleet_z, 0.0)
+  // Mature-Cohort Historical-Referenced Fleet Shift Z
+  $safe_hosts = if($fleet_prevalence > 0, $fleet_prevalence, 1)
+  $fleet_exp_mean = 1.0 * max($fleet_concurrent_baseline.sum_fleet_exp) / $safe_hosts
+  $raw_fleet_var = (1.0 * max($fleet_concurrent_baseline.sum_fleet_sd) / $safe_hosts) * (1.0 * max($fleet_concurrent_baseline.sum_fleet_sd) / $safe_hosts)
+  $fleet_floor_var = if($fleet_exp_mean > 1.0, $fleet_exp_mean, 1.0)
+  $safe_fleet_var = if($raw_fleet_var > $fleet_floor_var, $raw_fleet_var, $fleet_floor_var)
+  $fleet_z = ((1.0 * max($fleet_concurrent_baseline.sum_fleet_obs) / $safe_hosts) - $fleet_exp_mean) / math.sqrt($safe_fleet_var)
+  $pos_fleet_z = if($fleet_z > 0.0, $fleet_z, 0.0)
   $delta_z = $personal_z - $pos_fleet_z
-
-  $personal_z_score = $personal_z
-  $fleet_concurrent_z = $fleet_z
-  $targeted_delta_z = $delta_z
 
 condition:
   $baseline_active_samples >= 30

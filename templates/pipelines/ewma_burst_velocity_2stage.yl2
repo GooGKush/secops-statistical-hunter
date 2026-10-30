@@ -1,22 +1,23 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect acute intraday rate acceleration using Exponentially Weighted Moving Average (EWMA) Velocity.
+// Goal: Extract ungated bucketed event series per qualifying entity for true recursive EWMA control-chart scoring (WS6-02).
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Intraday Exponentially Weighted Moving Average (EWMA) Velocity & Rate Surge
+// Statistical Model: Exponentially Weighted Moving Average Control Chart (EWMA_BURST_VELOCITY — paired with scripts/micro_python_helpers.py ewma; stateless fallback: BURST_Z_SCREEN)
 // Mathematical Rationale:
-//   - Why this model: Applies exponential weighting (S_t = α * x_t + (1 - α) * μ_hist, α = 0.3)
-//     to evaluate acute rate acceleration against the entity's historical baseline trajectory,
-//     isolating sudden kinetic bursts per window.
-//   - Small-Sample & Multiple-Comparison Protection: Requires minimum active sample floor (>= {{min_active_samples}})
-//     and minimum observation count (>= {{min_count}}) with safe dispersion floor protection.
-// Sensitivity Boundary: {{tier}} (EWMA Velocity Score >= {{velocity_threshold}}, Min Count >= {{min_count}}, Min Active Samples >= {{min_active_samples}})
+//   - Two-Stage Extractor (D6 / WS6-02): YARA-L emits compact ungated (entity, ws, window_events) rows
+//     for entities meeting baseline maturity (>= {{min_active_samples}} active buckets and >= {{min_count}} total events)
+//     without per-bucket Z gating, so sustained moderate +1.5σ..+2.0σ rate shifts are preserved.
+//   - Vetted Python Helper (scripts/micro_python_helpers.py ewma): Zero-fills missing buckets onto the
+//     dense T-bucket grid and evaluates S_t = λ·x_t + (1-λ)·S_{t-1} against UCL = μ_0 + L·σ_0·sqrt(λ/(2-λ)).
+// Sensitivity Boundary: {{tier}} (Min Active Buckets >= {{min_active_samples}}, Min Total Events >= {{min_count}})
 // ============================================================================
 
-// Stage 1: Windowed Entity Activity & Process Diversity
-stage entity_baseline {
+// Stage 1: Bucketed Entity Volume & Distinct Binary Diversity
+stage entity_hourly {
     metadata.event_type = "{{event_type}}"
     {{entity_field}} = $entity
     $entity != ""
+    {{event_filter}}
 
   match:
     $entity by {{bucket_size}}
@@ -26,49 +27,62 @@ stage entity_baseline {
     $distinct_procs = count_distinct(target.process.file.full_path)
 }
 
-// Stage 2: Unwindowed Historical Baseline Statistics per Entity
-stage entity_historical_stats {
-    $entity = $entity_baseline.entity
+// Stage 2: Ungated Entity Maturity & Volume Prefilter
+stage entity_prefilter {
+    $entity = $entity_hourly.entity
 
   match:
     $entity
 
   outcome:
-    $hist_mean = avg($entity_baseline.window_events)
-    $hist_sd = stddev($entity_baseline.window_events)
-    $active_windows = count($entity_baseline.window_start)
+    $active_hours = count($entity_hourly.window_start)
+    $peak_events = max($entity_hourly.window_events)
+    $total_events = sum($entity_hourly.window_events)
+    $hourly_mean = avg($entity_hourly.window_events)
+    $hourly_sd = stddev($entity_hourly.window_events)
 }
 
-// Root Stage: EWMA Velocity Divergence & Kinetic Burst Scoring
-$entity = $entity_baseline.entity
-$entity = $entity_historical_stats.entity
+// Stage 3: Concurrent Active Fleet Breadth per Bucket
+stage fleet_breadth {
+    $entity = $entity_hourly.entity
+    $ws = $entity_hourly.window_start
+
+  match:
+    $ws by {{bucket_size}}
+
+  outcome:
+    $active_peers = count_distinct($entity_hourly.entity)
+}
+
+// Root Stage: Ungated Bucketed Series Emission with 6 Forensic Evidence Pillars
+$entity = $entity_hourly.entity
+$entity = $entity_prefilter.entity
+$ws = $entity_hourly.window_start
+$ws = $fleet_breadth.ws
 
 match:
-  $entity by {{bucket_size}}
+  $entity, $ws by {{bucket_size}}
 
 outcome:
-  // 6 Core Evidence Pillars
-  $observation_count = max($entity_baseline.window_events)
-  $baseline_active_samples = max($entity_historical_stats.active_windows)
-  $baseline_mean = max($entity_historical_stats.hist_mean)
-  $baseline_dispersion = max($entity_historical_stats.hist_sd)
-  $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($entity_baseline.distinct_procs)
+  $window_events = max($entity_hourly.window_events)
+  $active_hours = max($entity_prefilter.active_hours)
+  $peak_events = max($entity_prefilter.peak_events)
+  $total_events = max($entity_prefilter.total_events)
 
-  // EWMA Velocity & Kinetic Burst Scoring (α = 0.3, 1 - α = 0.7)
-  $observed_events = max($entity_baseline.window_events)
-  $mean_events = max($entity_historical_stats.hist_mean)
-  $sd_events = max($entity_historical_stats.hist_sd)
-  $ewma_baseline = (0.3 * $observed_events) + (0.7 * $mean_events)
-  $velocity_delta = $observed_events - $ewma_baseline
-  $safe_sd = if($sd_events > 0, $sd_events, 1.0)
-  $velocity_score = $velocity_delta / $safe_sd
-  $ewma_velocity_score = $velocity_score
+  // 6 Core Evidence Pillars
+  $observation_count = max($entity_hourly.window_events)
+  $baseline_active_samples = max($entity_prefilter.active_hours)
+  $baseline_mean = max($entity_prefilter.hourly_mean)
+  $baseline_dispersion = max($entity_prefilter.hourly_sd)
+  $fleet_prevalence = max($fleet_breadth.active_peers)
+  $distinct_binaries = max($entity_hourly.distinct_procs)
 
 condition:
-  $baseline_active_samples >= {{min_active_samples}}
-  and $observation_count >= {{min_count}}
-  and $velocity_score >= {{velocity_threshold}}
+  $active_hours >= {{min_active_samples}}
+  and $total_events >= {{min_count}}
 
 order:
-  $velocity_score desc
+  $total_events desc
+
+limit:
+  1000

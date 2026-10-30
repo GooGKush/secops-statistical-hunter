@@ -10,7 +10,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from multistage_query_builder import HandoffEndpoint
+from multistage_query_builder import HandoffEndpoint, QueryIntegrityGate
 
 
 class TestHandoffEndpoint(unittest.TestCase):
@@ -47,7 +47,12 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
     self.assertEqual(res["model_routed"], "C2_BEACONING_JITTER")
     self.assertIn("stage host_intervals", res["compiled_query"])
-    self.assertIn("order:\n  $cv asc", res["compiled_query"])
+    self.assertIn("array_distinct($ts)", res["compiled_query"])
+    self.assertIn("order:\n  $total_conns desc", res["compiled_query"])
+    self.assertIn("site-rev-proxy.lan", res["compiled_query"])
+    self.assertTrue(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="site-rev-proxy.lan")["valid"]
+    )
     self.assertIn("CV = sigma / mu <= 0.20", res["preflight_spec"]["formula"])
 
   def test_ingest_valid_handoff_privileged_lateral_expansion(self):
@@ -79,16 +84,27 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
     self.assertEqual(res["model_routed"], "PRIVILEGED_LATERAL_EXPANSION")
     self.assertIn("stage daily_user_breadth", res["compiled_query"])
+    self.assertIn("stage user_target_history", res["compiled_query"])
     self.assertIn("stage user_breadth_baseline", res["compiled_query"])
-    self.assertIn("stage current_breadth", res["compiled_query"])
+    self.assertNotIn("stage current_breadth", res["compiled_query"])
+    self.assertIn("$new_targets", res["compiled_query"])
     self.assertIn("order:\n  $z_score desc", res["compiled_query"])
+    self.assertIn("domain_admins", res["compiled_query"])
+    self.assertTrue(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="domain_admins")["valid"]
+    )
 
   def test_ingest_json_string_with_fences(self):
-    """Payload provided as markdown-fenced JSON string must parse and compile cleanly."""
+    """Payload provided as markdown-fenced JSON string must parse, bind target_entity, and pass pre-dispatch QA."""
     json_str = "```json\n" + json.dumps(self.valid_exfil_payload) + "\n```"
     res = HandoffEndpoint.ingest(json_str)
     self.assertEqual(res["status"], "HANDOFF_ACK_ACCEPTED")
     self.assertEqual(res["request_id"], "req-exfil-unit-01")
+    self.assertIn("site-rev-proxy.lan", res["compiled_query"])
+    self.assertEqual(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="site-rev-proxy.lan"),
+        {"valid": True, "errors": []},
+    )
 
   def test_reject_unsupported_protocol(self):
     """Payload with invalid protocol version must return HANDOFF_ACK_REJECTED."""
@@ -141,6 +157,12 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
     self.assertEqual(res["model_routed"], "DATA_EXFILTRATION_SPIKE")
     self.assertIn("stage", res["compiled_query"])
+    self.assertIn("site-rev-proxy.lan", res["compiled_query"])
+    self.assertEqual(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="site-rev-proxy.lan"),
+        {"valid": True, "errors": []},
+    )
+    self.assertEqual(res["preflight_spec"]["formula"], "m_z_score = 0.6745 * (obs - median) / MAD >= 3.5")
 
   def test_ingest_valid_handoff_dual_plane_correlation(self):
     """DUAL_PLANE_CORRELATION intent must route to DATA_EXFILTRATION_SPIKE with STEP_OUT_CONFIRMED."""
@@ -168,6 +190,98 @@ class TestHandoffEndpoint(unittest.TestCase):
     self.assertEqual(res["status"], "HANDOFF_ACK_ACCEPTED")
     self.assertEqual(res["action"], "STEP_OUT_CONFIRMED")
     self.assertEqual(res["model_routed"], "DATA_EXFILTRATION_SPIKE")
+    self.assertIn("srv-prod-01", res["compiled_query"])
+    self.assertEqual(
+        QueryIntegrityGate.verify_pre_dispatch(res["compiled_query"], expected_entity="srv-prod-01"),
+        {"valid": True, "errors": []},
+    )
+
+  def _assert_handoff_entity_matrix_for_intent(
+      self,
+      intent: str,
+      expected_routed_model: str,
+      root_scoped_var: str = "",
+      stage1_lhs_prefix: str = "",
+  ) -> None:
+    """Verifies IP, USER, and HOSTNAME scoping, canonical field binding, and pre-dispatch QA for an intent."""
+    entity_cases = [
+        ("IP", "172.16.3.50", "principal.ip"),
+        ("USER", "charles.hardy", "target.user.userid"),
+        ("HOSTNAME", "DEV-WIN10-16$", "principal.hostname"),
+    ]
+    for ent_type, ent_val, expected_field in entity_cases:
+      with self.subTest(intent=intent, entity_type=ent_type, entity_value=ent_val):
+        payload = {
+            "protocol": "secops-threat-hunt-handoff-v1",
+            "request_id": f"req-ws0-01-{intent.lower()}-{ent_type.lower()}",
+            "source_skill": "secops-risk-metrics-multistage",
+            "target_skill": "secops-statistical-hunter",
+            "intent": intent,
+            "target_entity": {
+                "type": ent_type,
+                "value": ent_val,
+            },
+            "search_window": {
+                "lookback": "24h",
+            },
+            "statistical_model": {
+                "name": intent,
+                "sensitivity": "BALANCED",
+            },
+        }
+        res = HandoffEndpoint.ingest(payload)
+        self.assertEqual(res["status"], "HANDOFF_ACK_ACCEPTED")
+        self.assertEqual(res["model_routed"], expected_routed_model)
+        self.assertEqual(res["preflight_spec"]["target_entity"]["value"], ent_val)
+        self.assertEqual(res["preflight_spec"]["target_entity"]["field"], expected_field)
+
+        query = res["compiled_query"]
+        self.assertIn(ent_val, query)
+        self.assertIn(expected_field, query)
+
+        if root_scoped_var:
+          # Cohort/fleet-normalized templates bind canonical UDM field in Stage 1 and filter literal at Root.
+          self.assertIn(f'{root_scoped_var} = "{ent_val}"', query)
+          if stage1_lhs_prefix:
+            self.assertIn(f"{stage1_lhs_prefix}{expected_field}", query)
+        else:
+          # Self-baseline templates push literal equality directly into Stage 1 UDM predicates.
+          self.assertIn(f'{expected_field} = "{ent_val}"', query)
+
+        qa = QueryIntegrityGate.verify_pre_dispatch(query, expected_entity=ent_val)
+        self.assertTrue(qa["valid"], f"Pre-dispatch QA failed for {intent} ({ent_type}={ent_val}): {qa['errors']}")
+        self.assertEqual(qa["errors"], [])
+
+  def test_ingest_entity_scoping_exfiltration_iqr_outlier_ip_user_hostname(self):
+    """WS0-01: EXFILTRATION_IQR_OUTLIER binds IP, USER, and HOSTNAME to canonical UDM fields and passes QA."""
+    self._assert_handoff_entity_matrix_for_intent(
+        intent="EXFILTRATION_IQR_OUTLIER",
+        expected_routed_model="IQR_TUKEY_SKEW_FENCES",
+    )
+
+  def test_ingest_entity_scoping_hour_of_day_profile_ip_user_hostname(self):
+    """WS0-01: HOUR_OF_DAY_PROFILE binds IP, USER, and HOSTNAME to canonical UDM fields and passes QA."""
+    self._assert_handoff_entity_matrix_for_intent(
+        intent="HOUR_OF_DAY_PROFILE",
+        expected_routed_model="HOUR_OF_DAY_PROFILE",
+    )
+
+  def test_ingest_entity_scoping_shannon_entropy_character_ip_user_hostname(self):
+    """WS0-01: SHANNON_ENTROPY_CHARACTER binds Stage-1 UDM field + Root $entity equality across IP, USER, HOSTNAME."""
+    self._assert_handoff_entity_matrix_for_intent(
+        intent="SHANNON_ENTROPY_CHARACTER",
+        expected_routed_model="SHANNON_ENTROPY_CHARACTER",
+        root_scoped_var="$entity",
+    )
+
+  def test_ingest_entity_scoping_dual_baseline_delta_z_ip_user_hostname(self):
+    """WS0-01: DUAL_BASELINE_DELTA_Z binds Stage-1 $host = $e.<field> + Root $host equality across IP, USER, HOSTNAME."""
+    self._assert_handoff_entity_matrix_for_intent(
+        intent="DUAL_BASELINE_DELTA_Z",
+        expected_routed_model="DUAL_BASELINE_DELTA_Z",
+        root_scoped_var="$host",
+        stage1_lhs_prefix="$host = $e.",
+    )
 
 
 if __name__ == "__main__":

@@ -1,18 +1,13 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect scripted data exfiltration and elephant flows via Information-Theoretic Diversity Deficit and Concentration Index.
+// Goal: Detect scripted data exfiltration and elephant flows via destination diversity & concentration screen.
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Information-Theoretic Diversity Deficit & Concentration Ratio (HHI / Gini Proxy)
-// Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
+// Statistical Model: Destination Diversity & Concentration Screen (Leave-One-Out Deficit Z & Peak/Sum Concentration Ratio)
+// Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine (Zero negative literals in condition:)
 // Models Supported:
-//   1. Information-Theoretic Diversity Deficit (Destination Breadth Z-Score & Ratio)
+//   1. Destination Diversity Deficit (Positive-Rectified Leave-One-Out Breadth Deficit Z-Score & k/N Ratio)
 //   2. Concentration Index & "Elephant Flow" Isolation (Peak / Sum Bytes Proxy)
-// Description:
-//   Stage 1 extracts per-window event counts, destination cardinality, and peak/sum transfer bytes.
-//   Stage 2 collapses per-entity historical destination breadth across all active windows.
-//   The unwrapped Root stage evaluates destination diversity deficit ($diversity_z <= {{max_diversity_z}})
-//   and elephant flow concentration ($concentration_ratio >= {{min_concentration_ratio}}).
-// Sensitivity Boundary: {{tier}} (Diversity Z <= {{max_diversity_z}} or Concentration >= {{min_concentration_ratio}}, Min Events >= {{min_events}}, Active Samples >= {{min_active_samples}})
+// Sensitivity Boundary: {{tier}} (Deficit Z >= {{min_deficit_z}} & Diversity Ratio <= {{max_diversity_ratio}}, or Concentration >= {{min_concentration_ratio}}, Min Events >= {{min_events}}, Active Samples >= {{min_active_samples}})
 // ============================================================================
 
 // Stage 1: Windowed Micro-Forensics, Volume & Destination Cardinality
@@ -31,7 +26,7 @@ stage window_metrics {
     $sum_bytes = sum(network.sent_bytes)
 }
 
-// Stage 2: Unwindowed Historical Destination Breadth Baseline per Entity
+// Stage 2: Unwindowed Historical Destination Breadth Moments per Entity
 stage entity_baseline {
     $entity = $window_metrics.entity
 
@@ -39,54 +34,66 @@ stage entity_baseline {
     $entity
 
   outcome:
+    $sum_targets = sum($window_metrics.distinct_targets)
     $avg_targets = avg($window_metrics.distinct_targets)
     $sd_targets = stddev($window_metrics.distinct_targets)
     $active_samples = count($window_metrics.window_start)
 }
 
-// Stage 3 (Root Stage): Common Compiler Fusion for Diversity Deficit & Concentration
-$entity = $window_metrics.entity
-$entity = $entity_baseline.entity
+// Stage 3: Leave-One-Out Destination Breadth Variance & Byte Concentration Ratio
+stage loo_stats {
+    $entity = $window_metrics.entity
+    $entity = $entity_baseline.entity
+    $ws = $window_metrics.window_start
+
+  match:
+    $entity, $ws by {{bucket_size}}
+
+  outcome:
+    $obs_count = max($window_metrics.current_count)
+    $active_n = max($entity_baseline.active_samples)
+    $k_targets = max($window_metrics.distinct_targets)
+    $conc_ratio = 1.0 * max($window_metrics.peak_bytes) / (max($window_metrics.sum_bytes) + 1.0)
+    $raw_n_prior = $active_n - 1
+    $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
+    $loo_mean = 1.0 * (max($entity_baseline.sum_targets) - $k_targets) / $n_prior
+    $safe_sd = if($active_n > 1, max($entity_baseline.sd_targets), 0.0)
+    $avg_t = max($entity_baseline.avg_targets)
+    $total_sq = (($active_n - 1) * $safe_sd * $safe_sd) + ($active_n * $avg_t * $avg_t)
+    $loo_var = (($total_sq - (1.0 * $k_targets * $k_targets)) / $n_prior) - ($loo_mean * $loo_mean)
+}
+
+// Root Stage: Positive-Rectified Diversity Deficit Z & Calibrated Concentration Screen
+$entity = $loo_stats.entity
+$ws = $loo_stats.ws
 
 match:
-  $entity by {{bucket_size}}
+  $entity, $ws by {{bucket_size}}
 
 outcome:
-  // 6 Core Evidence Pillars
-  $observation_count = max($window_metrics.current_count)
-  $baseline_active_samples = max($entity_baseline.active_samples)
-  $baseline_mean = max($entity_baseline.avg_targets)
-  $baseline_dispersion = max($entity_baseline.sd_targets)
+  // 6 Core Evidence Pillars & Leave-One-Out Destination Breadth Baseline
+  $observation_count = max($loo_stats.obs_count)
+  $baseline_active_samples = max($loo_stats.active_n)
   $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($window_metrics.distinct_targets)
+  $distinct_binaries = max($loo_stats.k_targets)
+  $baseline_mean = max($loo_stats.loo_mean)
+  $raw_loo_var = max($loo_stats.loo_var)
+  $floor_var = if($baseline_mean > 1.0, $baseline_mean, 1.0)
+  $safe_var = if($raw_loo_var > $floor_var, $raw_loo_var, $floor_var)
+  $baseline_dispersion = math.sqrt($safe_var)
 
-  $vocab_cardinality = max($window_metrics.distinct_targets)
-  $peak_transfer = max($window_metrics.peak_bytes)
-  $sum_transfers = max($window_metrics.sum_bytes)
-
-  // Destination Diversity Deficit Z-Score
-  $diff_targets = $distinct_binaries - $baseline_mean
-  $raw_sd = max($entity_baseline.sd_targets)
-  $safe_sd = if($raw_sd > 0, $raw_sd, 1.0)
-  $diversity_z = $diff_targets / $safe_sd
-
-  // Information-Theoretic Diversity Ratio: k / N
-  $safe_count = if($observation_count > 0, $observation_count, 1)
-  $diversity_ratio = $distinct_binaries / $safe_count
-
-  // Linear Concentration Ratio: Peak / Sum (Elephant Flow Proxy)
-  $safe_sum = if($sum_transfers > 0, $sum_transfers, 1.0)
-  $concentration_ratio = $peak_transfer / $safe_sum
-
-  // Combined Threat Score: Diversity deficit + concentration weight
-  $z_score = 0.0 - $diversity_z
-  $weight = 1.0 + $concentration_ratio
-  $threat_score = ($z_score * $weight) + $concentration_ratio
+  // Positive-Rectified Diversity Deficit Z & Calibrated Euclidean Threat Score
+  $raw_deficit_z = ($baseline_mean - $distinct_binaries) / $baseline_dispersion
+  $deficit_z = if($raw_deficit_z > 0.0, $raw_deficit_z, 0.0)
+  $safe_obs = if($observation_count > 0, $observation_count, 1)
+  $diversity_ratio = 1.0 * $distinct_binaries / $safe_obs
+  $concentration_ratio = max($loo_stats.conc_ratio)
+  $threat_score = math.sqrt((9.0 * ($deficit_z / {{min_deficit_z}}) * ($deficit_z / {{min_deficit_z}})) + (9.0 * ($concentration_ratio / {{min_concentration_ratio}}) * ($concentration_ratio / {{min_concentration_ratio}})))
 
 condition:
   $baseline_active_samples >= {{min_active_samples}}
   and $observation_count >= {{min_events}}
-  and ($diversity_z <= {{max_diversity_z}} or $concentration_ratio >= {{min_concentration_ratio}})
+  and (($deficit_z >= {{min_deficit_z}} and $diversity_ratio <= {{max_diversity_ratio}}) or $concentration_ratio >= {{min_concentration_ratio}})
 
 order:
   $threat_score desc

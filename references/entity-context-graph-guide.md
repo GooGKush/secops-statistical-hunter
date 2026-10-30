@@ -61,25 +61,30 @@ Because Malachite queries permit at most **3 named intermediate stages plus 1 un
 * **Stage 3**: Historical Parameter Estimation (Mean, Standard Deviation, Active Intervals)
 * **Root Stage**: Multi-Stage Join, Safe-Divisor Arithmetic & Threat Scoring
 
-### Rule 3: Zero Event-Section Arithmetic Above `match:`
-Graph timestamp calculations must **never** perform binary arithmetic (`-`, `+`) in the event filter section:
+### Rule 3: Zero Event-Section Arithmetic Above `match:` & Event-Anchored Age
+Graph timestamp calculations must **never** perform binary arithmetic (`-`, `+`) in the event filter section, and must anchor elapsed age against the Stage 1 observation timestamp (`$event_ts = max($net.metadata.event_timestamp.seconds)`) rather than wall-clock `timestamp.current_seconds()` so historical hunts score reproducible ages:
 * ❌ **Invalid**:
   ```yara
   $age_seconds = timestamp.current_seconds() - $whois.graph.entity.domain.creation_time.seconds // FAILS
   ```
-* ✅ **Valid (Direct Placeholder Assignment & Outcome Calculation)**:
+* ✅ **Valid (Event-Anchored Outcome Calculation & Safe `first_seen_time = 0` Guard)**:
   ```yara
-  // In event filter:
-  $created_ts = $whois.graph.entity.domain.creation_time.seconds
+  // In Stage 1 outcome:
+  $event_ts = max($net.metadata.event_timestamp.seconds)
 
-  // In outcome block:
-  $age_days = (timestamp.current_seconds() - max($created_ts)) / 86400.0
+  // In Root outcome:
+  $obs_ts = max($raw_traffic.event_ts)
+  $raw_age_days = ($obs_ts - $creation_ts) / 86400.0
+  $domain_age_days = if($creation_ts > 0, $raw_age_days, 9999.0)
   ```
 
-### Rule 4: Inner-Join Awareness & Safe Left-Join Emulation
-In YARA-L 2.0, multi-stage joins across stages in the root stage are inner joins on the match keys.
-* If Stage 2 filters on an external threat feed (`threat_feed_name != ""`), clean entities produce zero records in Stage 2 and are omitted from root.
-* For **Derived Context Prevalence** (`FILE`, `DOMAIN_NAME`, `ASSET`): Chronicle maintains continuous graph state for ingested entities. In root outcomes, apply safe evaluation to handle boundary conditions:
+### Rule 4: `D-2` Search Anchoring, Inner-Join Disclosure, Day-0 Companion & `first_seen_time = 0` (`WS1-08`)
+In YARA-L 2.0, multi-stage joins across stages in the root stage are **inner-join filters** on the match keys:
+* **`D-2` / `D-7` Freshness Anchoring & Stage 3 Baseline Preservation (`compute_ecg_search_window`)**: `DERIVED_CONTEXT` prevalence snapshots lag behind current-day events. Always anchor the `udm_search` `startTime` to at least `D-2 00:00Z` (or `D-7 00:00Z` via `min_baseline_days=7` for daily `by 1d` `DERIVED_CONTEXT_PREVALENCE` so `$active_days >= 7` is reachable). Keep Stage 1 unfiltered across `[effective_start_time, effective_end_time)` so Stage 3 retains its multi-day baseline, while Stage 1 and Root compute `$in_scoring_window` (`{{ecg_scoring_start_epoch}}` / `{{ecg_scoring_end_epoch}}`) and Root `condition:` enforces `$in_scoring_window = 1` to score only requested-window buckets.
+* **Inner-Join Filter Disclosure & Day-0 Companion (`build_day0_companion_query`)**: Entities, domains, or hashes lacking a materialized graph record (or WHOIS entry) drop out of Stage 2 rather than scoring `0` (absent ≠ benign). Disclose this inner-join filter in every ECG triage report and run `build_day0_companion_query(...)` to evaluate brand-new **Day-0** artifacts over raw UDM telemetry.
+* **Stage 3 Distinct Bucket Grain & Root `$ws` Alignment**: When Stage 1 keys on `($entity, $sub_key) by 1h`, Stage 3 MUST count active buckets via `count_distinct($raw_stage.window_start)` (never `count(...)`), and Root MUST bind `$ws = $raw_stage.window_start` and include `$ws` in `match:`.
+* **`first_seen_time = 0` Telemetry Guard**: In tenants where `first_seen_time.seconds` is unpopulated (`0`), `<7d` ECG novelty is automatically disabled (`$first_seen > 0`) and disclosed in the report; defer novelty checks to `secops-risk-metrics-multistage` `metrics.*` `first_seen`.
+* For **Derived Context Prevalence** (`FILE`, `DOMAIN_NAME`): Pin `day_count = 10` and `rolling_max > 0` in Stage 2:
   ```yara
   $fleet_prevalence = max($file_derived_context.rolling_max)
   // Low-prevalence indicator: Peak daily enterprise host count (rolling_max) <= 3 and > 0
@@ -111,9 +116,10 @@ stage raw_traffic {
   outcome:
     $hourly_bytes = sum($net.network.sent_bytes)
     $conn_count = count($net.metadata.id)
+    $event_ts = max($net.metadata.event_timestamp.seconds)
 }
 
-// --- STAGE 2: Global Context Graph Lookup (Max 1 ECG Alias) ---
+// --- STAGE 2: Global Context Graph Lookup (Max 1 ECG Alias — Inner-Join Filter) ---
 stage global_threat_intel {
   $whois.graph.entity.domain.name = $domain
   $whois.graph.metadata.entity_type = "DOMAIN_NAME"
@@ -138,17 +144,18 @@ stage host_baseline {
   outcome:
     $hist_mean_bytes = avg($raw_traffic.hourly_bytes)
     $hist_sd_bytes = stddev($raw_traffic.hourly_bytes)
-    $active_hours = count($raw_traffic.window_start)
+    $active_hours = count_distinct($raw_traffic.window_start)
 }
 
 // --- ROOT STAGE (UNWRAPPED): Joint Statistical & Threat Fusion ---
 $host = $raw_traffic.host
 $domain = $raw_traffic.domain
+$ws = $raw_traffic.window_start
 $domain = $global_threat_intel.domain
 $host = $host_baseline.host
 
 match:
-  $host, $domain by 1h
+  $host, $domain, $ws by 1h
 
 outcome:
   $obs_bytes = max($raw_traffic.hourly_bytes)
@@ -158,11 +165,14 @@ outcome:
   $z_score = ($obs_bytes - $mean_bytes) / $safe_sd
 
   $creation_ts = max($global_threat_intel.creation_ts)
-  $domain_age_days = (timestamp.current_seconds() - $creation_ts) / 86400.0
+  $obs_ts = max($raw_traffic.event_ts)
+  $raw_age_days = ($obs_ts - $creation_ts) / 86400.0
+  $domain_age_days = if($creation_ts > 0, $raw_age_days, 9999.0)
   $is_nrd = if($creation_ts > 0 and $domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
 
   // Context-Boosted Threat Score: Apply 2.5x multiplier for newly registered domains
-  $threat_score = if($is_nrd = 1.0, $z_score * 2.5, $z_score)
+  $multiplier = if($is_nrd = 1.0, 2.5, 1.0)
+  $threat_score = $z_score * $multiplier
 
   // 6 Standardized Evidence Pillars
   $observation_count = $obs_bytes
@@ -174,6 +184,7 @@ outcome:
 
 condition:
   $baseline_active_samples >= 12
+  and $observation_count >= 100000.0
   and $threat_score >= 3.0
 
 order:
@@ -198,14 +209,16 @@ stage raw_execution {
 
   outcome:
     $hourly_executions = count($proc.metadata.id)
+    $event_ts = max($proc.metadata.event_timestamp.seconds)
 }
 
-// --- STAGE 2: Chronicle Derived Context Graph Lookup (Binary Prevalence & Age) ---
+// --- STAGE 2: Chronicle Derived Context Graph Lookup (Binary Prevalence & Age — Inner-Join Filter) ---
 stage file_derived_context {
   $file.graph.entity.file.sha256 = $sha256
   $file.graph.metadata.entity_type = "FILE"
   $file.graph.metadata.source_type = "DERIVED_CONTEXT"
   $file.graph.entity.file.prevalence.day_count = 10
+  $file.graph.entity.file.prevalence.rolling_max > 0
   $sha256 != ""
 
   match:
@@ -227,17 +240,18 @@ stage host_baseline {
   outcome:
     $hist_mean_execs = avg($raw_execution.hourly_executions)
     $hist_sd_execs = stddev($raw_execution.hourly_executions)
-    $active_hours = count($raw_execution.window_start)
+    $active_hours = count_distinct($raw_execution.window_start)
 }
 
 // --- ROOT STAGE (UNWRAPPED): Joint Execution & Enterprise Prevalence Fusion ---
 $host = $raw_execution.host
 $sha256 = $raw_execution.sha256
+$ws = $raw_execution.window_start
 $sha256 = $file_derived_context.sha256
 $host = $host_baseline.host
 
 match:
-  $host, $sha256 by 1h
+  $host, $sha256, $ws by 1h
 
 outcome:
   $obs_execs = max($raw_execution.hourly_executions)
@@ -256,7 +270,9 @@ outcome:
 
   $enterprise_day_count = min($file_derived_context.day_count)
   $enterprise_first_seen = min($file_derived_context.first_seen_ts)
-  $file_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
+  $obs_ts = max($raw_execution.event_ts)
+  $raw_age_days = ($obs_ts - $enterprise_first_seen) / 86400.0
+  $file_age_days = if($enterprise_first_seen > 0, $raw_age_days, 9999.0)
 
   // Rare Binary Multiplier: 2.5x threat score boost for binaries with rolling_max ($fleet_prevalence) <= 3
   $is_rare_binary = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
@@ -265,6 +281,7 @@ outcome:
 
 condition:
   $baseline_active_samples >= 12
+  and $observation_count >= 5
   and $threat_score >= 2.5
 
 order:
@@ -290,13 +307,16 @@ stage raw_network {
   outcome:
     $hourly_bytes = sum($net.network.sent_bytes)
     $conn_count = count($net.metadata.id)
+    $event_ts = max($net.metadata.event_timestamp.seconds)
 }
 
-// --- STAGE 2: Chronicle Derived Context Graph Lookup (Domain Prevalence & Age) ---
+// --- STAGE 2: Chronicle Derived Context Graph Lookup (Domain Prevalence & Age — Inner-Join Filter) ---
 stage domain_derived_context {
   $dom.graph.entity.domain.name = $domain
   $dom.graph.metadata.entity_type = "DOMAIN_NAME"
   $dom.graph.metadata.source_type = "DERIVED_CONTEXT"
+  $dom.graph.entity.domain.prevalence.day_count = 10
+  $dom.graph.entity.domain.prevalence.rolling_max > 0
   $domain != ""
 
   match:
@@ -318,17 +338,18 @@ stage host_baseline {
   outcome:
     $hist_mean_bytes = avg($raw_network.hourly_bytes)
     $hist_sd_bytes = stddev($raw_network.hourly_bytes)
-    $active_hours = count($raw_network.window_start)
+    $active_hours = count_distinct($raw_network.window_start)
 }
 
 // --- ROOT STAGE (UNWRAPPED): Joint Egress & Enterprise Domain Prevalence Fusion ---
 $host = $raw_network.host
 $domain = $raw_network.domain
+$ws = $raw_network.window_start
 $domain = $domain_derived_context.domain
 $host = $host_baseline.host
 
 match:
-  $host, $domain by 1h
+  $host, $domain, $ws by 1h
 
 outcome:
   $obs_bytes = max($raw_network.hourly_bytes)
@@ -347,7 +368,9 @@ outcome:
 
   $enterprise_day_count = min($domain_derived_context.day_count)
   $enterprise_first_seen = min($domain_derived_context.first_seen_ts)
-  $domain_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
+  $obs_ts = max($raw_network.event_ts)
+  $raw_age_days = ($obs_ts - $enterprise_first_seen) / 86400.0
+  $domain_age_days = if($enterprise_first_seen > 0, $raw_age_days, 9999.0)
 
   // Rare Domain Multiplier: 2.5x threat score boost for domains with rolling_max ($fleet_prevalence) <= 3
   $is_rare_domain = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
@@ -356,6 +379,7 @@ outcome:
 
 condition:
   $baseline_active_samples >= 12
+  and $observation_count >= 100000.0
   and $threat_score >= 2.5
 
 order:

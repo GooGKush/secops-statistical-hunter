@@ -1,78 +1,67 @@
 // ============================================================================
 // METHODOLOGY & HUNTING GOAL
-// Goal: Detect obfuscated command lines and DGA domains via Shannon Character-Class Entropy.
+// Goal: Extract ungated candidate and benign strings on {{token_field}} with fleet prevalence for length-normalized Shannon entropy scoring (WS6-03).
 // Target Telemetry: UDM_EVENTS ({{event_type}})
-// Statistical Model: Shannon Character-Class Information Density & Length Ratio
+// Statistical Model: Length-Normalized Per-Character Shannon Entropy (SHANNON_ENTROPY_CHARACTER — paired with scripts/micro_python_helpers.py shannon; stateless fallback: LONG_STRING_SCREEN)
 // Mathematical Rationale:
-//   - Why this model: Normal natural-language command lines and domain names exhibit low character randomness
-//     and predictable structural patterns. Malicious payloads (base64-encoded scripts, PowerShell flags, and
-//     algorithmic DGA domains) exhibit collapsed compression redundancy and elevated character entropy.
-//   - Small-Sample & Multiple-Comparison Protection: Requires minimum string length (>= {{min_length}}) to prevent
-//     short identifier false positives.
-// Sensitivity Boundary: {{tier}} (Entropy Score >= {{entropy_threshold}}, Min String Length >= {{min_length}})
+//   - Ungated Token & Prevalence Extractor (D6 / WS6-03): Emits strings of length >= {{min_length}} across
+//     both rare candidates (host_prevalence <= 2) and multi-host benign reference strings (host_prevalence >= 3)
+//     together with array_distinct($entity) sample hosts.
+//   - Vetted Python Helper (scripts/micro_python_helpers.py shannon): Computes exact H(s) = -Σ p(c)·log2 p(c)
+//     bits/char and standardizes each rare candidate against length-matched [0.65·L, 1.5·L] benign strings.
+// Sensitivity Boundary: {{tier}} (Min String Length >= {{min_length}}, Token Field = {{token_field}})
 // ============================================================================
 
-// Stage 1: Entity Volume & Distinct Token Breadth Baseline
-stage entity_baseline {
+// Stage 1: Token-Level Volume, Fleet Prevalence & String Length
+stage token_stats {
     metadata.event_type = "{{event_type}}"
     {{entity_field}} = $entity
     $entity != ""
-
-  match:
-    $entity by {{bucket_size}}
-
-  outcome:
-    $total_events = count(metadata.id)
-}
-
-// Stage 2: Target Token Extraction & Character Diversity Observation
-stage token_observation {
-    metadata.event_type = "{{event_type}}"
-    {{entity_field}} = $entity
-    $entity != ""
-    $token = target.process.command_line
+    $token = {{token_field}}
     $token != ""
+    {{event_filter}}
 
   match:
-    $entity, $token by {{bucket_size}}
+    $token
 
   outcome:
-    $token_count = count(metadata.id)
-    $token_length = max(strings.length($token))
+    $token_events = count(metadata.id)
+    $host_prevalence = count_distinct($entity)
+    $raw_length = max(strings.length($token))
+    $distinct_procs = count_distinct(target.process.file.full_path)
 }
 
-// Root Stage: Character-Class Information Entropy & Obfuscation Scoring
-$entity = $entity_baseline.entity
-$entity = $token_observation.entity
-$token = $token_observation.token
+// Root Stage: Ungated Token Cohort & Entity Attribution via array_distinct($entity)
+metadata.event_type = "{{event_type}}"
+{{entity_field}} = $entity
+$entity != ""
+$token = {{token_field}}
+$token != ""
+{{event_filter}}
+$token = $token_stats.token
 
 match:
-  $entity, $token by {{bucket_size}}
+  $token
 
 outcome:
-  $total_activity = max($entity_baseline.total_events)
-  $token_executions = max($token_observation.token_count)
-  $raw_length = max($token_observation.token_length)
-  $safe_length = if($raw_length > 0, $raw_length, 1)
-
-  // 1. Natural Logarithm of Length
-  $log_len = math.log($safe_length)
-
-  // 2. Character Density & Entropy Proxy
-  $length_factor = if($safe_length >= 25, 2.0, 1.0)
-  $shannon_entropy_score = $log_len * $length_factor
+  $sample_entities = array_distinct($entity)
+  $token_events = max($token_stats.token_events)
+  $host_prevalence = max($token_stats.host_prevalence)
+  $raw_length = max($token_stats.raw_length)
 
   // 6 Core Evidence Pillars
-  $observation_count = $token_executions
-  $baseline_active_samples = $total_activity
-  $baseline_mean = $raw_length
-  $baseline_dispersion = $log_len
-  $fleet_prevalence = 0 - 1
-  $distinct_binaries = 1
+  $observation_count = max($token_stats.raw_length)
+  $baseline_active_samples = max($token_stats.token_events)
+  $baseline_mean = 1.0 * {{min_length}}
+  $baseline_dispersion = 1.0 * max($token_stats.token_events) / max($token_stats.host_prevalence)
+  $fleet_prevalence = max($token_stats.host_prevalence)
+  $distinct_binaries = max($token_stats.distinct_procs)
 
 condition:
   $raw_length >= {{min_length}}
-  and $shannon_entropy_score >= {{entropy_threshold}}
 
 order:
-  $shannon_entropy_score desc
+  $raw_length desc
+
+limit:
+  500

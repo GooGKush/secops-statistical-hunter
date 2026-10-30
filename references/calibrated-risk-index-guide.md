@@ -38,9 +38,11 @@ $$\text{CRI}(Z) = \begin{cases}
 \text{round}\left( \frac{100}{1 + \exp\left(-\alpha \cdot (Z - Z_{\text{mid}})\right)} \right) & \text{if } Z > 0 
 \end{cases}$$
 
-### Calibration Parameters:
+### Calibration Parameters & Multi-Sector / Fleet Caveats (`WS7-03`):
 * **Inflection Point ($Z_{\text{mid}} = 3.0\sigma$)**: The statistical threshold for a "True Statistical Anomaly" (the 99.87th percentile tail under Gaussian assumptions).
 * **Steepness Parameter ($\alpha = 0.6$)**: Calibrates the transition slope so that moderate drift ($Z = 2.0\sigma$) sits in the low 30s, while multi-sigma breakouts ($Z \ge 5.0\sigma$) enter high-threat tiers ($>75$).
+* **Multi-Sector Fusion Sector Correlation Caveat**: When $D = \sqrt{\sum_{i=1}^k \max(0, Z_i)^2}$ is mapped onto CRI, false-positive rates depend on **sector correlation** — positively correlated sectors (e.g., an admin login burst that simultaneously triggers process launches and outbound connections) exceed the independent $\chi^2_k$ tail rate.
+* **Fleet Expected-Maximum Reference ($\sqrt{2 \ln N}$)**: When displaying fleet scaling $Z_{\text{adj}} = \max(3.0, \sqrt{2 \ln N})$ alongside CRI, note that $\sqrt{2 \ln N}$ approximates the Gaussian extreme-value **expected maximum** $\mathbb{E}[\max_{1 \le i \le N} Z_i]$ across $N$ independent entities — it is **not a Bonferroni correction** and not an exact $\alpha = 0.01$ FWER bound.
 
 ---
 
@@ -107,5 +109,5 @@ In all Statistical Outlier Hunter reports, always report the exact statistical m
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `host-alpha-prod` | 2026-08-24T08:00 | **850** | 250 ± 35 | 🟢 **HIGH CONFIDENCE** | 🚨 **[CRITICAL OUTLIER]** (`+17.14σ`) | 🚨 `[CRI: 100]` | `██████████` |
 | `host-dev-02` | 2026-08-24T08:00 | **120** | 45 ± 15 | 🟡 **MODERATE CONFIDENCE** | 🟠 **[MEDIUM OUTLIER]** (`+3.80σ`) | 🟠 `[CRI: 62]` | `██████    ` |
-| `host-quiet-09` | 2026-08-24T08:00 | **12** | 10 ± 8 | 🟢 **HIGH CONFIDENCE** | 🟢 **[INFORMATIONAL]** (`+0.25σ`) | 🟢 `[CRI: 0]` | `          ` |
+| `host-quiet-09` | 2026-08-24T08:00 | **8** | 10 ± 8 | 🟢 **HIGH CONFIDENCE** | 🟢 **[INFORMATIONAL]** (`-0.25σ`) | 🟢 `[CRI: 0]` | `          ` |
 ```

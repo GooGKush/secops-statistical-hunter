@@ -177,7 +177,7 @@ class TestGuardrailContracts(unittest.TestCase):
     pipeline_dir = os.path.join(self.repo_dir, "templates", "pipelines")
     self.assertTrue(os.path.exists(pipeline_dir), "templates/pipelines/ directory must exist")
     yl2_files = glob.glob(os.path.join(pipeline_dir, "*.yl2"))
-    self.assertEqual(len(yl2_files), 24, f"Must have 24 golden pipeline templates on disk, found {len(yl2_files)}")
+    self.assertEqual(len(yl2_files), 27, f"Must have 27 golden pipeline templates on disk, found {len(yl2_files)}")
 
     router = MultiStageTemplateRouter(template_dir=pipeline_dir)
     for fpath in yl2_files:
@@ -246,7 +246,7 @@ class TestGuardrailContracts(unittest.TestCase):
     router = MultiStageTemplateRouter()
     pillars = ["$observation_count", "$baseline_active_samples", "$baseline_mean", "$baseline_dispersion", "$fleet_prevalence", "$distinct_binaries"]
     tpl_files = sorted(glob.glob(os.path.join(self.repo_dir, "templates", "pipelines", "*.yl2")))
-    self.assertEqual(len(tpl_files), 24)
+    self.assertEqual(len(tpl_files), 27)
     for tf in tpl_files:
       raw = open(tf, encoding="utf-8").read()
       for p in pillars:

@@ -2,21 +2,22 @@
 // METHODOLOGY & HUNTING GOAL
 // Goal: Detect extreme volumetric byte surges over heavy-tailed, skewed raw network egress (Log-Normal Standardization)
 // Target Telemetry: UDM_EVENTS (NETWORK_CONNECTION)
-// Statistical Model: Log-Normal Parametric Z-Score (Z_log = (ln(B + 1) - μ_ln) / σ_ln)
+// Statistical Model: Leave-One-Out Log-Normal Parametric Z-Score (Z_log = (ln(B + 1) - μ_ln,{-t}) / max(s_ln,{-t}, 0.25))
 // Mathematical Rationale:
-//   - Network egress bytes follow a highly skewed, log-normal distribution across enterprise endpoints.
-//   - Taking differences of raw bytes produces severe distortions and false alarms from routine high-volume transfers.
-//   - Natural log transformation (math.log(sent_bytes + 1.0)) stabilizes variance, enabling standard Gaussian outlier isolation.
-//   - Note: The scored window is included in the baseline estimation (in-sample baseline).
-// Sensitivity Boundary: {{tier}} (Log-Z >= {{z_score}}, Min Observed Bytes >= {{min_bytes}}, Min Active Intervals >= {{min_active_samples}})
+//   - Network egress bytes follow a heavy-tailed, log-normal distribution across enterprise endpoints.
+//   - Leave-one-out (n - 1) log-mean and sample log-SD exclude the scored bucket from its own baseline.
+//   - Enforces a continuous 0.25 log-SD floor so routine <2x byte fluctuations do not trigger false alarms,
+//     and emits all 6 Evidence Pillars in consistent byte units.
+// Sensitivity Boundary: {{tier}} (Log-Z >= {{z_score}}, Min Observed Bytes >= {{min_bytes}}, Min Prior Active Intervals >= {{min_active_samples}})
 // ============================================================================
 
-// --- STAGE 1: Period byte aggregation & log-transformation per host ---
+// --- STAGE 1: Bucketed byte aggregation & log-transformation per entity ---
 stage host_bytes {
   metadata.event_type = "NETWORK_CONNECTION"
-  principal.hostname = $host
+  {{entity_field}} = $host
   $host != ""
   network.sent_bytes > 0
+  {{event_filter}}
 
 match:
   $host by {{bucket_size}}
@@ -25,10 +26,11 @@ outcome:
   $total_bytes = sum(network.sent_bytes)
   $event_count = count(metadata.id)
   $log_bytes = math.log(sum(network.sent_bytes) + 1.0)
+  $log_bytes_sq = math.log(sum(network.sent_bytes) + 1.0) * math.log(sum(network.sent_bytes) + 1.0)
   $distinct_targets = count_distinct(target.ip)
 }
 
-// --- STAGE 2: Historical mean and standard deviation of log-transformed bytes ---
+// --- STAGE 2: Whole-window sufficient statistics of log-transformed bytes ---
 stage host_log_stats {
   $host = $host_bytes.host
 
@@ -36,12 +38,12 @@ match:
   $host
 
 outcome:
-  $mean_log = avg($host_bytes.log_bytes)
-  $stddev_log = stddev($host_bytes.log_bytes)
+  $sum_log = sum($host_bytes.log_bytes)
+  $sum_log2 = sum($host_bytes.log_bytes_sq)
   $active_samples = count($host_bytes.window_start)
 }
 
-// --- ROOT STAGE: Log-Normal Z-Score Evaluation ---
+// --- ROOT STAGE: Leave-One-Out Log-Normal Z-Score & Byte-Consistent Evidence Pillars ---
 $host = $host_bytes.host
 $host = $host_log_stats.host
 $ws = $host_bytes.window_start
@@ -50,23 +52,27 @@ match:
   $host, $ws by {{bucket_size}}
 
 outcome:
-  // 6 Core Evidence Pillars
-  $observation_count = max($host_bytes.event_count)
   $observed_bytes = max($host_bytes.total_bytes)
-  $baseline_active_samples = max($host_log_stats.active_samples)
-  $mean_log = max($host_log_stats.mean_log)
-  $baseline_mean_log = $mean_log
-  $baseline_dispersion_log = max($host_log_stats.stddev_log)
-  $baseline_mean = math.pow(2.718281828, $mean_log)
-  $baseline_dispersion = max($host_log_stats.stddev_log)
+  $obs_log = max($host_bytes.log_bytes)
+  $baseline_active_samples = max($host_log_stats.active_samples) - 1
+  $safe_n_prior = if($baseline_active_samples > 1, $baseline_active_samples, 1)
+  $loo_sum_log = max($host_log_stats.sum_log) - $obs_log
+  $baseline_mean_log = 1.0 * $loo_sum_log / $safe_n_prior
+  $df = $baseline_active_samples - 1
+  $safe_df = if($df > 1, $df, 1)
+  $raw_ss_log = (max($host_log_stats.sum_log2) - ($obs_log * $obs_log)) - (($loo_sum_log * $loo_sum_log) / $safe_n_prior)
+  $pos_ss_log = if($raw_ss_log > 0.0, $raw_ss_log, 0.0)
+  $loo_sd_log = math.sqrt($pos_ss_log / $safe_df)
+  $baseline_dispersion_log = if($loo_sd_log > 0.25, $loo_sd_log, 0.25)
+  $z_log = ($obs_log - $baseline_mean_log) / $baseline_dispersion_log
+
+  // 6 Core Evidence Pillars (all volumetric quantities in consistent byte units)
+  $observation_count = $observed_bytes
+  $baseline_mean = math.pow(2.718281828, $baseline_mean_log)
+  $baseline_dispersion = math.pow(2.718281828, $baseline_mean_log + $baseline_dispersion_log) - $baseline_mean
   $fleet_prevalence = 0 - 1
   $distinct_binaries = max($host_bytes.distinct_targets)
-
-  // Log-Normal Z-Score derivation with safe dispersion floor
-  $diff_log = max($host_bytes.log_bytes) - $mean_log
-  $raw_stddev = max($host_log_stats.stddev_log)
-  $safe_stddev = if($raw_stddev > 0, $raw_stddev, 1.0)
-  $z_log = $diff_log / $safe_stddev
+  $event_count = max($host_bytes.event_count)
 
 condition:
   $baseline_active_samples >= {{min_active_samples}}

@@ -3,6 +3,7 @@
 // Goal: Hunt for authentication anomalies targeting newly seen or low-prevalence assets using Derived Context
 // Statistical Model: Z-Score with Derived Context (Asset First Seen) Prevalence Multiplier
 // Sensitivity Boundary: {{tier}} (Threat Score >= {{threat_score}}, Min Logins >= {{min_logins}}, Min Active Days >= {{min_active_days}}, New Asset Multiplier = {{new_asset_multiplier}}x)
+// Note (PF-8 / WS1-08): Anchor udm_search startTime to >= D-2 00:00Z; Stage 2 is an inner-join filter (use Day-0 companion query for brand-new assets); when first_seen_time = 0, <7d ECG novelty is disabled.
 
 // --- STAGE 1: Event-Plane Authentication Extraction ---
 stage raw_auth {
@@ -11,15 +12,18 @@ stage raw_auth {
   $host = $login.target.asset.hostname
   $user != ""
   $host != ""
+  {{ecg_event_time_filter}}
 
   match:
     $user, $host by 1d
 
   outcome:
     $daily_logins = count($login.metadata.id)
+    $event_ts = max($login.metadata.event_timestamp.seconds)
+    $in_scoring_window = max(if($login.metadata.event_timestamp.seconds >= {{ecg_scoring_start_epoch}} and $login.metadata.event_timestamp.seconds < {{ecg_scoring_end_epoch}}, 1, 0))
 }
 
-// --- STAGE 2: Chronicle Derived Context Graph Lookup (Asset Age) ---
+// --- STAGE 2: Chronicle Derived Context Graph Lookup (Asset Age — Inner-Join Filter) ---
 stage asset_derived_context {
   $asset.graph.entity.asset.hostname = $host
   $asset.graph.metadata.entity_type = "ASSET"
@@ -43,17 +47,18 @@ stage user_auth_baseline {
   outcome:
     $hist_mean_logins = avg($raw_auth.daily_logins)
     $hist_sd_logins = stddev($raw_auth.daily_logins)
-    $active_days = count($raw_auth.window_start)
+    $active_days = count_distinct($raw_auth.window_start)
 }
 
 // --- ROOT STAGE (UNWRAPPED): Joint Authentication & Asset Age Fusion ---
 $user = $raw_auth.user
 $host = $raw_auth.host
+$ws = $raw_auth.window_start
 $host = $asset_derived_context.host
 $user = $user_auth_baseline.user
 
 match:
-  $user, $host by 1d
+  $user, $host, $ws by 1d
 
 outcome:
   $obs_logins = max($raw_auth.daily_logins)
@@ -63,10 +68,12 @@ outcome:
   $z_score = ($obs_logins - $mean_logins) / $safe_sd
 
   $first_seen = min($asset_derived_context.first_seen_ts)
-  $asset_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
+  $obs_ts = max($raw_auth.event_ts)
+  $raw_age_days = ($obs_ts - $first_seen) / 86400.0
+  $asset_age_days = if($first_seen > 0, $raw_age_days, 9999.0)
   $is_new_asset = if($first_seen > 0 and $asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
 
-  // Context-Boosted Threat Score: Apply multiplier for connections to brand-new assets
+  // Context-Boosted Threat Score: Apply multiplier for connections to brand-new assets (disabled when first_seen = 0)
   $multiplier = if($is_new_asset = 1.0, {{new_asset_multiplier}}, 1.0)
   $threat_score = $z_score * $multiplier
 
@@ -77,9 +84,11 @@ outcome:
   $baseline_dispersion = $sd_logins
   $fleet_prevalence = 0 - 1
   $distinct_binaries = 1
+  $in_scoring_window = max($raw_auth.in_scoring_window)
 
 condition:
-  $baseline_active_samples >= {{min_active_days}}
+  $in_scoring_window = 1
+  and $baseline_active_samples >= {{min_active_days}}
   and $observation_count >= {{min_logins}}
   and $threat_score >= {{threat_score}}
 

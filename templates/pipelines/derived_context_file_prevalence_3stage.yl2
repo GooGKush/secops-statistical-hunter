@@ -3,6 +3,7 @@
 // Goal: Hunt for anomalous execution bursts of rare or enterprise-unseen binaries using Derived Context prevalence
 // Statistical Model: Z-Score with Derived Context (Binary Fleet Prevalence & Age) Multiplier
 // Sensitivity Boundary: {{tier}} (Threat Score >= {{threat_score}}, Min Execs >= {{min_execs}}, Min Active Hours >= {{min_active_hours}}, Rare Multiplier = {{rare_multiplier}}x)
+// Note (PF-8 / WS1-08): Anchor udm_search startTime to >= D-2 00:00Z; Stage 2 is an inner-join filter (use Day-0 companion query for brand-new hashes); when first_seen_time = 0, <7d ECG novelty is disabled.
 
 // --- STAGE 1: Event-Plane Process Execution Extraction ---
 stage raw_execution {
@@ -11,20 +12,24 @@ stage raw_execution {
   $sha256 = $proc.target.process.file.sha256
   $host != ""
   $sha256 != ""
+  {{ecg_event_time_filter}}
 
   match:
     $host, $sha256 by 1h
 
   outcome:
     $hourly_executions = count($proc.metadata.id)
+    $event_ts = max($proc.metadata.event_timestamp.seconds)
+    $in_scoring_window = max(if($proc.metadata.event_timestamp.seconds >= {{ecg_scoring_start_epoch}} and $proc.metadata.event_timestamp.seconds < {{ecg_scoring_end_epoch}}, 1, 0))
 }
 
-// --- STAGE 2: Chronicle Derived Context Graph Lookup (Binary Prevalence & Age) ---
+// --- STAGE 2: Chronicle Derived Context Graph Lookup (Binary Prevalence & Age — Inner-Join Filter) ---
 stage file_derived_context {
   $file.graph.entity.file.sha256 = $sha256
   $file.graph.metadata.entity_type = "FILE"
   $file.graph.metadata.source_type = "DERIVED_CONTEXT"
   $file.graph.entity.file.prevalence.day_count = 10
+  $file.graph.entity.file.prevalence.rolling_max > 0
   $sha256 != ""
 
   match:
@@ -46,17 +51,18 @@ stage host_baseline {
   outcome:
     $hist_mean_execs = avg($raw_execution.hourly_executions)
     $hist_sd_execs = stddev($raw_execution.hourly_executions)
-    $active_hours = count($raw_execution.window_start)
+    $active_hours = count_distinct($raw_execution.window_start)
 }
 
 // --- ROOT STAGE (UNWRAPPED): Joint Execution & Enterprise Prevalence Fusion ---
 $host = $raw_execution.host
 $sha256 = $raw_execution.sha256
+$ws = $raw_execution.window_start
 $sha256 = $file_derived_context.sha256
 $host = $host_baseline.host
 
 match:
-  $host, $sha256 by 1h
+  $host, $sha256, $ws by 1h
 
 outcome:
   $obs_execs = max($raw_execution.hourly_executions)
@@ -75,15 +81,19 @@ outcome:
 
   $enterprise_day_count = min($file_derived_context.day_count)
   $enterprise_first_seen = min($file_derived_context.first_seen_ts)
-  $file_age_days = (timestamp.current_seconds() - $enterprise_first_seen) / 86400.0
+  $obs_ts = max($raw_execution.event_ts)
+  $raw_age_days = ($obs_ts - $enterprise_first_seen) / 86400.0
+  $file_age_days = if($enterprise_first_seen > 0, $raw_age_days, 9999.0)
 
   // Rare Binary Multiplier: Boost threat score for binaries with rolling_max ($fleet_prevalence) <= 3
   $is_rare_binary = if($fleet_prevalence <= 3 and $fleet_prevalence > 0, 1.0, 0.0)
   $multiplier = if($is_rare_binary = 1.0, {{rare_multiplier}}, 1.0)
   $threat_score = $z_score * $multiplier
+  $in_scoring_window = max($raw_execution.in_scoring_window)
 
 condition:
-  $baseline_active_samples >= {{min_active_hours}}
+  $in_scoring_window = 1
+  and $baseline_active_samples >= {{min_active_hours}}
   and $observation_count >= {{min_execs}}
   and $threat_score >= {{threat_score}}
 

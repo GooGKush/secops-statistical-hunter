@@ -2,24 +2,21 @@
 // METHODOLOGY & HUNTING GOAL
 // Goal: Hunt for coordinated multi-stage intrusions across Auth, Endpoint, and Network (Multi-Sector Threat Fusion)
 // Target Telemetry: UDM_EVENTS (USER_LOGIN + PROCESS_LAUNCH + NETWORK_CONNECTION)
-// Statistical Model: Multi-Sector Fusion & Positive-Rectified Euclidean Vector Norm (D = sqrt(pos_Z1^2 + pos_Z2^2 + pos_Z3^2))
-// Topology: ONE raw stage with per-sector conditional sums -> per-host sector baselines -> root fusion.
-//   Three independent raw sector stages joined at the root are rejected by the compiler
-//   (verified: any two compile, all three do not). Conditional sums keep one scan and one join.
+// Statistical Model: Leave-One-Out Multi-Sector Fusion & Positive-Rectified Euclidean Vector Norm (D = sqrt(pos_Z1^2 + pos_Z2^2 + pos_Z3^2))
+// Topology: ONE raw stage with coalesced entity & per-sector conditional sums -> whole-window moments -> LOO sector moments -> root fusion.
 // Operational Analogy: "The Combined Arms Threat Radar"
 // Mathematical Rationale:
-//   Adversaries execute multi-stage kill chains with low-and-slow tactics in each silo.
-//   Single-domain detectors miss these events because each vector is only mildly elevated (Z ~ 2.0σ).
-//   Multi-Sector Fusion rectifies each sector Z-score ($pos_z = if($z > 0, $z, 0.0)) so negative
-//   deviations (quiet sectors) cannot inflate the norm, then computes the orthogonal Euclidean
-//   distance across Authentication, Process Execution, and Network Egress.
-// Sensitivity Boundary: BALANCED (Composite Threat Distance D >= 3.0σ, Min Events >= 5, Min Active Samples >= 7)
+//   - Coalesces principal.hostname / principal.asset.hostname / principal.ip[0] so all three telemetry families align
+//     onto the same endpoint key, and counts both "BLOCK" and "FAIL" auth actions.
+//   - Reconstructs exact leave-one-out (n - 1) means and sample variances per sector from Stage 2 moments with a
+//     continuous Poisson floor sqrt(max(mean, 1.0)) per sector, eliminating sub-unit dispersion blowups on sparse sectors.
+// Sensitivity Boundary: BALANCED (Composite Threat Distance D >= 3.0σ, Min Events >= 5, Min Prior Active Samples >= 7)
 // ============================================================================
 
-// --- STAGE 1: Hourly per-host activity in each sector via conditional sums ---
+// --- STAGE 1: Bucketed per-host activity counts across all three sectors ---
 stage sector_counts {
-  $host = $e.principal.hostname
-  $host != ""
+  $entity = strings.coalesce($e.principal.hostname, $e.principal.asset.hostname, $e.principal.ip[0])
+  $entity != ""
   (
     $e.metadata.event_type = "USER_LOGIN"
     or $e.metadata.event_type = "PROCESS_LAUNCH"
@@ -27,67 +24,95 @@ stage sector_counts {
   )
 
   match:
-    $host by 1h
+    $entity by 1h
 
   outcome:
-    $auth_fails = sum(if($e.metadata.event_type = "USER_LOGIN" and $e.security_result.action = "BLOCK", 1, 0))
+    $auth_fails = sum(if($e.metadata.event_type = "USER_LOGIN" and ($e.security_result.action = "BLOCK" or $e.security_result.action = "FAIL"), 1, 0))
     $proc_launches = sum(if($e.metadata.event_type = "PROCESS_LAUNCH", 1, 0))
     $net_flows = sum(if($e.metadata.event_type = "NETWORK_CONNECTION", 1, 0))
 }
 
-// --- STAGE 2: Per-host historical baseline (mean, stddev) for each sector ---
+// --- STAGE 2: Per-entity whole-window moments across all three sectors (10 outcomes) ---
 stage host_sector_baseline {
-  $host = $sector_counts.host
+  $entity = $sector_counts.entity
 
   match:
-    $host
+    $entity
 
   outcome:
-    $auth_mean = avg($sector_counts.auth_fails)
-    $auth_sd = stddev($sector_counts.auth_fails)
-    $proc_mean = avg($sector_counts.proc_launches)
-    $proc_sd = stddev($sector_counts.proc_launches)
-    $net_mean = avg($sector_counts.net_flows)
-    $net_sd = stddev($sector_counts.net_flows)
+    $sum_auth = sum($sector_counts.auth_fails)
+    $avg_auth = avg($sector_counts.auth_fails)
+    $sd_auth = stddev($sector_counts.auth_fails)
+    $sum_proc = sum($sector_counts.proc_launches)
+    $avg_proc = avg($sector_counts.proc_launches)
+    $sd_proc = stddev($sector_counts.proc_launches)
+    $sum_net = sum($sector_counts.net_flows)
+    $avg_net = avg($sector_counts.net_flows)
+    $sd_net = stddev($sector_counts.net_flows)
     $active_hours = count($sector_counts.window_start)
 }
 
-// --- ROOT STAGE: Orthogonal Threat-Space Fusion & Euclidean Vector Norm ---
-$host = $sector_counts.host
-$host = $host_sector_baseline.host
-$ws = $sector_counts.window_start
+// --- STAGE 3: Leave-one-out (n - 1) per-(entity, bucket) sector means and sample variances (18 outcomes) ---
+stage sector_loo {
+  $entity = $sector_counts.entity
+  $entity = $host_sector_baseline.entity
+  $ws = $sector_counts.window_start
+
+  match:
+    $entity, $ws by 1h
+
+  outcome:
+    $obs_total = max($sector_counts.auth_fails) + max($sector_counts.proc_launches) + max($sector_counts.net_flows)
+    $auth_obs = max($sector_counts.auth_fails)
+    $proc_obs = max($sector_counts.proc_launches)
+    $net_obs = max($sector_counts.net_flows)
+    $n_all = max($host_sector_baseline.active_hours)
+    $raw_n_prior = $n_all - 1
+    $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
+    $raw_df = $n_all - 2
+    $df_prior = if($raw_df > 1, $raw_df, 1)
+    $safe_sd_auth = if($n_all > 1, max($host_sector_baseline.sd_auth), 0.0)
+    $auth_mean = 1.0 * (max($host_sector_baseline.sum_auth) - $auth_obs) / $n_prior
+    $auth_var = ((($raw_n_prior * $safe_sd_auth * $safe_sd_auth) + ($n_all * max($host_sector_baseline.avg_auth) * max($host_sector_baseline.avg_auth)) - (1.0 * $auth_obs * $auth_obs)) - ($n_prior * $auth_mean * $auth_mean)) / $df_prior
+    $safe_sd_proc = if($n_all > 1, max($host_sector_baseline.sd_proc), 0.0)
+    $proc_mean = 1.0 * (max($host_sector_baseline.sum_proc) - $proc_obs) / $n_prior
+    $proc_var = ((($raw_n_prior * $safe_sd_proc * $safe_sd_proc) + ($n_all * max($host_sector_baseline.avg_proc) * max($host_sector_baseline.avg_proc)) - (1.0 * $proc_obs * $proc_obs)) - ($n_prior * $proc_mean * $proc_mean)) / $df_prior
+    $safe_sd_net = if($n_all > 1, max($host_sector_baseline.sd_net), 0.0)
+    $net_mean = 1.0 * (max($host_sector_baseline.sum_net) - $net_obs) / $n_prior
+    $net_var = ((($raw_n_prior * $safe_sd_net * $safe_sd_net) + ($n_all * max($host_sector_baseline.avg_net) * max($host_sector_baseline.avg_net)) - (1.0 * $net_obs * $net_obs)) - ($n_prior * $net_mean * $net_mean)) / $df_prior
+}
+
+// --- ROOT STAGE: Continuous Poisson Sector Floors, Positive Rectification & Euclidean Norm ---
+$entity = $sector_loo.entity
+$ws = $sector_loo.ws
 
 match:
-  $host, $ws by 1h
+  $entity, $ws by 1h
 
 outcome:
+  $auth_fl = if(max($sector_loo.auth_mean) > 1.0, max($sector_loo.auth_mean), 1.0)
+  $auth_sv = if(max($sector_loo.auth_var) > $auth_fl, max($sector_loo.auth_var), $auth_fl)
+  $z1 = (max($sector_loo.auth_obs) - max($sector_loo.auth_mean)) / math.sqrt($auth_sv)
+  $pos_z1 = if($z1 > 0.0, $z1, 0.0)
+
+  $proc_fl = if(max($sector_loo.proc_mean) > 1.0, max($sector_loo.proc_mean), 1.0)
+  $proc_sv = if(max($sector_loo.proc_var) > $proc_fl, max($sector_loo.proc_var), $proc_fl)
+  $z2 = (max($sector_loo.proc_obs) - max($sector_loo.proc_mean)) / math.sqrt($proc_sv)
+  $pos_z2 = if($z2 > 0.0, $z2, 0.0)
+
+  $net_fl = if(max($sector_loo.net_mean) > 1.0, max($sector_loo.net_mean), 1.0)
+  $net_sv = if(max($sector_loo.net_var) > $net_fl, max($sector_loo.net_var), $net_fl)
+  $z3 = (max($sector_loo.net_obs) - max($sector_loo.net_mean)) / math.sqrt($net_sv)
+  $pos_z3 = if($z3 > 0.0, $z3, 0.0)
+
   // 6 Standardized Evidence Pillars
-  $observation_count = max($sector_counts.auth_fails) + max($sector_counts.proc_launches) + max($sector_counts.net_flows)
-  $baseline_active_samples = max($host_sector_baseline.active_hours)
-  $baseline_mean = max($host_sector_baseline.auth_mean) + max($host_sector_baseline.proc_mean) + max($host_sector_baseline.net_mean)
-  $baseline_dispersion = max($host_sector_baseline.auth_sd) + max($host_sector_baseline.proc_sd) + max($host_sector_baseline.net_sd)
+  $observation_count = max($sector_loo.obs_total)
+  $baseline_active_samples = max($sector_loo.n_prior)
+  $baseline_mean = max($sector_loo.auth_mean) + max($sector_loo.proc_mean) + max($sector_loo.net_mean)
+  $baseline_dispersion = math.sqrt($auth_sv + $proc_sv + $net_sv)
   $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($sector_counts.proc_launches)
-
-  // Per-sector counts and safe dispersion floors
-  $auth_event_count = max($sector_counts.auth_fails)
-  $proc_event_count = max($sector_counts.proc_launches)
-  $net_event_count = max($sector_counts.net_flows)
-  $safe_auth_sd = if(max($host_sector_baseline.auth_sd) > 0, max($host_sector_baseline.auth_sd), 1.0)
-  $safe_proc_sd = if(max($host_sector_baseline.proc_sd) > 0, max($host_sector_baseline.proc_sd), 1.0)
-  $safe_net_sd = if(max($host_sector_baseline.net_sd) > 0, max($host_sector_baseline.net_sd), 1.0)
-
-  // Per-sector Z-scores and positive rectification (quiet sectors do not inflate norm)
-  $z1 = (max($sector_counts.auth_fails) - max($host_sector_baseline.auth_mean)) / $safe_auth_sd
-  $z2 = (max($sector_counts.proc_launches) - max($host_sector_baseline.proc_mean)) / $safe_proc_sd
-  $z3 = (max($sector_counts.net_flows) - max($host_sector_baseline.net_mean)) / $safe_net_sd
-  $pos_z1 = if($z1 > 0, $z1, 0.0)
-  $pos_z2 = if($z2 > 0, $z2, 0.0)
-  $pos_z3 = if($z3 > 0, $z3, 0.0)
-
-  // Orthogonal Euclidean Threat Distance: D = math.sqrt(pos_z1^2 + pos_z2^2 + pos_z3^2)
-  $threat_vector_norm_sq = $pos_z1 * $pos_z1 + $pos_z2 * $pos_z2 + $pos_z3 * $pos_z3
-  $threat_distance = math.sqrt($pos_z1 * $pos_z1 + $pos_z2 * $pos_z2 + $pos_z3 * $pos_z3)
+  $distinct_binaries = max($sector_loo.proc_obs)
+  $threat_distance = math.sqrt(($pos_z1 * $pos_z1) + ($pos_z2 * $pos_z2) + ($pos_z3 * $pos_z3))
 
 condition:
   $baseline_active_samples >= 7
