@@ -1,6 +1,6 @@
 # Release Notes: SecOps Statistical Hunter
 
-## 📦 Version 3.0.0 (October 29, 2026) — Cross-Review Remediation Release: 27 Verified Pipelines, `D1`/`D4`/`D5`/`D6`/`D7` Dispositions, Vetted Python Helpers (`G1`–`G5`), Score Semantics Registry & Cross-Skill Contracts
+## 📦 Version 3.0.0 (October 30, 2026) — Major Point / Cross-Review Remediation Release: 27 Verified Pipelines, `D1`/`D4`/`D5`/`D6`/`D7` Dispositions, Vetted Python Helpers (`G1`–`G5`), Score Semantics Registry & Cross-Skill Contracts
 
 * **Data Behavior, Zero-Bucket Reconstruction, Tenant Identifier Coverage & ECG Lag Safeguards (`WS1-06`, `WS1-07`, `WS1-08`)**:
   * **Zero-Inclusive Raw Dispersion (`WS1-06`, `PF-4`)**: Added `{{total_window_buckets}}` ($T$) to `poisson_burst_clustering_2stage.yl2` so Stage 2 reconstructs zero-count buckets ($\mu = \sum x / T$, $\sigma^2 = \sum x^2 / T - \mu^2$) rather than averaging active-only match buckets, alongside target-keyed and source-keyed spray variants.
@@ -19,10 +19,11 @@
   * Replaced mislabeled `"Bonferroni"` claims on $\sqrt{2 \ln N}$ with the accurate Gaussian extreme-value **expected-maximum** approximation ($\mathbb{E}[\max_{1 \le i \le N} Z_i] \approx \sqrt{2 \ln N}$), documented that multi-sector fusion false-positive rates depend on sector correlation (positively correlated sectors exceed independent $\chi^2_k$ tail rates), and corrected nominal CRI example concordance in `references/calibrated-risk-index-guide.md` (`WS7-03`).
 * **Cross-Skill Glue, Target-Entity Binding, Canonical Routing & Documentation Concordance (`WS8-01`–`WS8-04`, `D7`, `WS9-03`, `WS9-04`)**:
   * Fixed `HandoffEndpoint.ingest()` and `MultiStageTemplateRouter.build_query()` (`WS8-01`) to bind `target_entity.value` across all 27 active templates (Stage 1 predicates for self-baseline pipelines; Root before `match:` for fleet/cohort/prevalence pipelines), verified by `QueryIntegrityGate.verify_pre_dispatch()`.
-  * Synchronized `CANONICAL_SKILL_ROUTING_TABLE` across `SKILL.md` and `check_routing_recommendation()` with zero cross-skill ping-pong (`WS8-02`), pinned the frozen `D7` write-back contract in `tests/test_ws8_03_writeback_frozen_contract.py` (`WS8-03` — zero changes to `scripts/clean_handoff.py`), and routed `EXFILTRATION_IQR_OUTLIER` to `iqr_tukey_skew_fences_3stage.yl2` over `NETWORK_CONNECTION` `sum(network.sent_bytes)` (`WS8-04`).
+  * Synchronized `CANONICAL_SKILL_ROUTING_TABLE` across `SKILL.md` and `check_routing_recommendation()` with zero cross-skill ping-pong (`WS8-02`, qualifying sub-day cron vs. nightly/multi-day **Scheduled Exfiltration** two-answer routing with `secops-risk-metrics-multistage`), pinned the frozen `D7` write-back contract in `tests/test_ws8_03_writeback_frozen_contract.py` (`WS8-03` — zero changes to `scripts/clean_handoff.py`), and routed `EXFILTRATION_IQR_OUTLIER` to `iqr_tukey_skew_fences_3stage.yl2` over `NETWORK_CONNECTION` `sum(network.sent_bytes)` (`WS8-04`).
   * Upgraded `scripts/generate_references.py` (`WS9-03`) to generate a complete 27-pipeline slot, topology, execution-mode, match-spine, and primary-score matrix plus `D1` retired dispositions in `references/statistical-models-taxonomy.md` (enforced byte-for-byte in CI), and documented explicit `D6` `G1`–`G5` guardrails in `SKILL.md` (`WS9-04`, maintained `<= 28,200` bytes).
 * **Verification**:
-  * **Unit, Contract & Golden Math Suite (`WS0-01`–`WS0-05`)**: `326 passed, 1 live-opt-in skipped, 788 subtests passed` (`0 failed`) across all test modules, plus opt-in `tests/live/test_live_compile_matrix.py` (`WS0-03`) verified against `gus-sdl`.
+  * **Unit, Contract & Golden Math Suite (`WS0-01`–`WS0-05`)**: `327 passed, 1 live-opt-in skipped, 890+ subtests passed` (`0 failed`) across all 36 offline test modules, plus opt-in `tests/live/test_live_compile_matrix.py` (`WS0-03`) verified against `gus-sdl`.
+  * **Live Dual-Engine Regression (`secops-regress`)**: `23 / 23` (`100.0%`) passing on `AgentAPI` and `22 / 23` (`95.7%`) passing on headless `Direct-MCP` on `gus-sdl` (including `D6-G5` `LONG_STRING_SCREEN` and `BURST_Z_SCREEN` parity).
 
 
 ## 📦 Version 2.9.0 (October 28, 2026) — Non-Parametric Quantiles (`window.percentile`), Bowley Quartile Skewness, Hubert–Vandervieren Skewness-Adjusted Tukey Fences, Intra-Bucket Payload Shape Fingerprinting & Ingestion-Lag Quantile Auditing

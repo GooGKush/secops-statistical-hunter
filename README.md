@@ -1,6 +1,6 @@
 # Google SecOps Statistical Outlier Hunter (`secops-statistical-hunter`)
 
-[![Version](https://img.shields.io/badge/version-v3.0.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-326%2F326%20passing%20(100%25)-brightgreen.svg)](tests/) [![Dual Platform Regression](https://img.shields.io/badge/dual--engine%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-v3.0.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-327%2F327%20passing%20(100%25)-brightgreen.svg)](tests/) [![AgentAPI Regression](https://img.shields.io/badge/agentapi%20regression-23%2F23%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md)
 
 A specialized agentic skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that provides **Consultative Threat Hunting, Mathematical Modeling, and Multi-Stage YARA-L 2.0 Query Execution** over raw in-flight UDM event telemetry.
 
@@ -16,9 +16,9 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
 
 ## 🌟 Core Capabilities
 
-1. **Option A Affirmative Native-Chat Runtime**:
-   * Operates hermetically inside conversational chat sessions using native Google SecOps MCP tools (`udm_search`, `import_logs`, `create_case_comment`) and Markdown exclusively.
-   * Python helper scripts (`scripts/`) are reserved strictly for offline CI and developer unit testing (`pytest tests/`).
+1. **Option A Affirmative Native-Chat Runtime + Vetted `D6` Helper Exemptions (`G1`–`G5`)**:
+   * Operates inside conversational chat sessions using native Google SecOps MCP tools (`udm_search`, `import_logs`, `create_case_comment`) and Markdown by default.
+   * There is no blanket approval for `run_command` — only explicit `D6` exemptions for `scripts/micro_python_helpers.py` (`ewma`, `shannon`, `c2-jitter`) operating strictly over raw `udm_search` JSON under guardrails `G1`–`G5` (with dedicated stateless screens `BURST_Z_SCREEN`, `LONG_STRING_SCREEN`, and `FLOW_GAP_RATIO_SCREEN` when local script execution is unavailable).
 2. **The 3-State Active Threat Hunt Lifecycle**:
    * **State 1 (Pre-Flight Clearance & Specification)**: Universal entry gate for all inquiries. Verifies schema via a 1-shot compiler probe (`maxEvents=1`, 10-minute window), renders the structured Pre-Flight Specification Card, displays the candidate multi-stage YARA-L query preview with 6 mandatory root outcome variables, and solicits analyst clearance (Mode A vs Mode B).
    * **State 2 (Deterministic Multi-Stage Execution & 5-Section Triage)**: Immediately executes the full multi-stage query via `udm_search(query=...)` upon receiving user clearance, and synthesizes aggregated `stats` evidence into the mandatory 5-Section CommonMark Triage Report.
@@ -33,10 +33,10 @@ It translates high-level analyst hunting hypotheses (e.g., *"find low-prevalence
    * Formats all `match:` expressions with bare identifiers bound in stage event predicates (e.g. `$entity by 1h`, `$entity, $window_start by 1h`, `$entity by 1d`), completely eliminating match dot-notation syntax errors (`ZERO DOTS IN MATCH`).
    * Enforces Target Entity Scoping directly in primary stage predicates (`principal.hostname = "dev-ub22-1"`) to anchor baselines cleanly to the requested entity.
 6. **Chronicle Malachite Function Factory Modernization & OIO Inlining**:
-   * Leverages Chronicle Function Factory mathematical built-ins (`math.sqrt`, `math.log`, `math.pow`, `math.abs`, `math.round`, `math.floor`, `math.ceil`, `math.geo_distance`) for true Euclidean Threat Distance ($D = \sqrt{\sum Z_i^2}$), Haversine geodesic velocity, and Log-Normal volumetric transforms ($Z_{\log} = (\ln(B+1) - \mu_{\ln}) / \sigma_{\ln}$ with `math.pow(2.718281828, $mean_log)`). Note: `math.exp`, `math.min`, and `math.max` do not exist in YARA-L 2.0.
+   * Leverages Chronicle Function Factory mathematical built-ins (`math.sqrt`, `math.log`, `math.pow`, `math.abs`, `math.round`, `math.floor`, `math.ceil`, `math.geo_distance`) for true Euclidean Threat Distance ($D = \sqrt{\sum \max(0, Z_i)^2}$), Skewness-Adjusted Tukey Fences, and Log-Normal volumetric transforms ($Z_{\log} = (\ln(B+1) - \mu_{\ln}) / \sigma_{\ln}$ with `math.pow(2.718281828, $mean_log)`). Note: `math.exp`, `math.min`, and `math.max` do not exist in YARA-L 2.0.
    * Employs **Outcomes-in-Outcomes (OIO)** in-stage inlining, allowing intermediate outcome variables to directly feed subsequent formulas within the same stage (e.g., `$diff = $obs - $avg`, `$z = $diff / $safe_sd`).
-7. **Purged Dispersion Denominators & Safe Zero-Divisor Floor Guards**:
-   * Replaced artificial `+ 1.0` additive dispersion denominators across all 14 golden templates with exact conditional guards (`$safe_sd = if($sd > 0, $sd, 1.0)` or `$safe_dispersion = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)`).
+7. **Out-of-Sample Leave-One-Out Baselines & Continuous Dispersion Floor Guards**:
+   * Excludes scored windows via leave-one-out moments and enforces continuous Poisson / empirical dispersion floors (`max(sd, sqrt(max(mean, 1.0)))` and safe `if($sd > 0, $sd, 1.0)` guards) across all 27 golden templates, replacing legacy additive `+ 1.0` denominators.
    * Eliminates statistical distortion in Fano factor, standard score, and Poisson dispersion ratios on quiet baselines without artificial variance blunting, while preserving legitimate Bayesian conjugate updates ($\beta_{\text{post}} = \beta_0 + 1.0$, $\ln(B+1)$).
 8. **Timeline Optimization: The Daily Temporal Spine (`by 1d`)**:
    * Features adaptive window granularity that dynamically selects `by 1d` bucket sizes for macro-aligned models on horizons $\ge 7$ days, reducing intermediate row cardinality by $24\times$ ($336 \rightarrow 14$ rows per entity over 14 days) and providing 1:1 metric reconciliation with `secops-risk-metrics-multistage`.
@@ -117,7 +117,7 @@ secops-statistical-hunter/
 │   ├── calibrated-risk-index-guide.md       # Sigmoid normalization (CRI 0–100) formulas
 │   ├── chart-specifications-guide.md        # Vega-Lite and Chart.js dual-Y visualization schemas
 │   ├── clean-handoff-udm-schema.md          # Synthetic UDM schemas & Chronicle API forwarder contracts
-│   ├── consultative-worksheet.md            # Mapping security intent to 13 behavioral deformations
+│   ├── consultative-worksheet.md            # Mapping security intent to 14 raw behavioral deformations
 │   ├── cyber-practitioner-glossary.md       # Field manual translating statistics to SOC operations
 │   ├── dynamic-windowing-matrix.md          # Adaptive window bucketing & sample floor matrix
 │   ├── entity-context-graph-guide.md        # GLOBAL_CONTEXT & DERIVED_CONTEXT YARA-L architecture
@@ -126,13 +126,21 @@ secops-statistical-hunter/
 │   ├── query-auditing-guide.md              # Pre-flight and post-flight payload intent auditing
 │   ├── scope-exclusions-guardrail.md        # Why UEBA metrics.* are excluded from ad-hoc searches
 │   ├── statistical-hunting-cooperative-framework.md # Bilateral micro/macro hunting boundary
-│   ├── statistical-models-taxonomy.md       # Mathematical curves, Poisson dispersion, & 4D plots
+│   ├── statistical-models-taxonomy.md       # Mathematical curves, 27-pipeline slot matrix & D1 dispositions
 │   └── watchdog-polling-architecture.md     # LRO watchdog mechanics & F1 optimization
-├── scripts/                                 # Offline CI/testing helper scripts (Option A developer tooling)
-│   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & schema validator
-│   ├── generate_references.py               # Generates taxonomy and windowing reference markdown
-│   └── multistage_query_builder.py          # Python linter, AST validator, QueryIntegrityGate & report/chart generator
-└── tests/                                   # Automated unit test suite (326 offline tests + 1 opt-in live test, 100% pass rate)
+├── scripts/                                 # Vetted D6 runtime helpers (micro_python_helpers.py) & developer/CI tooling (5)
+│   ├── clean_handoff.py                     # Synthetic UDM builder, multi-event batching & frozen D7 schema validator
+│   ├── generate_references.py               # Generates 27-pipeline taxonomy and windowing reference markdown
+│   ├── micro_python_helpers.py              # Vetted D6 runtime helpers (ewma, shannon, c2-jitter under G1-G5)
+│   ├── multistage_query_builder.py          # Python linter, AST validator, QueryIntegrityGate & report/chart generator
+│   └── ueba_constants.py                    # Shared bilateral UEBA CRI, threshold, fusion & write-back constants
+└── tests/                                   # Automated unit test suite (327 offline tests across 36 test modules + live/ harness, 100% pass rate)
+    ├── __init__.py
+    ├── live/                                # Opt-in live gus-sdl compile matrix & verified baseline manifest (SECOPS_LIVE_TESTS=1)
+    │   ├── __init__.py
+    │   ├── baseline_gus_sdl.json
+    │   ├── live_compile_harness.py
+    │   └── test_live_compile_matrix.py
     ├── test_chart_specifications.py         # Dual-axis visualization spec tests
     ├── test_clean_handoff.py                # Clean Hand-Off UDM schema validation & batching tests
     ├── test_compiler_grammar.py             # AST grammar, 1-3 stage limit, bare match identifiers, QueryIntegrityGate
@@ -148,8 +156,27 @@ secops-statistical-hunter/
     ├── test_query_auditor.py                # Post-flight intent and raw log dump detection tests
     ├── test_routing_interceptor.py          # Pre-flight routing interceptor and delegation tests
     ├── test_triage_reporting.py             # CommonMark 5-section triage schema & pillar tests
+    ├── test_ueba_constants.py               # Shared bilateral UEBA constants & threshold parity tests
     ├── test_verified_compiler_facts.py      # Chronicle Malachite compiler grammar facts
-    └── test_window_adaptation.py            # Dynamic windowing and sample floor adaptation tests
+    ├── test_window_adaptation.py            # Dynamic windowing and sample floor adaptation tests
+    ├── test_ws0_02_cross_skill_contracts.py # Cross-skill handoff, CRI, D7 write-back & routing contracts
+    ├── test_ws0_04_golden_math.py           # Synthetic golden-math & offline D6-G4 helper verification
+    ├── test_ws1_06_zero_inclusive_dispersion.py # Zero-inclusive Fano dispersion & spray variant tests
+    ├── test_ws1_07_identifier_coverage.py   # D4 per-tenant identifier coverage probe & router tests
+    ├── test_ws1_08_ecg_anchoring_and_grain.py # ECG D-2 anchoring, grain, Day-0 companion & disclosure tests
+    ├── test_ws5_cross_cutting.py            # Root $ws bucket key, S-M30 sample floors & S-FP prevalence tests
+    ├── test_ws5_d1_and_hod.py               # D1 retirement & learned 24-bin hour_of_day_profile tests
+    ├── test_ws5_live_fixes.py               # Compiler guardrail & multi-stage topology regression tests
+    ├── test_ws5_models.py                   # Rebuilt micro pipelines & standalone examples/*.yara tests
+    ├── test_ws5_oos.py                      # Leave-one-out baselines, continuous SD floors & fusion tests
+    ├── test_ws5_renames.py                  # Honest in-query labels, token_field & multicast exclusion tests
+    ├── test_ws6_micro_helpers.py            # Vetted EWMA/Shannon/C2 helpers & D6 G1-G5 guardrail tests
+    ├── test_ws7_03_and_ws8_04_polish.py     # Expected-maximum label, fusion correlation & exfil IQR tests
+    ├── test_ws7_cri_and_semantics.py        # Canonical CRI bands & Phase 4 score semantics registry tests
+    ├── test_ws8_01_04_handoff_contracts.py  # Target-entity binding & EXFILTRATION_IQR_OUTLIER routing tests
+    ├── test_ws8_02_routing_table.py         # Canonical cross-skill routing table & zero-ping-pong tests
+    ├── test_ws8_03_writeback_frozen_contract.py # Frozen D7 write-back schema characterization tests
+    └── test_ws9_docs_and_concordance.py     # 27-pipeline taxonomy slot matrix, v3.0.0 release & README tree tests
 ```
 
 ---
@@ -167,7 +194,7 @@ git clone https://github.com/GooGKush/secops-statistical-hunter.git ~/.gemini/sk
 ## 🧭 Triggering Threat Hunts & Consultative Guidance
 
 ### 1. Mapping Operational Intent to Statistical Models
-When interacting with an analyst, the skill translates operational hunting hypotheses into mathematical models using plain-English concepts across **13 Behavioral Telemetry Deformations** (`references/consultative-worksheet.md`):
+When interacting with an analyst, the skill translates operational hunting hypotheses into mathematical models using plain-English concepts across **14 Raw Behavioral Telemetry Deformations** (`references/consultative-worksheet.md`):
 
 | Analyst Operational Question | Statistical Model | Plain-English Concept & Physical Analogy |
 | :--- | :--- | :--- |
@@ -298,7 +325,7 @@ The skill package is verified through a rigorous three-tier testing hierarchy:
 ```bash
 pytest tests/
 ```
-* **Status**: **326 / 326 passing offline unit tests** (+1 opt-in live test and 788 subtests) across 30 test modules (100% pass rate).
+* **Status**: **327 / 327 passing offline unit tests** (+1 opt-in live test and 890+ subtests) across 36 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution verification, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, 28.0 KB (`28,672` bytes) progressive-loading budget ceilings, `D6` `G1`–`G5` vetted helper guardrails, cross-skill contracts, synthetic golden-math verification, and template router permutations across all 27 active pipeline templates.
 
 ### 2. Chronicle Compiler AST & Invariant Validation
@@ -310,17 +337,21 @@ python3 scripts/multistage_query_builder.py
 
 ### 3. Maintainer Dual-Platform Regression Validation
 End-to-end multi-turn conversational regression is validated by the maintainer team via the automated regression testing platform (`secops-regress`):
-* **Status**: **23 / 23 passing scenarios** (`100%` pass rate on `Direct-MCP` and `100%` pass rate across all Pre-Flight Routing Interceptor and micro-model scenarios on both engines as of v2.8.3).
+* **Status**: **23 / 23 (`100.0%`) passing scenarios on `AgentAPI`** (`22 / 23` / `95.7%` on headless `Direct-MCP`) verified on `gus-sdl`.
 * **Scope**: Evaluates full conversation flows against live Google SecOps customer instances (`gus-sdl`), ensuring zero-stall Turn 2 execution, `QueryIntegrityGate` enforcement, nominal quiet baseline reporting ($Z=0.00\sigma$), single-surface visualization compliance, and bilateral handoff protocol adherence.
 
 ---
 
 ## 📦 Release Notes
 
-### v3.0.0 (October 29, 2026) — Cross-Review Remediation Release: 27 Verified Pipelines, `D1`/`D4`/`D5`/`D6`/`D7` Dispositions, Vetted Python Helpers (`G1`–`G5`), Score Semantics Registry & Cross-Skill Contracts
+### v3.0.0 (October 30, 2026) — Major Point / Cross-Review Remediation Release: 27 Verified Pipelines, `D1`/`D4`/`D5`/`D6`/`D7` Dispositions, Vetted Python Helpers (`G1`–`G5`), Score Semantics Registry & Cross-Skill Contracts
 * **Zero-Bucket Dispersion, Tenant Identifier Probe & ECG Anchoring (`WS1-06`–`WS1-08`)**: Reconstructed zero-count buckets via `{{total_window_buckets}}` in `poisson_burst_clustering_2stage.yl2` (target & source spray variants), added `D4` `build_identifier_coverage_probe` / `select_identifier_from_coverage`, and anchored `DERIVED_CONTEXT` hunts at `D-2` with `build_day0_companion_query`.
 * **27 Active Pipelines, `D1` Retirement & Learned 24-Bin Hour-of-Day Profile (`WS5`, `WS5-HOD`, `WS6-02`–`WS6-04`)**: Retired `IMPOSSIBLE_TRAVEL_GEO_VELOCITY` with backward-compatible error aliases, built `hour_of_day_profile_3stage.yl2`, added `$ws` root match keys (`S-WS`), mode-dependent sample floors (`S-M30`), surging-only fleet prevalence (`S-FP`), leave-one-out baselines, Empirical-Bayes Gamma/Beta-Binomial rebuilds, and shipped `scripts/micro_python_helpers.py` (`ewma`, `shannon`, `c2-jitter`) + 3 stateless `D6-G5` screens (`BURST_Z_SCREEN`, `LONG_STRING_SCREEN`, `FLOW_GAP_RATIO_SCREEN`).
-* **Unified `D5` CRI, Score Registry & Cross-Skill Contracts (`WS7-01`–`WS7-03`, `WS8-01`–`WS8-04`, `WS9-03`–`WS9-04`, `WS0-01`–`WS0-04`)**: Synchronized `scripts/ueba_constants.py` and `tests/test_ws0_02_cross_skill_contracts.py` byte-for-byte with `secops-risk-metrics-multistage`, bound `target_entity.value` across all 27 templates in `HandoffEndpoint.ingest`, routed `EXFILTRATION_IQR_OUTLIER` to `iqr_tukey_skew_fences_3stage.yl2` (`sum(network.sent_bytes)`), pinned frozen `D7` `clean_handoff.py`, and verified **326/326 offline unit tests** (+788 subtests).
+* **Unified `D5` CRI, Score Registry & Cross-Skill Contracts (`WS7-01`–`WS7-03`, `WS8-01`–`WS8-04`, `WS9-03`–`WS9-04`, `WS0-01`–`WS0-04`)**: Synchronized `scripts/ueba_constants.py`, `CANONICAL_SKILL_ROUTING_TABLE` (qualifying sub-day cron vs. Scheduled Exfiltration), and `tests/test_ws0_02_cross_skill_contracts.py` byte-for-byte with `secops-risk-metrics-multistage`, bound `target_entity.value` across all 27 templates in `HandoffEndpoint.ingest`, routed `EXFILTRATION_IQR_OUTLIER` to `iqr_tukey_skew_fences_3stage.yl2` (`sum(network.sent_bytes)`), pinned frozen `D7` `clean_handoff.py`, and verified **327/327 offline unit tests** (+890+ subtests across 36 test modules) and **23/23 (`100.0%`) live `AgentAPI` regression scenarios** (`22/23` `Direct-MCP`) on `gus-sdl`.
+
+### v2.9.0 (October 28, 2026) — Non-Parametric Quantiles (`window.percentile`), Bowley Quartile Skewness, Skewness-Adjusted Tukey Fences & Ingestion-Lag Auditing
+* **24th Golden Pipeline Template (`templates/pipelines/iqr_tukey_skew_fences_3stage.yl2`, `IQR_TUKEY_SKEW_FENCES`)**: Computes the 5-point empirical quantile envelope ($P_{10}, Q_1, Q_2, Q_3, P_{90}$) in 1 intermediate stage via `window.percentile(expr, P)`, Bowley quartile skewness, Moors tail-heaviness ratio, and Hubert–Vandervieren skewness-adjusted Tukey upper fences alongside native Stage 3 fleet prevalence.
+* **14 Raw Behavioral Telemetry Deformations (`references/consultative-worksheet.md`, `references/malachite-function-factory-matrix.md`)**: Added Deformation 14 (*Quantile Asymmetry & Tail Skew / Lag Drift*) with compilable intra-bucket payload shape ($P_{50}$ vs $P_{90}$) and ingestion-lag quantile auditing examples (`179/179` unit tests).
 
 ### v2.8.3 (October 27, 2026) — The Bilateral UEBA Harness Co-Execution, Telemetry Physics & Window Guardrail & Multi-Plane CTI / Exploit Synthesis
 * **Bilateral UEBA Harness Co-Execution (`SKILL.md`, `references/statistical-hunting-cooperative-framework.md` §8)**: Co-executes with `secops-risk-metrics-multistage` and `agentic_ueba` (`PlaybookRunner`) on open-ended threat, exploit, CTI, and detection-gap UEBA inquiries (such as `http2shell` / `CVE-2026-111497`), pairing 30-day `metrics.*` baselines with bounded-window raw `UDM_EVENTS` statistical pipelines while preserving 100% of single-skill routing interceptor behavior when `Active Skill: secops-statistical-hunter` is specified.
@@ -402,7 +433,7 @@ End-to-end multi-turn conversational regression is validated by the maintainer t
 ---
 
 ## 🤝 Contributions
-Contributions to this skill package are highly welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+Contributions to this skill package are welcome — run `pytest tests/` and `python3 scripts/multistage_query_builder.py` before submitting changes to ensure 100% AST and contract parity.
 
 ---
 
