@@ -184,9 +184,10 @@ class TestWS9DocsAndConcordance(unittest.TestCase):
 
     readme_md = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     self.assertIn("version-v3.0.0-blue.svg", readme_md)
+    self.assertIn("unit%20tests-327%2F327%20passing", readme_md)
 
     release_notes = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
-    self.assertIn("## 📦 Version 3.0.0", release_notes)
+    self.assertIn("## 📦 Version 3.0.0 (October 30, 2026) — Major Point", release_notes)
     v300_section = release_notes.split("## 📦 Version 3.0.0", 1)[1].split("## 📦 Version 2.9.0", 1)[0]
     for required_token in (
         "WS1-06",
@@ -207,6 +208,7 @@ class TestWS9DocsAndConcordance(unittest.TestCase):
         "WS8-03",
         "WS8-04",
         "EXFILTRATION_IQR_OUTLIER",
+        "Scheduled Exfiltration",
         "WS9-03",
         "WS9-04",
     ):
@@ -219,7 +221,47 @@ class TestWS9DocsAndConcordance(unittest.TestCase):
     self.assertIn("26", readme_md)
     release_notes = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
     v300_section = release_notes.split("## 📦 Version 3.0.0", 1)[1].split("## 📦 Version 2.9.0", 1)[0]
-    self.assertIn("326 passed", v300_section)
+    self.assertIn("327 passed", v300_section)
+    self.assertNotIn("326 passed", v300_section)
+
+  def test_readme_directory_tree_and_release_history_match_disk(self) -> None:
+    """README.md directory tree lists every active template, example, reference, script, and test module accurately."""
+    readme_md = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    tree_start = readme_md.index("```\nsecops-statistical-hunter/")
+    tree_end = readme_md.index("```", tree_start + 4)
+    tree_block = readme_md[tree_start:tree_end]
+
+    expected = []
+    expected.extend(p.name for p in sorted((REPO_ROOT / "templates" / "pipelines").glob("*.yl2")))
+    expected.extend(p.name for p in sorted((REPO_ROOT / "examples").glob("*.yara")))
+    expected.extend(p.name for p in sorted((REPO_ROOT / "references").glob("*.md")))
+    scripts_files = sorted((REPO_ROOT / "scripts").glob("*.py"))
+    self.assertEqual(len(scripts_files), 5)
+    expected.extend(p.name for p in scripts_files)
+    test_modules = sorted((REPO_ROOT / "tests").glob("test_*.py"))
+    self.assertEqual(len(test_modules), 36)
+    expected.extend(p.name for p in test_modules)
+    expected.extend(["baseline_gus_sdl.json", "live_compile_harness.py", "test_live_compile_matrix.py"])
+
+    for name in expected:
+      with self.subTest(expected_in_tree=name):
+        self.assertIn(name, tree_block, f"README.md directory tree missing {name}")
+
+    active_readme = readme_md.split("## 📦 Release Notes", 1)[0]
+    for stale in (
+        "across all 14 golden templates",
+        "13 behavioral deformations",
+        "13 Behavioral Telemetry Deformations",
+        "30 test modules",
+        "as of v2.8.3",
+        "Haversine geodesic velocity",
+    ):
+      with self.subTest(stale=stale):
+        self.assertNotIn(stale, active_readme, f"Stale phrase {stale!r} in active README.md")
+
+    self.assertNotIn("[CONTRIBUTING.md](CONTRIBUTING.md)", readme_md)
+    self.assertIn("### v3.0.0 (October 30, 2026)", readme_md)
+    self.assertIn("### v2.9.0 (October 28, 2026)", readme_md)
 
 
 if __name__ == "__main__":
